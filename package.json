@@ -7,7 +7,7 @@
     "dev": "concurrently \"tsc -w\" \"electron .\"",
     "build": "tsc",
     "start": "electron .",
-    "package": "electron-builder"
+    "package": "electron-builder --publish always"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
