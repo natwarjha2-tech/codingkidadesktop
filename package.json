@@ -1,0 +1,35 @@
+{
+  "name": "codingkidadesktop",
+  "version": "1.0.0",
+  "description": "CodingKeda Desktop App built with Electron + TypeScript",
+  "main": "dist/main/main.js",
+  "scripts": {
+    "dev": "concurrently \"tsc -w\" \"electron .\"",
+    "build": "tsc",
+    "start": "electron .",
+    "package": "electron-builder"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "concurrently": "^8.0.0",
+    "electron": "^30.0.0",
+    "electron-builder": "^24.0.0",
+    "typescript": "^5.0.0"
+  },
+  "build": {
+    "appId": "com.codingkeda.desktop",
+    "productName": "CodingKeda",
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "mac": {
+      "target": "dmg"
+    },
+    "linux": {
+      "target": "AppImage"
+    }
+  }
+}
