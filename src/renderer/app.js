@@ -1,3 +1,152 @@
+// ─── Auth Helpers ────────────────────────────────────────────────────────────
+
+function sanitize(str) {
+  const d = document.createElement('div');
+  d.textContent = str;
+  return d.innerHTML;
+}
+
+function showAuthError(formId, message) {
+  const el = document.getElementById(formId + '-error');
+  if (el) { el.textContent = message; el.style.display = 'block'; }
+}
+
+function hideAuthError(formId) {
+  const el = document.getElementById(formId + '-error');
+  if (el) el.style.display = 'none';
+}
+
+function setButtonLoading(btnId, loading, defaultText) {
+  const btn = document.getElementById(btnId);
+  if (!btn) return;
+  btn.disabled = loading;
+  btn.textContent = loading ? 'Please wait...' : defaultText;
+}
+
+async function login() {
+  const email = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value.trim();
+  hideAuthError('login');
+
+  if (!email || !password) {
+    showAuthError('login', 'Please enter email and password.');
+    return;
+  }
+
+  setButtonLoading('login-btn', true, 'Log In');
+  try {
+    const data = await AuthAPI.login(email, password);
+    localStorage.setItem('ck_token', data.token);
+    localStorage.setItem('ck_user', JSON.stringify(data.user || {}));
+    await loadStudentData();
+    navigate('dashboard');
+  } catch (err) {
+    showAuthError('login', err.message || 'Login failed. Try again.');
+  } finally {
+    setButtonLoading('login-btn', false, 'Log In');
+  }
+}
+
+async function signup() {
+  const name = document.getElementById('signup-name').value.trim();
+  const email = document.getElementById('signup-email').value.trim();
+  const password = document.getElementById('signup-password').value.trim();
+  hideAuthError('signup');
+
+  if (!name || !email || !password) {
+    showAuthError('signup', 'All fields are required.');
+    return;
+  }
+  if (password.length < 8) {
+    showAuthError('signup', 'Password must be at least 8 characters.');
+    return;
+  }
+
+  setButtonLoading('signup-btn', true, 'Create Free Account');
+  try {
+    const data = await AuthAPI.signup(name, email, password);
+    localStorage.setItem('ck_token', data.token);
+    localStorage.setItem('ck_user', JSON.stringify(data.user || {}));
+    await loadStudentData();
+    navigate('dashboard');
+  } catch (err) {
+    showAuthError('signup', err.message || 'Signup failed. Try again.');
+  } finally {
+    setButtonLoading('signup-btn', false, 'Create Free Account');
+  }
+}
+
+async function loadStudentData() {
+  try {
+    const data = await StudentAPI.getProfile();
+    const student = data.student || data.user || data;
+    const name = sanitize(student.name || student.fullName || 'Learner');
+    const email = sanitize(student.email || '');
+    const initial = sanitize(name.charAt(0).toUpperCase());
+
+    // Sidebar
+    const sidebarName = document.getElementById('sidebar-user-name');
+    const sidebarAvatar = document.getElementById('sidebar-user-avatar');
+    if (sidebarName) sidebarName.textContent = name;
+    if (sidebarAvatar) sidebarAvatar.textContent = initial;
+
+    // Dashboard
+    const dashWelcome = document.getElementById('dashboard-welcome-name');
+    if (dashWelcome) dashWelcome.textContent = name;
+
+    // Profile
+    const profileName = document.getElementById('profile-name');
+    const profileEmail = document.getElementById('profile-email');
+    const profileAvatar = document.getElementById('profile-avatar');
+    const profileNameInput = document.getElementById('profile-name-input');
+    const profileEmailInput = document.getElementById('profile-email-input');
+    if (profileName) profileName.textContent = name;
+    if (profileEmail) profileEmail.textContent = email;
+    if (profileAvatar) profileAvatar.textContent = initial;
+    if (profileNameInput) profileNameInput.value = name;
+    if (profileEmailInput) profileEmailInput.value = email;
+  } catch (err) {
+    // Silently fall back to cached user if API fails
+    const cached = JSON.parse(localStorage.getItem('ck_user') || '{}');
+    if (cached.name) {
+      const initial = cached.name.charAt(0).toUpperCase();
+      const sidebarName = document.getElementById('sidebar-user-name');
+      const sidebarAvatar = document.getElementById('sidebar-user-avatar');
+      if (sidebarName) sidebarName.textContent = cached.name;
+      if (sidebarAvatar) sidebarAvatar.textContent = initial;
+    }
+  }
+}
+
+function logout() {
+  localStorage.removeItem('ck_token');
+  localStorage.removeItem('ck_user');
+  navigate('login');
+}
+
+async function saveProfile() {
+  const name = document.getElementById('profile-name-input')?.value.trim();
+  if (!name) return;
+  // Update local cache optimistically
+  const cached = JSON.parse(localStorage.getItem('ck_user') || '{}');
+  cached.name = name;
+  localStorage.setItem('ck_user', JSON.stringify(cached));
+  // Reflect in UI
+  const initial = name.charAt(0).toUpperCase();
+  const profileName = document.getElementById('profile-name');
+  const profileAvatar = document.getElementById('profile-avatar');
+  const sidebarName = document.getElementById('sidebar-user-name');
+  const sidebarAvatar = document.getElementById('sidebar-user-avatar');
+  const dashWelcome = document.getElementById('dashboard-welcome-name');
+  if (profileName) profileName.textContent = name;
+  if (profileAvatar) profileAvatar.textContent = initial;
+  if (sidebarName) sidebarName.textContent = name;
+  if (sidebarAvatar) sidebarAvatar.textContent = initial;
+  if (dashWelcome) dashWelcome.textContent = name;
+}
+
+// ─── Navigation ───────────────────────────────────────────────────────────────
+
 const appPages = ['dashboard','courses','course-detail','video','chat','ai','live','downloads','profile'];
 const authPages = ['login','signup'];
 const sidebarMap = { dashboard:'nav-dashboard', courses:'nav-courses', 'course-detail':'nav-courses', video:'nav-courses', chat:'nav-chat', ai:'nav-ai', live:'nav-live', downloads:'nav-downloads', profile:'nav-profile' };
@@ -65,7 +214,20 @@ function sendChat() {
   const container = document.getElementById('chatMessages');
   const div = document.createElement('div');
   div.className = 'chat-msg own';
-  div.innerHTML = `<div class="chat-avatar">Y</div><div class="chat-bubble"><p>${msg}</p><div class="time">Just now</div></div>`;
+  const bubble = document.createElement('div');
+  bubble.className = 'chat-bubble';
+  const p = document.createElement('p');
+  p.textContent = msg; // safe — no innerHTML
+  const time = document.createElement('div');
+  time.className = 'time';
+  time.textContent = 'Just now';
+  bubble.appendChild(p);
+  bubble.appendChild(time);
+  const avatar = document.createElement('div');
+  avatar.className = 'chat-avatar';
+  avatar.textContent = 'Y';
+  div.appendChild(avatar);
+  div.appendChild(bubble);
   container.appendChild(div);
   container.scrollTop = container.scrollHeight;
   input.value = '';
@@ -126,6 +288,12 @@ async function sendAI() {
   container.scrollTop = container.scrollHeight;
 }
 
+// ─── Courses: API-ready structure (connect when backend has /api/courses) ────
+// async function loadCourses() {
+//   const data = await apiRequest('/api/courses');
+//   renderCourseGrid(data.courses);
+// }
+
 // filter tabs on courses page
 document.querySelectorAll('.filter-tab').forEach(tab => {
   tab.addEventListener('click', () => {
@@ -141,3 +309,14 @@ document.addEventListener('keydown', (e) => {
     if (document.activeElement.id === 'aiInput') sendAI();
   }
 });
+
+// ─── Init: check if already logged in ────────────────────────────────────────
+(async function init() {
+  const token = localStorage.getItem('ck_token');
+  if (token) {
+    await loadStudentData();
+    navigate('dashboard');
+  } else {
+    navigate('login');
+  }
+})();

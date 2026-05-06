@@ -1,5 +1,6 @@
 const { app, BrowserWindow } = require('electron');
 const path = require('path');
+require('dotenv').config();
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -10,7 +11,8 @@ function createWindow() {
     backgroundColor: '#0f0f1a',
     webPreferences: {
       nodeIntegration: false,
-      contextIsolation: true
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js')
     }
   });
 

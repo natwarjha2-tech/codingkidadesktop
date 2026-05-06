@@ -1,1 +1,4 @@
-const CONFIG = { GEMINI_API_KEY: 'AIzaSyAko2tHrY9XiU5nJZu6wFhk-gB5FchVyww' };
+const CONFIG = {
+  GEMINI_API_KEY: (window.__APP_CONFIG__ && window.__APP_CONFIG__.GEMINI_API_KEY) || '',
+  API_BASE_URL: (window.__APP_CONFIG__ && window.__APP_CONFIG__.API_BASE_URL) || 'http://localhost:3000',
+};
