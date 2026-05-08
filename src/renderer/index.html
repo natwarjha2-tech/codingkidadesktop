@@ -11,8 +11,15 @@
 </head>
 <body>
 
+<!-- ===== SPLASH SCREEN ===== -->
+<div id="splash" style="position:fixed;top:0;left:0;width:100vw;height:100vh;background:#0f0f1a;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999">
+  <div style="font-size:2rem;font-weight:800;color:#fff;margin-bottom:16px">🎯 CodingKida</div>
+  <div style="width:36px;height:36px;border:3px solid rgba(108,71,255,0.3);border-top-color:#6c47ff;border-radius:50%;animation:spin 0.7s linear infinite"></div>
+  <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+</div>
+
 <!-- ===== LOGIN PAGE ===== -->
-<div id="page-login" class="auth-wrapper">
+<div id="page-login" class="auth-wrapper" style="display:none">
   <div class="auth-box">
     <div class="auth-logo">🎯 CodingKida</div>
     <div class="auth-card">

@@ -121,7 +121,7 @@ async function loadStudentData() {
 function logout() {
   localStorage.removeItem('ck_token');
   localStorage.removeItem('ck_user');
-  navigate('login');
+  window.location.href = 'login.html';
 }
 
 async function saveProfile() {
@@ -312,11 +312,29 @@ document.addEventListener('keydown', (e) => {
 
 // ─── Init: check if already logged in ────────────────────────────────────────
 (async function init() {
-  const token = localStorage.getItem('ck_token');
+  // Check if coming from fresh login (token passed from main process)
+  if (window.electron && window.electron.getPendingAuth) {
+    const pending = await window.electron.getPendingAuth();
+    if (pending && pending.token) {
+      if (pending.remember) {
+        localStorage.setItem('ck_token', pending.token);
+        localStorage.setItem('ck_user', pending.user || '{}');
+      } else {
+        sessionStorage.setItem('ck_token', pending.token);
+        sessionStorage.setItem('ck_user', pending.user || '{}');
+      }
+    }
+  }
+
+  const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token');
   if (token) {
     await loadStudentData();
     navigate('dashboard');
   } else {
     navigate('login');
   }
+
+  // Hide splash after everything is ready
+  const splash = document.getElementById('splash');
+  if (splash) splash.style.display = 'none';
 })();
