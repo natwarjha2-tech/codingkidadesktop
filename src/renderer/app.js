@@ -207,6 +207,35 @@ function selectOption(el) {
   el.classList.add('selected');
 }
 
+function sendVideoChat() {
+  const input = document.getElementById('video-chat-input');
+  if (!input) return;
+  const msg = input.value.trim();
+  if (!msg) return;
+  const container = document.querySelector('#tab-chat .video-chat-messages');
+  if (!container) return;
+  const div = document.createElement('div');
+  div.className = 'chat-msg own';
+  const avatar = document.createElement('div');
+  avatar.className = 'chat-avatar';
+  const cached = JSON.parse(localStorage.getItem('ck_user') || sessionStorage.getItem('ck_user') || '{}');
+  avatar.textContent = cached.name ? cached.name.charAt(0).toUpperCase() : 'Y';
+  const bubble = document.createElement('div');
+  bubble.className = 'chat-bubble';
+  const p = document.createElement('p');
+  p.textContent = msg;
+  const time = document.createElement('div');
+  time.className = 'time';
+  time.textContent = 'Just now';
+  bubble.appendChild(p);
+  bubble.appendChild(time);
+  div.appendChild(avatar);
+  div.appendChild(bubble);
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+  input.value = '';
+}
+
 function sendChat() {
   const input = document.getElementById('chatInput');
   const msg = input.value.trim();
@@ -374,7 +403,9 @@ function renderCourseDetailFromBackend(course) {
   document.getElementById('cd-instructor-name').textContent = course.instructor || '';
   document.getElementById('cd-instructor-meta').textContent = course.institute || '';
   document.getElementById('cd-instructor-rating').textContent = (course.rating || '') + (course.students ? ' - ' + course.students + ' students' : '');
-  document.getElementById('cd-price-btn').textContent = course.isFree ? 'Free Course' : 'Unlock Rs.' + (course.price || '');
+  const priceBtn = document.getElementById('cd-price-btn');
+  priceBtn.textContent = course.isFree ? 'Free Course' : 'Unlock Rs.' + (course.price || '');
+  priceBtn.onclick = course.isFree ? null : () => openPaymentPage();
 
   const modulesContainer = document.getElementById('cd-modules');
   const modules = course.modules || [];
@@ -422,7 +453,9 @@ function renderCourseDetailFromMock(course) {
   document.getElementById('cd-instructor-name').textContent = course.instructor;
   document.getElementById('cd-instructor-meta').textContent = course.instructorMeta;
   document.getElementById('cd-instructor-rating').textContent = course.rating + ' - ' + course.students + ' students';
-  document.getElementById('cd-price-btn').textContent = course.free ? 'Free Course' : 'Unlock ' + course.price;
+  const priceBtnMock = document.getElementById('cd-price-btn');
+  priceBtnMock.textContent = course.free ? 'Free Course' : 'Unlock ' + course.price;
+  priceBtnMock.onclick = course.free ? null : () => openPaymentPage();
 
   const modulesContainer = document.getElementById('cd-modules');
   modulesContainer.innerHTML = course.modules.map(mod => `
@@ -454,13 +487,19 @@ function openVideoFromBackend(courseId, moduleId, lessonId) {
     document.getElementById('video-title').textContent = lesson.title || '';
     document.getElementById('video-meta').textContent = mod.title + ' - ' + (lesson.duration || '');
 
-    document.getElementById('tab-notes').innerHTML = `
-      <h4 style="margin-bottom:12px">Notes</h4>
-      <p style="color:var(--muted);font-size:0.88rem;line-height:1.8">${lesson.notes ? sanitize(lesson.notes) : 'No notes available.'}</p>
-      ${lesson.notes ? '<button class="btn btn-outline btn-sm" style="margin-top:14px"><i class="fas fa-download"></i> Download PDF</button>' : ''}`;
+    const notesUrl = lesson.notes || '';
+    document.getElementById('tab-notes').innerHTML =
+      '<h4 style="margin-bottom:12px">Notes</h4>' +
+      '<p style="color:var(--muted);font-size:0.88rem;line-height:1.8">' + (notesUrl ? 'PDF notes available for this lesson.' : 'No notes available.') + '</p>' +
+      (notesUrl ? '<button class="btn btn-outline btn-sm" style="margin-top:14px" onclick="downloadPdf(\'' + notesUrl + '\')"><i class="fas fa-download"></i> Download PDF</button>' : '');
 
-    document.getElementById('tab-quiz').innerHTML = '<h4 style="margin-bottom:14px">Quiz</h4><p style="color:var(--muted)">Quiz coming soon.</p>';
-    document.getElementById('tab-exercise').innerHTML = '<h4 style="margin-bottom:12px">Exercise</h4><p style="color:var(--muted)">Exercise coming soon.</p>';
+    document.getElementById('tab-quiz').innerHTML =
+      '<h4 style="margin-bottom:14px">Quiz</h4>' +
+      '<p style="color:var(--muted);font-size:0.88rem">Quiz coming soon for this lesson.</p>';
+
+    document.getElementById('tab-exercise').innerHTML =
+      '<h4 style="margin-bottom:12px">Exercise</h4>' +
+      '<p style="color:var(--muted);font-size:0.88rem">Exercise coming soon for this lesson.</p>';
 
     const playlist = document.getElementById('video-playlist');
     playlist.innerHTML = '';
@@ -474,6 +513,9 @@ function openVideoFromBackend(courseId, moduleId, lessonId) {
         '<span class="item-duration">' + (l.duration || '') + '</span>';
       playlist.appendChild(item);
     });
+
+    const chatContainer = document.querySelector('#tab-chat .video-chat-messages');
+    if (chatContainer) chatContainer.innerHTML = '';
 
     document.getElementById('tab-quiz').style.display = 'none';
     document.getElementById('tab-exercise').style.display = 'none';
@@ -498,25 +540,27 @@ function openVideo(courseId, moduleId, videoId) {
   document.getElementById('video-title').textContent = video.title;
   document.getElementById('video-meta').textContent = mod.title + ' - ' + video.duration;
 
-  document.getElementById('tab-notes').innerHTML = `
-    <h4 style="margin-bottom:12px">Notes</h4>
-    <ul style="color:var(--muted);font-size:0.88rem;line-height:2;padding-left:20px">
-      ${video.notes.map(n => '<li>' + sanitize(n) + '</li>').join('')}
-    </ul>
-    <button class="btn btn-outline btn-sm" style="margin-top:14px"><i class="fas fa-download"></i> Download PDF</button>`;
+  document.getElementById('tab-notes').innerHTML =
+    '<h4 style="margin-bottom:12px">Notes</h4>' +
+    '<ul style="color:var(--muted);font-size:0.88rem;line-height:2;padding-left:20px">' +
+    video.notes.map(n => '<li>' + sanitize(n) + '</li>').join('') +
+    '</ul>' +
+    '<button class="btn btn-outline btn-sm" style="margin-top:14px" onclick="alert(\'No PDF attached to this lesson.\')"><i class="fas fa-download"></i> Download PDF</button>';
 
   const q = video.quiz;
-  document.getElementById('tab-quiz').innerHTML = `
-    <h4 style="margin-bottom:14px">Quiz</h4>
-    <p style="font-weight:600;margin-bottom:14px">Q1. ${sanitize(q.question)}</p>
-    ${q.options.map((opt, i) => '<div class="quiz-option" onclick="selectOption(this)"><span>' + String.fromCharCode(65 + i) + '. ' + sanitize(opt) + '</span></div>').join('')}
-    <button class="btn btn-primary btn-sm" style="margin-top:14px">Submit</button>`;
+  document.getElementById('tab-quiz').innerHTML =
+    '<h4 style="margin-bottom:14px">Quiz</h4>' +
+    '<p style="font-weight:600;margin-bottom:14px" id="quiz-question">Q1. ' + sanitize(q.question) + '</p>' +
+    q.options.map((opt, i) => '<div class="quiz-option" id="quiz-opt-' + i + '" onclick="selectOption(this)" data-index="' + i + '"><span>' + String.fromCharCode(65 + i) + '. ' + sanitize(opt) + '</span></div>').join('') +
+    '<button class="btn btn-primary btn-sm" style="margin-top:14px" onclick="submitQuiz(' + JSON.stringify(q.answer) + ')">Submit</button>' +
+    '<div id="quiz-result" style="margin-top:12px;font-size:0.88rem"></div>';
 
-  document.getElementById('tab-exercise').innerHTML = `
-    <h4 style="margin-bottom:12px">Exercise</h4>
-    <p style="font-size:0.88rem;color:var(--muted);margin-bottom:14px">${sanitize(video.exercise)}</p>
-    <textarea style="width:100%;height:130px;background:#0d1117;border:1px solid var(--border);border-radius:8px;padding:12px;color:#e6edf3;font-family:monospace;font-size:0.83rem;resize:none" placeholder="// Write your code here..."></textarea>
-    <button class="btn btn-primary btn-sm" style="margin-top:10px"><i class="fas fa-play"></i> Run</button>`;
+  document.getElementById('tab-exercise').innerHTML =
+    '<h4 style="margin-bottom:12px">Exercise</h4>' +
+    '<p style="font-size:0.88rem;color:var(--muted);margin-bottom:14px">' + sanitize(video.exercise) + '</p>' +
+    '<textarea id="exercise-code" style="width:100%;height:130px;background:#0d1117;border:1px solid var(--border);border-radius:8px;padding:12px;color:#e6edf3;font-family:monospace;font-size:0.83rem;resize:none" placeholder="// Write your code here..."></textarea>' +
+    '<button class="btn btn-primary btn-sm" style="margin-top:10px" onclick="submitExercise()"><i class="fas fa-paper-plane"></i> Submit</button>' +
+    '<div id="exercise-result" style="margin-top:10px;font-size:0.85rem"></div>';
 
   const playlist = document.getElementById('video-playlist');
   playlist.innerHTML = mod.videos.map(v => `
@@ -525,6 +569,9 @@ function openVideo(courseId, moduleId, videoId) {
       <span class="item-title">${sanitize(v.title)}</span>
       <span class="item-duration">${v.duration}</span>
     </div>`).join('');
+
+  const mockChatContainer = document.querySelector('#tab-chat .video-chat-messages');
+  if (mockChatContainer) mockChatContainer.innerHTML = '';
 
   document.getElementById('tab-quiz').style.display = 'none';
   document.getElementById('tab-exercise').style.display = 'none';
@@ -535,13 +582,74 @@ function openVideo(courseId, moduleId, videoId) {
   navigate('video');
 }
 
+let _searchTimeout = null;
+
+function submitQuiz(correctIndex) {
+  const selected = document.querySelector('.quiz-option.selected');
+  const result = document.getElementById('quiz-result');
+  if (!selected) {
+    if (result) result.innerHTML = '<span style="color:#f59e0b">Please select an answer first.</span>';
+    return;
+  }
+  const selectedIndex = parseInt(selected.getAttribute('data-index'));
+  document.querySelectorAll('.quiz-option').forEach(o => o.style.pointerEvents = 'none');
+  if (selectedIndex === correctIndex) {
+    selected.classList.add('correct');
+    if (result) result.innerHTML = '<span style="color:var(--success)">✅ Correct! Well done.</span>';
+  } else {
+    selected.classList.add('wrong');
+    const correctEl = document.querySelector('.quiz-option[data-index="' + correctIndex + '"]');
+    if (correctEl) correctEl.classList.add('correct');
+    if (result) result.innerHTML = '<span style="color:var(--danger)">❌ Incorrect. The correct answer is highlighted.</span>';
+  }
+}
+
+function submitExercise() {
+  const code = document.getElementById('exercise-code')?.value.trim();
+  const result = document.getElementById('exercise-result');
+  if (!code) {
+    if (result) result.innerHTML = '<span style="color:#f59e0b">Please write your code before submitting.</span>';
+    return;
+  }
+  if (result) result.innerHTML = '<span style="color:var(--success)">✅ Exercise submitted! Keep it up.</span>';
+}
+
+function openPaymentPage() {
+  const url = 'https://www.codingkida.com/payment';
+  if (window.electron && window.electron.ipcRenderer) {
+    window.electron.ipcRenderer.invoke('open-external', url);
+  } else {
+    window.open(url, '_blank');
+  }
+}
+
+function downloadPdf(url) {
+  if (!url) return;
+  if (window.electron && window.electron.ipcRenderer) {
+    window.electron.ipcRenderer.invoke('open-external', url);
+  } else {
+    window.open(url, '_blank');
+  }
+}
+
+async function handleCourseSearch(value) {
+  clearTimeout(_searchTimeout);
+  _searchTimeout = setTimeout(async () => {
+    const activeTab = document.querySelector('.filter-tab.active');
+    const category = activeTab ? activeTab.textContent.trim() : 'All';
+    const courses = await loadCourses(category, value.trim());
+    renderCourseGrid(courses);
+  }, 300);
+}
+
 function initCourseFilters() {
   document.querySelectorAll('.filter-tab').forEach(tab => {
     tab.addEventListener('click', async () => {
       tab.closest('.filter-tabs').querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
       tab.classList.add('active');
       const filter = tab.textContent.trim();
-      const courses = await loadCourses(filter);
+      const search = document.getElementById('course-search-input')?.value.trim() || '';
+      const courses = await loadCourses(filter, search);
       renderCourseGrid(courses);
     });
   });

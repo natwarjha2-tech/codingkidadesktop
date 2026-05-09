@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, shell } = require('electron');
 const path = require('path');
 require('dotenv').config();
 
@@ -27,6 +27,11 @@ ipcMain.handle('get-pending-auth', () => {
   const auth = pendingAuth;
   pendingAuth = null; // clear after use
   return auth;
+});
+
+// Open external URL in system browser
+ipcMain.handle('open-external', (event, url) => {
+  shell.openExternal(url);
 });
 
 // Handle login from renderer

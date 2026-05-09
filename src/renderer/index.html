@@ -206,7 +206,7 @@
       <div class="search-bar">
         <div class="search-input-wrap" style="flex:1;position:relative">
           <i class="fas fa-search" style="position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--muted)"></i>
-          <input type="text" placeholder="Search courses..." style="width:100%;padding:10px 10px 10px 40px;background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:8px;color:#fff"/>
+          <input type="text" id="course-search-input" placeholder="Search courses..." style="width:100%;padding:10px 10px 10px 40px;background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:8px;color:#fff" oninput="handleCourseSearch(this.value)"/>
         </div>
       </div>
       <div class="filter-tabs">
@@ -280,13 +280,13 @@
             <div id="tab-exercise" style="display:none"></div>
             <div id="tab-chat" style="display:none">
               <h4 style="margin-bottom:12px">Discussion</h4>
-              <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px">
+              <div class="video-chat-messages" style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px;max-height:200px;overflow-y:auto">
                 <div class="chat-msg"><div class="chat-avatar">A</div><div class="chat-bubble"><p>What's the difference between int and Integer?</p><div class="time">2 min ago</div></div></div>
                 <div class="chat-msg"><div class="chat-avatar" style="background:#10b981">R</div><div class="chat-bubble"><p>int is primitive, Integer is a wrapper class.</p><div class="time">1 min ago</div></div></div>
               </div>
               <div style="display:flex;gap:8px">
-                <input type="text" placeholder="Ask a doubt..." style="flex:1;background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:#fff;font-size:0.85rem"/>
-                <button class="btn btn-primary btn-sm">Send</button>
+                <input type="text" id="video-chat-input" placeholder="Ask a doubt..." style="flex:1;background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:#fff;font-size:0.85rem"/>
+                <button class="btn btn-primary btn-sm" onclick="sendVideoChat()">Send</button>
               </div>
             </div>
           </div>

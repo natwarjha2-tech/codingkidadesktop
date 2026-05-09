@@ -201,19 +201,19 @@ body {
 .filter-tab:hover, .filter-tab.active { background: var(--primary); color: #fff; border-color: var(--primary); }
 
 /* ===== VIDEO PLAYER ===== */
-.video-layout { display: flex; gap: 20px; height: calc(100vh - 120px); }
-.video-main { flex: 1; display: flex; flex-direction: column; gap: 16px; }
+.video-layout { display: flex; gap: 20px; height: calc(100vh - 140px); }
+.video-main { flex: 1; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; min-height: 0; }
 .video-player-box {
   background: #000; border-radius: var(--radius); overflow: hidden;
   aspect-ratio: 16/9; display: flex; align-items: center; justify-content: center;
-  position: relative;
+  position: relative; flex-shrink: 0;
 }
 .video-player-box iframe { width: 100%; height: 100%; border: none; }
-.video-tabs { display: flex; gap: 4px; background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 4px; }
+.video-tabs { display: flex; gap: 4px; background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 4px; flex-shrink: 0; }
 .video-tab { padding: 8px 18px; border-radius: 6px; font-size: 0.85rem; font-weight: 500; cursor: pointer; color: var(--muted); transition: all 0.2s; }
 .video-tab.active { background: var(--primary); color: #fff; }
-.video-tab-content { background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; flex: 1; overflow-y: auto; }
-.playlist { width: 280px; background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius); overflow-y: auto; }
+.video-tab-content { background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; min-height: 220px; overflow-y: auto; }
+.playlist { width: 280px; background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius); overflow-y: auto; flex-shrink: 0; }
 .playlist-header { padding: 16px 20px; border-bottom: 1px solid var(--border); font-weight: 700; font-size: 0.9rem; }
 .playlist-item {
   display: flex; align-items: center; gap: 12px;
