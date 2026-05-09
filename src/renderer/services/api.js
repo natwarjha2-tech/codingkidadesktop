@@ -1,15 +1,11 @@
-// ─── API Service Layer ───────────────────────────────────────────────────────
+// API Service Layer
 // Connects Electron renderer to the existing Next.js backend at localhost:3000
 // DO NOT add any backend logic here — only HTTP calls.
 
 const BASE_URL = CONFIG.API_BASE_URL;
 
-/**
- * Core fetch wrapper — attaches JSON headers + auth token automatically.
- * Throws a structured error on non-2xx responses.
- */
 async function apiRequest(endpoint, options = {}) {
-  const token = localStorage.getItem('ck_token');
+  const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token');
 
   const headers = {
     'Content-Type': 'application/json',
@@ -18,7 +14,7 @@ async function apiRequest(endpoint, options = {}) {
   };
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10000); // 10s timeout
+  const timeout = setTimeout(() => controller.abort(), 10000);
 
   try {
     const res = await fetch(`${BASE_URL}${endpoint}`, {
@@ -31,8 +27,7 @@ async function apiRequest(endpoint, options = {}) {
     const data = await res.json().catch(() => ({}));
 
     if (!res.ok) {
-      const message =
-        data.message || data.error || `Request failed (${res.status})`;
+      const message = data.message || data.error || `Request failed (${res.status})`;
       if (res.status === 401) {
         localStorage.removeItem('ck_token');
         localStorage.removeItem('ck_user');
@@ -49,8 +44,7 @@ async function apiRequest(endpoint, options = {}) {
   }
 }
 
-// ─── Auth APIs ───────────────────────────────────────────────────────────────
-
+// Auth APIs
 const AuthAPI = {
   login: (email, password) =>
     apiRequest('/api/auth/login', {
@@ -65,14 +59,27 @@ const AuthAPI = {
     }),
 };
 
-// ─── Student API ─────────────────────────────────────────────────────────────
-
+// Student API
 const StudentAPI = {
   getProfile: () => apiRequest('/api/student'),
 };
 
-// ─── Survey APIs ─────────────────────────────────────────────────────────────
+// Courses API
+// GET /api/courses — returns { success, courses: [...] }
+// GET /api/courses/:id — returns { success, course: { ...modules: [ ...lessons ] } }
+const CoursesAPI = {
+  getAll: (category, search) => {
+    const params = new URLSearchParams();
+    if (category && category !== 'All') params.append('category', category);
+    if (search && search.trim()) params.append('search', search.trim());
+    const query = params.toString();
+    return apiRequest('/api/courses' + (query ? '?' + query : ''));
+  },
 
+  getById: (id) => apiRequest('/api/courses/' + id),
+};
+
+// Survey APIs
 const SurveyAPI = {
   submitLead: (data) =>
     apiRequest('/api/survey/lead', { method: 'POST', body: JSON.stringify(data) }),

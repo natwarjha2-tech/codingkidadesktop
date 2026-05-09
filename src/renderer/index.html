@@ -11,17 +11,17 @@
 </head>
 <body>
 
-<!-- ===== SPLASH SCREEN ===== -->
+<!-- SPLASH -->
 <div id="splash" style="position:fixed;top:0;left:0;width:100vw;height:100vh;background:#0f0f1a;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999">
-  <div style="font-size:2rem;font-weight:800;color:#fff;margin-bottom:16px">🎯 CodingKida</div>
+  <div style="font-size:2rem;font-weight:800;color:#fff;margin-bottom:16px">CodingKida</div>
   <div style="width:36px;height:36px;border:3px solid rgba(108,71,255,0.3);border-top-color:#6c47ff;border-radius:50%;animation:spin 0.7s linear infinite"></div>
   <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
 </div>
 
-<!-- ===== LOGIN PAGE ===== -->
+<!-- LOGIN -->
 <div id="page-login" class="auth-wrapper" style="display:none">
   <div class="auth-box">
-    <div class="auth-logo">🎯 CodingKida</div>
+    <div class="auth-logo">CodingKida</div>
     <div class="auth-card">
       <h2>Welcome back</h2>
       <p class="sub">Log in to continue learning</p>
@@ -32,7 +32,7 @@
       </div>
       <div class="form-group">
         <label>Password</label>
-        <input id="login-password" type="password" placeholder="••••••••"/>
+        <input id="login-password" type="password" placeholder="password"/>
       </div>
       <button id="login-btn" class="btn btn-primary btn-block" onclick="login()">Log In</button>
       <p class="auth-switch">No account? <a onclick="navigate('signup')">Sign up free</a></p>
@@ -40,10 +40,10 @@
   </div>
 </div>
 
-<!-- ===== SIGNUP PAGE ===== -->
+<!-- SIGNUP -->
 <div id="page-signup" class="auth-wrapper" style="display:none">
   <div class="auth-box">
-    <div class="auth-logo">🎯 CodingKida</div>
+    <div class="auth-logo">CodingKida</div>
     <div class="auth-card">
       <h2>Start learning free</h2>
       <p class="sub">Join 5,00,000+ learners</p>
@@ -66,12 +66,12 @@
   </div>
 </div>
 
-<!-- ===== MAIN APP (with sidebar) ===== -->
+<!-- MAIN APP -->
 <div id="app" class="app" style="display:none">
 
   <!-- SIDEBAR -->
   <aside class="sidebar">
-    <div class="sidebar-logo">🎯 CodingKida</div>
+    <div class="sidebar-logo">CodingKida</div>
     <nav class="sidebar-nav">
       <div class="nav-item active" onclick="navigate('dashboard')" id="nav-dashboard">
         <i class="fas fa-home"></i> Dashboard
@@ -113,7 +113,7 @@
     <div id="page-dashboard" class="page active">
       <div class="welcome-banner">
         <div>
-          <h2>Welcome back, <span id="dashboard-welcome-name">...</span> 👋</h2>
+          <h2>Welcome back, <span id="dashboard-welcome-name">...</span></h2>
           <p>You're on a 5-day streak! Keep it up.</p>
         </div>
         <button class="btn btn-white" onclick="navigate('courses')">Browse Courses</button>
@@ -142,23 +142,23 @@
         </div>
       </div>
 
-      <div class="section-title">▶ Continue Learning</div>
+      <div class="section-title">Continue Learning</div>
       <div class="continue-card">
         <div class="continue-thumb"><i class="fab fa-java"></i></div>
         <div class="continue-info">
           <h4>Java Full Stack Development</h4>
-          <div class="progress-label">60% complete · Module 3 · Video 5</div>
+          <div class="progress-label">60% complete - Module 3 - Video 5</div>
           <div class="progress-bar"><div class="progress-fill" style="width:60%"></div></div>
         </div>
-        <button class="btn btn-primary" onclick="navigate('video')">Resume <i class="fas fa-play"></i></button>
+        <button class="btn btn-primary" onclick="openVideo(1,1,1)">Resume <i class="fas fa-play"></i></button>
       </div>
 
-      <div class="section-title">🎯 Recommended Courses</div>
+      <div class="section-title">Recommended Courses</div>
       <div class="grid-3">
-        <div class="course-card" onclick="navigate('course-detail')">
+        <div class="course-card" onclick="openCourseDetail(3)">
           <div class="course-thumb" style="background:linear-gradient(135deg,#8b5cf6,#6d28d9)"><i class="fab fa-python"></i></div>
           <div class="course-body">
-            <h3>Data Science & ML</h3>
+            <h3>Data Science and ML</h3>
             <p>Python, Pandas, TensorFlow</p>
             <div class="course-meta">
               <span class="course-rating"><i class="fas fa-star"></i> 4.9</span>
@@ -166,35 +166,35 @@
             </div>
           </div>
         </div>
-        <div class="course-card" onclick="navigate('course-detail')">
+        <div class="course-card" onclick="openCourseDetail(2)">
           <div class="course-thumb" style="background:linear-gradient(135deg,#3b82f6,#1d4ed8)"><i class="fab fa-react"></i></div>
           <div class="course-body">
             <h3>MERN Stack Bootcamp</h3>
             <p>MongoDB, Express, React, Node</p>
             <div class="course-meta">
               <span class="course-rating"><i class="fas fa-star"></i> 4.8</span>
-              <span class="badge badge-paid">₹799</span>
+              <span class="badge badge-paid">Rs.799</span>
             </div>
           </div>
         </div>
-        <div class="course-card" onclick="navigate('course-detail')">
+        <div class="course-card" onclick="openCourseDetail(4)">
           <div class="course-thumb" style="background:linear-gradient(135deg,#10b981,#059669)"><i class="fas fa-code"></i></div>
           <div class="course-body">
-            <h3>DSA & Competitive Prog</h3>
+            <h3>DSA and Competitive Prog</h3>
             <p>Arrays, Trees, Graphs, DP</p>
             <div class="course-meta">
               <span class="course-rating"><i class="fas fa-star"></i> 4.9</span>
-              <span class="badge badge-paid">₹899</span>
+              <span class="badge badge-paid">Rs.899</span>
             </div>
           </div>
         </div>
       </div>
 
-      <div class="section-title" style="margin-top:28px">🔴 Upcoming Live Class</div>
+      <div class="section-title" style="margin-top:28px">Upcoming Live Class</div>
       <div class="live-card">
         <div class="live-info">
-          <h4><span class="live-dot"></span>Java Spring Boot — Live Session</h4>
-          <p>Today at 7:00 PM · Rahul Sharma · IIT Delhi</p>
+          <h4><span class="live-dot"></span>Java Spring Boot - Live Session</h4>
+          <p>Today at 7:00 PM - Rahul Sharma - IIT Delhi</p>
         </div>
         <button class="btn btn-danger" onclick="navigate('live')">Join Now <i class="fas fa-arrow-right"></i></button>
       </div>
@@ -216,59 +216,40 @@
         <button class="filter-tab">Data Science</button>
         <button class="filter-tab">DSA</button>
       </div>
-      <div class="grid-3">
-        <div class="course-card" onclick="navigate('course-detail')"><div class="course-thumb" style="background:linear-gradient(135deg,#f97316,#ea580c)"><i class="fab fa-java"></i></div><div class="course-body"><h3>Java Full Stack</h3><p>Core Java → Spring Boot → Microservices</p><div class="course-meta"><span class="course-rating"><i class="fas fa-star"></i> 4.9</span><span class="badge badge-paid">₹999</span></div></div></div>
-        <div class="course-card" onclick="navigate('course-detail')"><div class="course-thumb" style="background:linear-gradient(135deg,#3b82f6,#1d4ed8)"><i class="fab fa-react"></i></div><div class="course-body"><h3>MERN Stack Bootcamp</h3><p>MongoDB, Express, React, Node.js</p><div class="course-meta"><span class="course-rating"><i class="fas fa-star"></i> 4.8</span><span class="badge badge-paid">₹799</span></div></div></div>
-        <div class="course-card" onclick="navigate('course-detail')"><div class="course-thumb" style="background:linear-gradient(135deg,#8b5cf6,#6d28d9)"><i class="fab fa-python"></i></div><div class="course-body"><h3>Data Science & ML</h3><p>Python, Pandas, TensorFlow</p><div class="course-meta"><span class="course-rating"><i class="fas fa-star"></i> 4.9</span><span class="badge badge-free">Free</span></div></div></div>
-        <div class="course-card" onclick="navigate('course-detail')"><div class="course-thumb" style="background:linear-gradient(135deg,#10b981,#059669)"><i class="fas fa-code"></i></div><div class="course-body"><h3>DSA & Competitive Prog</h3><p>Arrays, Trees, Graphs, DP</p><div class="course-meta"><span class="course-rating"><i class="fas fa-star"></i> 4.9</span><span class="badge badge-paid">₹899</span></div></div></div>
-        <div class="course-card" onclick="navigate('course-detail')"><div class="course-thumb" style="background:linear-gradient(135deg,#f59e0b,#d97706)"><i class="fab fa-js"></i></div><div class="course-body"><h3>JavaScript Mastery</h3><p>ES6+, DOM, Async/Await</p><div class="course-meta"><span class="course-rating"><i class="fas fa-star"></i> 4.7</span><span class="badge badge-free">Free</span></div></div></div>
-        <div class="course-card" onclick="navigate('course-detail')"><div class="course-thumb" style="background:linear-gradient(135deg,#ec4899,#be185d)"><i class="fas fa-database"></i></div><div class="course-body"><h3>SQL & Database Design</h3><p>MySQL, PostgreSQL, Indexing</p><div class="course-meta"><span class="course-rating"><i class="fas fa-star"></i> 4.8</span><span class="badge badge-paid">₹599</span></div></div></div>
-      </div>
+      <div class="grid-3" id="courses-grid"></div>
     </div>
 
     <!-- COURSE DETAIL PAGE -->
     <div id="page-course-detail" class="page">
       <button class="btn btn-outline btn-sm" onclick="navigate('courses')" style="margin-bottom:16px"><i class="fas fa-arrow-left"></i> Back</button>
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px">
-        <div><h1 style="font-size:1.5rem;font-weight:800">Java Full Stack Development</h1><p style="color:var(--muted);margin-top:4px">Rahul Sharma · IIT Delhi · 45K students · <span style="color:#f59e0b">★ 4.9</span></p></div>
-        <div style="display:flex;gap:10px">
-          <button class="btn btn-outline" onclick="navigate('video')">▶ Start Learning</button>
-          <button class="btn btn-primary">🔓 Unlock ₹999</button>
+        <div>
+          <h1 id="cd-title" style="font-size:1.5rem;font-weight:800"></h1>
+          <p id="cd-meta" style="color:var(--muted);margin-top:4px"></p>
         </div>
+        <button class="btn btn-primary" id="cd-price-btn"></button>
       </div>
       <div style="display:flex;gap:24px">
-        <div style="flex:1">
-          <div class="card" style="margin-bottom:16px">
-            <div style="display:flex;justify-content:space-between;margin-bottom:8px"><span style="font-size:0.85rem;color:var(--muted)">Overall Progress</span><span style="font-weight:700">60%</span></div>
-            <div class="progress-bar"><div class="progress-fill" style="width:60%"></div></div>
-          </div>
-          <div class="card" style="margin-bottom:14px">
-            <div style="font-weight:700;margin-bottom:12px">📦 Module 1 — Java Basics</div>
-            <div class="playlist-item active" onclick="navigate('video')"><i class="fas fa-play-circle" style="color:var(--success)"></i><span class="item-title">Variables & Data Types</span><span class="item-duration">12:30</span><span class="badge badge-free">Free</span></div>
-            <div class="playlist-item" onclick="navigate('video')"><i class="fas fa-play-circle" style="color:var(--success)"></i><span class="item-title">OOP Concepts</span><span class="item-duration">18:45</span><span class="badge badge-free">Free</span></div>
-            <div class="playlist-item locked"><i class="fas fa-lock"></i><span class="item-title">Inheritance & Polymorphism</span><span class="item-duration">22:10</span><span class="badge badge-paid">Pro</span></div>
-          </div>
-          <div class="card">
-            <div style="font-weight:700;margin-bottom:12px">📦 Module 2 — Spring Boot</div>
-            <div class="playlist-item locked"><i class="fas fa-lock"></i><span class="item-title">Spring Boot Setup</span><span class="item-duration">15:00</span><span class="badge badge-paid">Pro</span></div>
-            <div class="playlist-item locked"><i class="fas fa-lock"></i><span class="item-title">REST API Development</span><span class="item-duration">28:20</span><span class="badge badge-paid">Pro</span></div>
-          </div>
-        </div>
+        <div style="flex:1" id="cd-modules"></div>
         <div style="width:260px">
           <div class="card" style="margin-bottom:14px">
-            <div style="font-weight:700;margin-bottom:12px">📊 Course Info</div>
+            <div style="font-weight:700;margin-bottom:12px">Course Info</div>
             <div style="font-size:0.83rem;color:var(--muted);display:flex;flex-direction:column;gap:9px">
-              <span><i class="fas fa-clock" style="width:18px"></i> 80 hours</span>
-              <span><i class="fas fa-video" style="width:18px"></i> 120 videos</span>
+              <span><i class="fas fa-clock" style="width:18px"></i> <span id="cd-hours"></span></span>
+              <span><i class="fas fa-video" style="width:18px"></i> <span id="cd-videos"></span></span>
               <span><i class="fas fa-certificate" style="width:18px"></i> Certificate</span>
               <span><i class="fas fa-infinity" style="width:18px"></i> Lifetime access</span>
             </div>
           </div>
           <div class="card">
-            <div style="font-weight:700;margin-bottom:12px">👨‍🏫 Instructor</div>
+            <div style="font-weight:700;margin-bottom:12px">Instructor</div>
             <div style="display:flex;align-items:center;gap:10px">
-              <div class="user-avatar" style="width:44px;height:44px;font-size:1rem">R</div>
-              <div><div style="font-weight:700;font-size:0.88rem">Rahul Sharma</div><div style="font-size:0.75rem;color:var(--muted)">IIT Delhi · 10+ yrs</div><div style="font-size:0.75rem;color:#f59e0b">★ 4.9 · 45K students</div></div>
+              <div class="user-avatar" style="width:44px;height:44px;font-size:1rem" id="cd-instructor-avatar"></div>
+              <div>
+                <div style="font-weight:700;font-size:0.88rem" id="cd-instructor-name"></div>
+                <div style="font-size:0.75rem;color:var(--muted)" id="cd-instructor-meta"></div>
+                <div style="font-size:0.75rem;color:#f59e0b" id="cd-instructor-rating"></div>
+              </div>
             </div>
           </div>
         </div>
@@ -281,41 +262,51 @@
       <div class="video-layout">
         <div class="video-main">
           <div class="video-player-box">
-            <iframe src="https://www.youtube.com/embed/eIrMbAQSU34?rel=0" allowfullscreen sandbox="allow-scripts allow-same-origin allow-presentation"></iframe>
+            <iframe id="video-iframe" src="" allowfullscreen sandbox="allow-scripts allow-same-origin allow-presentation"></iframe>
           </div>
-          <div style="padding:6px 0"><h3 style="font-size:1rem;font-weight:700">Variables & Data Types in Java</h3><p style="font-size:0.8rem;color:var(--muted)">Module 1 · Lesson 1 · 12:30</p></div>
+          <div style="padding:6px 0">
+            <h3 id="video-title" style="font-size:1rem;font-weight:700"></h3>
+            <p id="video-meta" style="font-size:0.8rem;color:var(--muted)"></p>
+          </div>
           <div class="video-tabs">
-            <div class="video-tab active" onclick="switchTab(this,'tab-notes')">📄 Notes</div>
-            <div class="video-tab" onclick="switchTab(this,'tab-quiz')">🧪 Quiz</div>
-            <div class="video-tab" onclick="switchTab(this,'tab-exercise')">🧩 Exercise</div>
-            <div class="video-tab" onclick="switchTab(this,'tab-chat')">💬 Chat</div>
+            <div class="video-tab active" onclick="switchTab(this,'tab-notes')">Notes</div>
+            <div class="video-tab" onclick="switchTab(this,'tab-quiz')">Quiz</div>
+            <div class="video-tab" onclick="switchTab(this,'tab-exercise')">Exercise</div>
+            <div class="video-tab" onclick="switchTab(this,'tab-chat')">Chat</div>
           </div>
           <div class="video-tab-content">
-            <div id="tab-notes"><h4 style="margin-bottom:12px">📄 Notes</h4><ul style="color:var(--muted);font-size:0.88rem;line-height:2;padding-left:20px"><li>Variable is a container that stores data</li><li>Java is statically typed</li><li>Primitives: int, float, double, char, boolean</li><li>Reference types: String, Arrays, Objects</li></ul><button class="btn btn-outline btn-sm" style="margin-top:14px"><i class="fas fa-download"></i> Download PDF</button></div>
-            <div id="tab-quiz" style="display:none"><h4 style="margin-bottom:14px">🧪 Quiz</h4><p style="font-weight:600;margin-bottom:14px">Q1. Which is NOT a primitive type in Java?</p><div class="quiz-option" onclick="selectOption(this)"><span>A. int</span></div><div class="quiz-option" onclick="selectOption(this)"><span>B. String</span></div><div class="quiz-option" onclick="selectOption(this)"><span>C. boolean</span></div><div class="quiz-option" onclick="selectOption(this)"><span>D. char</span></div><button class="btn btn-primary btn-sm" style="margin-top:14px">Submit</button></div>
-            <div id="tab-exercise" style="display:none"><h4 style="margin-bottom:12px">🧩 Exercise</h4><p style="font-size:0.88rem;color:var(--muted);margin-bottom:14px">Declare 3 variables (int, String, boolean) and print them.</p><textarea style="width:100%;height:130px;background:#0d1117;border:1px solid var(--border);border-radius:8px;padding:12px;color:#e6edf3;font-family:monospace;font-size:0.83rem;resize:none" placeholder="// Write your code here..."></textarea><button class="btn btn-primary btn-sm" style="margin-top:10px"><i class="fas fa-play"></i> Run</button></div>
-            <div id="tab-chat" style="display:none"><h4 style="margin-bottom:12px">💬 Discussion</h4><div style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px"><div class="chat-msg"><div class="chat-avatar">A</div><div class="chat-bubble"><p>What's the difference between int and Integer?</p><div class="time">2 min ago</div></div></div><div class="chat-msg"><div class="chat-avatar" style="background:#10b981">R</div><div class="chat-bubble"><p>int is primitive, Integer is a wrapper class.</p><div class="time">1 min ago</div></div></div></div><div style="display:flex;gap:8px"><input type="text" placeholder="Ask a doubt..." style="flex:1;background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:#fff;font-size:0.85rem"/><button class="btn btn-primary btn-sm">Send</button></div></div>
+            <div id="tab-notes"></div>
+            <div id="tab-quiz" style="display:none"></div>
+            <div id="tab-exercise" style="display:none"></div>
+            <div id="tab-chat" style="display:none">
+              <h4 style="margin-bottom:12px">Discussion</h4>
+              <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px">
+                <div class="chat-msg"><div class="chat-avatar">A</div><div class="chat-bubble"><p>What's the difference between int and Integer?</p><div class="time">2 min ago</div></div></div>
+                <div class="chat-msg"><div class="chat-avatar" style="background:#10b981">R</div><div class="chat-bubble"><p>int is primitive, Integer is a wrapper class.</p><div class="time">1 min ago</div></div></div>
+              </div>
+              <div style="display:flex;gap:8px">
+                <input type="text" placeholder="Ask a doubt..." style="flex:1;background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:#fff;font-size:0.85rem"/>
+                <button class="btn btn-primary btn-sm">Send</button>
+              </div>
+            </div>
           </div>
         </div>
         <div class="playlist">
-          <div class="playlist-header">📋 Playlist</div>
-          <div class="playlist-item active"><i class="fas fa-play-circle"></i><span class="item-title">Variables & Data Types</span><span class="item-duration">12:30</span></div>
-          <div class="playlist-item"><i class="fas fa-play-circle"></i><span class="item-title">OOP Concepts</span><span class="item-duration">18:45</span></div>
-          <div class="playlist-item locked"><i class="fas fa-lock"></i><span class="item-title">Inheritance</span><span class="item-duration">22:10</span></div>
-          <div class="playlist-item locked"><i class="fas fa-lock"></i><span class="item-title">Spring Boot Setup</span><span class="item-duration">15:00</span></div>
+          <div class="playlist-header">Playlist</div>
+          <div id="video-playlist"></div>
         </div>
       </div>
     </div>
 
     <!-- CHAT PAGE -->
     <div id="page-chat" class="page">
-      <div class="page-header"><h1>💬 Community Chat</h1><p>Ask doubts, help others</p></div>
+      <div class="page-header"><h1>Community Chat</h1><p>Ask doubts, help others</p></div>
       <div class="chat-layout">
         <div class="chat-messages" id="chatMessages">
           <div class="chat-msg"><div class="chat-avatar" style="background:#8b5cf6">V</div><div class="chat-bubble"><p>Can anyone explain recursion with an example?</p><div class="time">10:30 AM</div></div></div>
           <div class="chat-msg"><div class="chat-avatar" style="background:#10b981">P</div><div class="chat-bubble"><p>Recursion is when a function calls itself. Example: factorial(n) = n * factorial(n-1)</p><div class="time">10:32 AM</div></div></div>
           <div class="chat-msg"><div class="chat-avatar">R</div><div class="chat-bubble"><p>Great explanation! Base case is important to avoid infinite loop.</p><div class="time">10:33 AM</div></div></div>
-          <div class="chat-msg own"><div class="chat-avatar">Y</div><div class="chat-bubble"><p>Thanks! That makes sense now 🙏</p><div class="time">10:35 AM</div></div></div>
+          <div class="chat-msg own"><div class="chat-avatar">Y</div><div class="chat-bubble"><p>Thanks! That makes sense now</p><div class="time">10:35 AM</div></div></div>
         </div>
         <div class="chat-input-bar">
           <input type="text" id="chatInput" placeholder="Type your message..." style="flex:1;background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:8px;padding:11px 14px;color:#fff;font-size:0.88rem"/>
@@ -326,12 +317,10 @@
 
     <!-- AI ASSISTANT PAGE -->
     <div id="page-ai" class="page">
-      <div class="page-header"><h1>🤖 AI Assistant</h1><p>Ask anything about your course</p></div>
+      <div class="page-header"><h1>AI Assistant</h1><p>Ask anything about your course</p></div>
       <div class="ai-layout">
         <div class="ai-messages" id="aiMessages">
-          <div class="ai-msg"><div class="ai-icon">🤖</div><div class="ai-bubble">Hi! I'm your CodingKida AI assistant. Ask me anything about Java, DSA, Web Dev or any coding concept!</div></div>
-          <div class="ai-msg user"><div class="ai-icon" style="background:var(--primary)">Y</div><div class="ai-bubble">What is the difference between ArrayList and LinkedList?</div></div>
-          <div class="ai-msg"><div class="ai-icon">🤖</div><div class="ai-bubble"><strong>ArrayList vs LinkedList:</strong><br/><br/>• <strong>ArrayList</strong> uses a dynamic array. Fast random access O(1), slow insert/delete O(n).<br/>• <strong>LinkedList</strong> uses doubly linked nodes. Fast insert/delete O(1), slow random access O(n).<br/><br/>Use ArrayList for frequent reads, LinkedList for frequent insertions.</div></div>
+          <div class="ai-msg"><div class="ai-icon">AI</div><div class="ai-bubble">Hi! I'm your CodingKida AI assistant. Ask me anything about Java, DSA, Web Dev or any coding concept!</div></div>
         </div>
         <div class="chat-input-bar">
           <input type="text" id="aiInput" placeholder="Ask a coding question..." style="flex:1;background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:8px;padding:11px 14px;color:#fff;font-size:0.88rem"/>
@@ -342,33 +331,33 @@
 
     <!-- LIVE CLASS PAGE -->
     <div id="page-live" class="page">
-      <div class="page-header"><h1>🔴 Live Classes</h1><p>Join live sessions with expert instructors</p></div>
+      <div class="page-header"><h1>Live Classes</h1><p>Join live sessions with expert instructors</p></div>
       <div style="display:flex;flex-direction:column;gap:16px">
         <div class="live-card">
           <div class="live-info">
-            <h4><span class="live-dot"></span>Java Spring Boot — Live Now</h4>
-            <p>Rahul Sharma · IIT Delhi · 1,240 watching</p>
+            <h4><span class="live-dot"></span>Java Spring Boot - Live Now</h4>
+            <p>Rahul Sharma - IIT Delhi - 1,240 watching</p>
           </div>
           <button class="btn btn-danger">Join Now <i class="fas fa-arrow-right"></i></button>
         </div>
         <div class="live-card">
           <div class="live-info">
             <h4>DSA Problem Solving Session</h4>
-            <p>Vikram Singh · Today 8:00 PM · 320 registered</p>
+            <p>Vikram Singh - Today 8:00 PM - 320 registered</p>
           </div>
           <button class="btn btn-outline">Set Reminder <i class="fas fa-bell"></i></button>
         </div>
         <div class="live-card">
           <div class="live-info">
             <h4>React Hooks Deep Dive</h4>
-            <p>Priya Nair · Tomorrow 7:00 PM · 540 registered</p>
+            <p>Priya Nair - Tomorrow 7:00 PM - 540 registered</p>
           </div>
           <button class="btn btn-outline">Set Reminder <i class="fas fa-bell"></i></button>
         </div>
         <div class="live-card">
           <div class="live-info">
             <h4>Python for Data Science</h4>
-            <p>Amit Verma · Saturday 6:00 PM · 890 registered</p>
+            <p>Amit Verma - Saturday 6:00 PM - 890 registered</p>
           </div>
           <button class="btn btn-outline">Set Reminder <i class="fas fa-bell"></i></button>
         </div>
@@ -377,11 +366,11 @@
 
     <!-- DOWNLOADS PAGE -->
     <div id="page-downloads" class="page">
-      <div class="page-header"><h1>📥 Downloads</h1><p>Your offline content</p></div>
+      <div class="page-header"><h1>Downloads</h1><p>Your offline content</p></div>
       <div class="download-item">
         <div class="download-icon"><i class="fas fa-file-video"></i></div>
         <div class="download-info">
-          <h4>Variables & Data Types — Java</h4>
+          <h4>Variables and Data Types - Java</h4>
           <div class="progress-bar" style="margin-top:6px"><div class="progress-fill" style="width:60%"></div></div>
           <p style="font-size:0.75rem;color:var(--muted);margin-top:4px">Downloading... 60%</p>
         </div>
@@ -390,24 +379,24 @@
       <div class="download-item">
         <div class="download-icon" style="color:var(--success)"><i class="fas fa-check-circle"></i></div>
         <div class="download-info">
-          <h4>OOP Concepts — Java</h4>
-          <p style="font-size:0.78rem;color:var(--muted);margin-top:4px">Downloaded ✅ · 245 MB</p>
+          <h4>OOP Concepts - Java</h4>
+          <p style="font-size:0.78rem;color:var(--muted);margin-top:4px">Downloaded - 245 MB</p>
         </div>
         <button class="btn btn-outline btn-sm"><i class="fas fa-play"></i> Watch</button>
       </div>
       <div class="download-item">
         <div class="download-icon" style="color:var(--success)"><i class="fas fa-check-circle"></i></div>
         <div class="download-info">
-          <h4>DSA — Arrays & Strings</h4>
-          <p style="font-size:0.78rem;color:var(--muted);margin-top:4px">Downloaded ✅ · 312 MB</p>
+          <h4>DSA - Arrays and Strings</h4>
+          <p style="font-size:0.78rem;color:var(--muted);margin-top:4px">Downloaded - 312 MB</p>
         </div>
         <button class="btn btn-outline btn-sm"><i class="fas fa-play"></i> Watch</button>
       </div>
       <div class="download-item">
         <div class="download-icon"><i class="fas fa-file-pdf" style="color:#ef4444"></i></div>
         <div class="download-info">
-          <h4>Java Cheat Sheet — PDF</h4>
-          <p style="font-size:0.78rem;color:var(--muted);margin-top:4px">Downloaded ✅ · 2.4 MB</p>
+          <h4>Java Cheat Sheet - PDF</h4>
+          <p style="font-size:0.78rem;color:var(--muted);margin-top:4px">Downloaded - 2.4 MB</p>
         </div>
         <button class="btn btn-outline btn-sm"><i class="fas fa-eye"></i> View</button>
       </div>
@@ -415,7 +404,7 @@
 
     <!-- PROFILE PAGE -->
     <div id="page-profile" class="page">
-      <div class="page-header"><h1>👤 Profile</h1></div>
+      <div class="page-header"><h1>Profile</h1></div>
       <div class="profile-header">
         <div class="profile-avatar-lg" id="profile-avatar">?</div>
         <div>
@@ -428,15 +417,15 @@
 
       <div class="grid-2" style="margin-bottom:24px">
         <div class="card">
-          <div class="section-title" style="margin-bottom:16px">📚 Enrolled Courses</div>
+          <div class="section-title" style="margin-bottom:16px">Enrolled Courses</div>
           <div style="display:flex;flex-direction:column;gap:14px">
             <div><div style="display:flex;justify-content:space-between;font-size:0.85rem;margin-bottom:6px"><span>Java Full Stack</span><span style="color:var(--muted)">60%</span></div><div class="progress-bar"><div class="progress-fill" style="width:60%"></div></div></div>
-            <div><div style="display:flex;justify-content:space-between;font-size:0.85rem;margin-bottom:6px"><span>DSA & Algorithms</span><span style="color:var(--muted)">35%</span></div><div class="progress-bar"><div class="progress-fill" style="width:35%"></div></div></div>
+            <div><div style="display:flex;justify-content:space-between;font-size:0.85rem;margin-bottom:6px"><span>DSA and Algorithms</span><span style="color:var(--muted)">35%</span></div><div class="progress-bar"><div class="progress-fill" style="width:35%"></div></div></div>
             <div><div style="display:flex;justify-content:space-between;font-size:0.85rem;margin-bottom:6px"><span>JavaScript Mastery</span><span style="color:var(--muted)">80%</span></div><div class="progress-bar"><div class="progress-fill" style="width:80%"></div></div></div>
           </div>
         </div>
         <div class="card">
-          <div class="section-title" style="margin-bottom:16px">🏆 Achievements</div>
+          <div class="section-title" style="margin-bottom:16px">Achievements</div>
           <div style="display:flex;flex-direction:column;gap:12px;font-size:0.88rem">
             <div style="display:flex;align-items:center;gap:10px"><span style="font-size:1.4rem">🔥</span><div><div style="font-weight:600">5-Day Streak</div><div style="color:var(--muted);font-size:0.78rem">Keep learning daily</div></div></div>
             <div style="display:flex;align-items:center;gap:10px"><span style="font-size:1.4rem">🏅</span><div><div style="font-weight:600">First Certificate</div><div style="color:var(--muted);font-size:0.78rem">Completed JS Basics</div></div></div>
@@ -446,7 +435,7 @@
       </div>
 
       <div class="card" style="margin-bottom:16px">
-        <div class="section-title" style="margin-bottom:16px">⚙️ Account Settings</div>
+        <div class="section-title" style="margin-bottom:16px">Account Settings</div>
         <div style="display:flex;flex-direction:column;gap:12px">
           <div class="form-group" style="margin:0"><label>Full Name</label><input id="profile-name-input" type="text" placeholder="Your name"/></div>
           <div class="form-group" style="margin:0"><label>Email</label><input id="profile-email-input" type="email" placeholder="your@email.com" readonly/></div>
@@ -461,6 +450,7 @@
 </div>
 
 <script src="config.js"></script>
+<script src="mockData.js"></script>
 <script src="services/api.js"></script>
 <script src="app.js"></script>
 </body>
