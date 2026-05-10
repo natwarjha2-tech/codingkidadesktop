@@ -99,9 +99,24 @@ async function loadStudentData() {
     const profileEmailInput = document.getElementById('profile-email-input');
     if (profileName) profileName.textContent = name;
     if (profileEmail) profileEmail.textContent = email;
-    if (profileAvatar) profileAvatar.textContent = initial;
+    if (profileAvatar) {
+      const avatarText = document.getElementById('profile-avatar-text');
+      if (avatarText) avatarText.textContent = initial;
+    }
     if (profileNameInput) profileNameInput.value = name;
     if (profileEmailInput) profileEmailInput.value = email;
+
+    // Restore saved avatar photo
+    const savedAvatar = localStorage.getItem('ck_avatar');
+    if (savedAvatar) {
+      const img = document.getElementById('profile-avatar-img');
+      const text = document.getElementById('profile-avatar-text');
+      if (img) { img.src = savedAvatar; img.style.display = 'block'; }
+      if (text) text.style.display = 'none';
+    } else {
+      const text = document.getElementById('profile-avatar-text');
+      if (text) text.textContent = initial;
+    }
   } catch (err) {
     const cached = JSON.parse(localStorage.getItem('ck_user') || '{}');
     if (cached.name) {
@@ -125,6 +140,48 @@ async function loadStudentData() {
       if (profileEmailInput) profileEmailInput.value = cached.email || '';
     }
   }
+
+  // Load dashboard data in background
+  StudentAPI.getDashboard().then(data => {
+    if (!data.success) return;
+
+    // Dashboard stats
+    const enrolledEl = document.querySelector('.stat-card:nth-child(1) .stat-value');
+    const completedEl = document.querySelector('.stat-card:nth-child(2) .stat-value');
+    if (enrolledEl) enrolledEl.textContent = data.enrolledCount || 0;
+    if (completedEl) completedEl.textContent = data.completedVideos || 0;
+
+    // Continue Learning
+    if (data.lastWatched) {
+      const lw = data.lastWatched;
+      const continueTitle = document.querySelector('.continue-info h4');
+      const continueLabel = document.querySelector('.continue-info .progress-label');
+      const continueFill = document.querySelector('.continue-card .progress-fill');
+      const continueBtn = document.querySelector('.continue-card .btn');
+      if (continueTitle) continueTitle.textContent = lw.courseTitle;
+      if (continueLabel) continueLabel.textContent = lw.moduleTitle + ' · ' + lw.lessonTitle;
+      if (continueFill) continueFill.style.width = lw.progressPercent + '%';
+      if (continueBtn) continueBtn.onclick = () => openVideoFromBackend(lw.courseId, lw.moduleId, lw.lessonId);
+    }
+
+    // Profile enrolled courses
+    const profileCoursesContainer = document.querySelector('.profile-courses-list');
+    if (profileCoursesContainer) {
+      if (data.enrolledCourses && data.enrolledCourses.length > 0) {
+        profileCoursesContainer.innerHTML = data.enrolledCourses.map(c =>
+          '<div>' +
+          '<div style="display:flex;justify-content:space-between;font-size:0.85rem;margin-bottom:6px">' +
+          '<span>' + sanitize(c.title) + '</span>' +
+          '<span style="color:var(--muted)">' + c.progressPercent + '%</span>' +
+          '</div>' +
+          '<div class="progress-bar"><div class="progress-fill" style="width:' + c.progressPercent + '%"></div></div>' +
+          '</div>'
+        ).join('');
+      } else {
+        profileCoursesContainer.innerHTML = '<p style="color:var(--muted);font-size:0.85rem">No courses enrolled yet.</p>';
+      }
+    }
+  }).catch(() => {});
 }
 
 function logout() {
@@ -133,23 +190,65 @@ function logout() {
   window.location.href = 'login.html';
 }
 
+function toggleSidebarMenu() {
+  const menu = document.getElementById('sidebar-user-menu');
+  if (menu) menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+}
+
 async function saveProfile() {
   const name = document.getElementById('profile-name-input')?.value.trim();
   if (!name) return;
-  const cached = JSON.parse(localStorage.getItem('ck_user') || '{}');
-  cached.name = name;
-  localStorage.setItem('ck_user', JSON.stringify(cached));
-  const initial = name.charAt(0).toUpperCase();
-  const profileName = document.getElementById('profile-name');
-  const profileAvatar = document.getElementById('profile-avatar');
-  const sidebarName = document.getElementById('sidebar-user-name');
-  const sidebarAvatar = document.getElementById('sidebar-user-avatar');
-  const dashWelcome = document.getElementById('dashboard-welcome-name');
-  if (profileName) profileName.textContent = name;
-  if (profileAvatar) profileAvatar.textContent = initial;
-  if (sidebarName) sidebarName.textContent = name;
-  if (sidebarAvatar) sidebarAvatar.textContent = initial;
-  if (dashWelcome) dashWelcome.textContent = name;
+
+  const msgEl = document.getElementById('profile-save-msg');
+  if (msgEl) { msgEl.style.display = 'block'; msgEl.style.color = 'var(--muted)'; msgEl.textContent = 'Saving...'; }
+
+  try {
+    const data = await StudentAPI.updateProfile({ name });
+    if (!data.success) throw new Error(data.message);
+
+    // Update localStorage
+    const cached = JSON.parse(localStorage.getItem('ck_user') || sessionStorage.getItem('ck_user') || '{}');
+    cached.name = name;
+    if (localStorage.getItem('ck_user')) localStorage.setItem('ck_user', JSON.stringify(cached));
+    else sessionStorage.setItem('ck_user', JSON.stringify(cached));
+
+    const initial = name.charAt(0).toUpperCase();
+    const profileName = document.getElementById('profile-name');
+    const profileAvatarText = document.getElementById('profile-avatar-text');
+    const sidebarName = document.getElementById('sidebar-user-name');
+    const sidebarAvatar = document.getElementById('sidebar-user-avatar');
+    const dashWelcome = document.getElementById('dashboard-welcome-name');
+    if (profileName) profileName.textContent = name;
+    if (profileAvatarText) profileAvatarText.textContent = initial;
+    if (sidebarName) sidebarName.textContent = name;
+    if (sidebarAvatar) sidebarAvatar.textContent = initial;
+    if (dashWelcome) dashWelcome.textContent = name;
+
+    if (msgEl) { msgEl.style.color = 'var(--success)'; msgEl.textContent = '✅ Profile saved successfully!'; }
+    setTimeout(() => { if (msgEl) msgEl.style.display = 'none'; }, 3000);
+  } catch (err) {
+    if (msgEl) { msgEl.style.color = 'var(--danger)'; msgEl.textContent = '❌ ' + (err.message || 'Failed to save.'); }
+  }
+}
+
+function handleProfilePhoto(input) {
+  const file = input.files?.[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const img = document.getElementById('profile-avatar-img');
+    const text = document.getElementById('profile-avatar-text');
+    if (img) { img.src = e.target.result; img.style.display = 'block'; }
+    if (text) text.style.display = 'none';
+    // Save to localStorage for persistence
+    localStorage.setItem('ck_avatar', e.target.result);
+  };
+  reader.readAsDataURL(file);
+}
+
+function openEditProfile() {
+  navigate('profile');
+  document.getElementById('profile-name-input')?.focus();
 }
 
 // Navigation
@@ -182,6 +281,8 @@ function navigate(page) {
 
   const target = document.getElementById('page-' + page);
   if (target) target.classList.add('active');
+
+  if (page === 'downloads') renderDownloads();
 
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   const navId = sidebarMap[page];
@@ -487,6 +588,14 @@ function openVideoFromBackend(courseId, moduleId, lessonId) {
     document.getElementById('video-title').textContent = lesson.title || '';
     document.getElementById('video-meta').textContent = mod.title + ' - ' + (lesson.duration || '');
 
+    _currentVideoData = { lessonId: lesson.id, title: lesson.title, courseTitle: course.title || '', moduleTitle: mod.title, videoUrl: lesson.videoUrl };
+    const saveBtn = document.getElementById('save-download-btn');
+    if (saveBtn) {
+      const saved = JSON.parse(localStorage.getItem('ck_downloads') || '[]').find(d => d.lessonId === lesson.id);
+      saveBtn.innerHTML = saved ? '<i class="fas fa-check"></i> Saved!' : '<i class="fas fa-bookmark"></i> Save to Watchlist';
+      saveBtn.disabled = !!saved;
+    }
+
     const notesUrl = lesson.notes || '';
     document.getElementById('tab-notes').innerHTML =
       '<h4 style="margin-bottom:12px">Notes</h4>' +
@@ -539,6 +648,14 @@ function openVideo(courseId, moduleId, videoId) {
   document.getElementById('video-iframe').src = 'https://www.youtube.com/embed/' + video.youtubeId + '?rel=0';
   document.getElementById('video-title').textContent = video.title;
   document.getElementById('video-meta').textContent = mod.title + ' - ' + video.duration;
+
+  _currentVideoData = { lessonId: String(video.id), title: video.title, courseTitle: course.title || '', moduleTitle: mod.title, videoUrl: 'https://www.youtube.com/embed/' + video.youtubeId };
+  const saveBtn = document.getElementById('save-download-btn');
+  if (saveBtn) {
+    const saved = JSON.parse(localStorage.getItem('ck_downloads') || '[]').find(d => d.lessonId === String(video.id));
+    saveBtn.innerHTML = saved ? '<i class="fas fa-check"></i> Saved!' : '<i class="fas fa-bookmark"></i> Save to Watchlist';
+    saveBtn.disabled = !!saved;
+  }
 
   document.getElementById('tab-notes').innerHTML =
     '<h4 style="margin-bottom:12px">Notes</h4>' +
@@ -623,8 +740,28 @@ function openPaymentPage() {
   }
 }
 
-function downloadPdf(url) {
+async function downloadPdf(url) {
   if (!url) return;
+  try {
+    const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+    const res = await fetch(BASE_URL + '/api/media/signed-url', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
+      body: JSON.stringify({ url }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.signedUrl) {
+        if (window.electron && window.electron.ipcRenderer) {
+          window.electron.ipcRenderer.invoke('open-external', data.signedUrl);
+        } else {
+          window.open(data.signedUrl, '_blank');
+        }
+        return;
+      }
+    }
+  } catch {}
+  // fallback
   if (window.electron && window.electron.ipcRenderer) {
     window.electron.ipcRenderer.invoke('open-external', url);
   } else {
@@ -640,6 +777,98 @@ async function handleCourseSearch(value) {
     const courses = await loadCourses(category, value.trim());
     renderCourseGrid(courses);
   }, 300);
+}
+
+// ─── Downloads ───────────────────────────────────────────────────────────────
+
+let _currentVideoData = null;
+
+function saveToDownloads() {
+  if (!_currentVideoData) return;
+  const { lessonId, title, courseTitle, moduleTitle, videoUrl } = _currentVideoData;
+  if (!videoUrl) {
+    alert('No video available for this lesson.');
+    return;
+  }
+  const downloads = JSON.parse(localStorage.getItem('ck_downloads') || '[]');
+  const exists = downloads.find(d => d.lessonId === lessonId);
+  if (exists) {
+    alert('Already saved to Watchlist!');
+    return;
+  }
+  downloads.push({ lessonId, title, courseTitle, moduleTitle, videoUrl, savedAt: new Date().toISOString() });
+  localStorage.setItem('ck_downloads', JSON.stringify(downloads));
+  const btn = document.getElementById('save-download-btn');
+  if (btn) { btn.innerHTML = '<i class="fas fa-check"></i> Saved!'; btn.disabled = true; }
+}
+
+function renderDownloads() {
+  const container = document.getElementById('downloads-list');
+  if (!container) return;
+  const downloads = JSON.parse(localStorage.getItem('ck_downloads') || '[]');
+  if (downloads.length === 0) {
+    container.innerHTML =
+      '<div style="text-align:center;padding:60px 20px">' +
+      '<i class="fas fa-bookmark" style="font-size:2.5rem;color:var(--muted);margin-bottom:16px;display:block"></i>' +
+      '<p style="color:var(--muted);font-size:0.95rem;font-weight:600">No saved lessons yet</p>' +
+      '<p style="color:var(--muted);font-size:0.82rem;margin-top:6px">Open a lesson and click "Save to Watchlist"</p>' +
+      '</div>';
+    return;
+  }
+  container.innerHTML = downloads.map((d, i) =>
+    '<div class="download-item">' +
+    '<div class="download-icon" style="color:var(--primary)"><i class="fas fa-file-video"></i></div>' +
+    '<div class="download-info">' +
+    '<h4>' + sanitize(d.title) + '</h4>' +
+    '<p style="font-size:0.78rem;color:var(--muted);margin-top:4px">' + sanitize(d.courseTitle || '') + (d.moduleTitle ? ' · ' + sanitize(d.moduleTitle) : '') + '</p>' +
+    '</div>' +
+    '<div style="display:flex;gap:8px">' +
+    '<button class="btn btn-primary btn-sm" onclick="playDownloadedVideo(' + i + ')"><i class="fas fa-play"></i> Watch</button>' +
+    '<button class="btn btn-outline btn-sm" onclick="removeDownload(' + i + ')"><i class="fas fa-trash"></i></button>' +
+    '</div>' +
+    '</div>'
+  ).join('');
+}
+
+async function playDownloadedVideo(index) {
+  const downloads = JSON.parse(localStorage.getItem('ck_downloads') || '[]');
+  const d = downloads[index];
+  if (!d) return;
+  try {
+    const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+    const res = await fetch(BASE_URL + '/api/media/signed-url', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
+      body: JSON.stringify({ url: d.videoUrl }),
+    });
+    let playUrl = d.videoUrl;
+    if (res.ok) {
+      const data = await res.json();
+      if (data.signedUrl) playUrl = data.signedUrl;
+    }
+    document.getElementById('video-iframe').src = playUrl.includes('youtube') ? playUrl + '?rel=0' : playUrl;
+    document.getElementById('video-title').textContent = d.title || '';
+    document.getElementById('video-meta').textContent = (d.courseTitle || '') + (d.moduleTitle ? ' · ' + d.moduleTitle : '');
+    _currentVideoData = d;
+    const btn = document.getElementById('save-download-btn');
+    if (btn) { btn.innerHTML = '<i class="fas fa-check"></i> Saved!'; btn.disabled = true; }
+    document.getElementById('tab-notes').innerHTML = '<h4 style="margin-bottom:12px">Notes</h4><p style="color:var(--muted);font-size:0.88rem">Open the lesson from Courses to view notes.</p>';
+    document.getElementById('tab-quiz').innerHTML = '<h4 style="margin-bottom:14px">Quiz</h4><p style="color:var(--muted)">Quiz coming soon.</p>';
+    document.getElementById('tab-exercise').innerHTML = '<h4 style="margin-bottom:12px">Exercise</h4><p style="color:var(--muted)">Exercise coming soon.</p>';
+    document.getElementById('tab-quiz').style.display = 'none';
+    document.getElementById('tab-exercise').style.display = 'none';
+    document.getElementById('tab-chat').style.display = 'none';
+    document.getElementById('tab-notes').style.display = 'block';
+    document.querySelectorAll('.video-tab').forEach((t, i) => t.classList.toggle('active', i === 0));
+    navigate('video');
+  } catch { alert('Could not play video. Please try again.'); }
+}
+
+function removeDownload(index) {
+  const downloads = JSON.parse(localStorage.getItem('ck_downloads') || '[]');
+  downloads.splice(index, 1);
+  localStorage.setItem('ck_downloads', JSON.stringify(downloads));
+  renderDownloads();
 }
 
 function initCourseFilters() {
@@ -685,11 +914,11 @@ document.addEventListener('keydown', (e) => {
     navigate('login');
   }
 
-  // Load courses from backend (fallback to mockData if backend down)
-  const courses = await loadCourses();
-  renderCourseGrid(courses);
-  initCourseFilters();
-
+  // Hide splash immediately after navigation — don't wait for courses
   const splash = document.getElementById('splash');
   if (splash) splash.style.display = 'none';
+
+  // Load courses in background
+  loadCourses().then(courses => renderCourseGrid(courses));
+  initCourseFilters();
 })();

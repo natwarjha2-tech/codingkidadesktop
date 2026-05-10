@@ -62,6 +62,11 @@ const AuthAPI = {
 // Student API
 const StudentAPI = {
   getProfile: () => apiRequest('/api/student'),
+  getDashboard: () => apiRequest('/api/student/dashboard'),
+  updateProfile: (data) => apiRequest('/api/student/profile', {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  }),
 };
 
 // Courses API

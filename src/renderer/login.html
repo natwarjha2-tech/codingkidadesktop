@@ -586,8 +586,8 @@
           });
 
           if (response.success) {
-            // Success - main process will handle navigation
-            console.log('Login successful');
+            // Success - main process will load index.html
+            loginBtn.innerHTML = '<span>✓</span><span>Success!</span>';
           } else {
             throw new Error(response.message || 'Login failed');
           }
