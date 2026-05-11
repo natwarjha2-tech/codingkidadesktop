@@ -1,9 +1,15 @@
 const { app, BrowserWindow, ipcMain, shell } = require('electron');
 const path = require('path');
+const fs = require('fs');
+const crypto = require('crypto');
+const http = require('http');
 require('dotenv').config();
 
 const PROTOCOL = 'codingkida';
 const BASE_URL = process.env.API_BASE_URL || 'https://www.codingkida.com';
+
+// follow-redirects handles S3 signed URL redirects
+const { https: followHttps, http: followHttp } = require('follow-redirects');
 
 // Register deep link protocol
 if (process.defaultApp) {
@@ -22,7 +28,7 @@ if (!gotLock) {
 
 let mainWindow;
 let pendingAuth = null;
-let pendingEnroll = null; // store enroll token before renderer loads
+let pendingEnroll = null;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -62,7 +68,6 @@ async function handleDeepLink(url) {
     if (parsed.hostname === 'enroll') {
       const token = parsed.searchParams.get('token');
       if (token && mainWindow) {
-        // Verify token with backend and enroll
         const res = await fetch(`${BASE_URL}/api/enroll-token?token=${token}`);
         const data = await res.json();
         if (data.success) {
@@ -111,7 +116,6 @@ ipcMain.handle('login', async (event, { email, password, remember }) => {
       return { success: false, message: data.message || 'Login failed' };
     }
 
-    // Store auth data BEFORE loading index.html so init() sees it immediately
     pendingAuth = { token: data.token, user: JSON.stringify(data.user || {}), remember };
     mainWindow.loadFile(path.join(__dirname, 'src/renderer/index.html'));
 
@@ -129,4 +133,177 @@ app.on('window-all-closed', () => {
 
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) createWindow();
+});
+
+// ─── Offline Downloads ────────────────────────────────────────────────────────
+
+const DOWNLOADS_DIR = path.join(app.getPath('userData'), 'ck_downloads');
+const DOWNLOADS_META = path.join(app.getPath('userData'), 'ck_downloads_meta.json');
+const EXPIRY_DAYS = 30;
+const CIPHER_KEY_PREFIX = 'CodingKida-DL-';
+
+function getEncryptionKey(userId) {
+  return crypto.createHash('sha256').update(CIPHER_KEY_PREFIX + userId).digest();
+}
+
+function encryptBuffer(buffer, userId) {
+  const key = getEncryptionKey(userId);
+  const iv = crypto.randomBytes(16);
+  const cipher = crypto.createCipheriv('aes-256-cbc', key, iv);
+  const encrypted = Buffer.concat([cipher.update(buffer), cipher.final()]);
+  return Buffer.concat([iv, encrypted]);
+}
+
+function decryptBuffer(buffer, userId) {
+  const key = getEncryptionKey(userId);
+  const iv = buffer.slice(0, 16);
+  const encrypted = buffer.slice(16);
+  const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
+  return Buffer.concat([decipher.update(encrypted), decipher.final()]);
+}
+
+function readMeta() {
+  try {
+    if (fs.existsSync(DOWNLOADS_META)) {
+      return JSON.parse(fs.readFileSync(DOWNLOADS_META, 'utf8'));
+    }
+  } catch {}
+  return {};
+}
+
+function writeMeta(meta) {
+  fs.writeFileSync(DOWNLOADS_META, JSON.stringify(meta), 'utf8');
+}
+
+// Fetch with redirect support — handles S3 signed URL redirects
+function fetchBuffer(url) {
+  return new Promise((resolve, reject) => {
+    const client = url.startsWith('https') ? followHttps : followHttp;
+    client.get(url, { maxRedirects: 10 }, (res) => {
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        reject(new Error('HTTP ' + res.statusCode));
+        return;
+      }
+      const chunks = [];
+      res.on('data', c => chunks.push(c));
+      res.on('end', () => resolve(Buffer.concat(chunks)));
+      res.on('error', reject);
+    }).on('error', reject);
+  });
+}
+
+// Local HTTP server — serves decrypted content for playback (no data: URL needed)
+let contentServer = null;
+let contentServerPort = 0;
+let pendingServeBuffer = null;
+let pendingServeMime = null;
+
+function startContentServer() {
+  return new Promise((resolve) => {
+    if (contentServer) { resolve(contentServerPort); return; }
+    contentServer = http.createServer((req, res) => {
+      if (!pendingServeBuffer || !pendingServeMime) {
+        res.writeHead(404); res.end(); return;
+      }
+      res.writeHead(200, {
+        'Content-Type': pendingServeMime,
+        'Content-Length': pendingServeBuffer.length,
+        'Cache-Control': 'no-store',
+        'Access-Control-Allow-Origin': '*',
+      });
+      res.end(pendingServeBuffer);
+    });
+    contentServer.listen(0, '127.0.0.1', () => {
+      contentServerPort = contentServer.address().port;
+      resolve(contentServerPort);
+    });
+  });
+}
+
+// Download and encrypt a file
+ipcMain.handle('download-content', async (event, { url, lessonId, title, type, userId, courseTitle, moduleTitle }) => {
+  try {
+    if (!fs.existsSync(DOWNLOADS_DIR)) fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });
+    const meta = readMeta();
+    if (meta[lessonId + '_' + type]) {
+      return { success: false, message: 'Already downloaded.' };
+    }
+    const buffer = await fetchBuffer(url);
+    const encrypted = encryptBuffer(buffer, userId);
+    const fileName = lessonId + '_' + type + '.ckd';
+    const filePath = path.join(DOWNLOADS_DIR, fileName);
+    fs.writeFileSync(filePath, encrypted);
+    const expiresAt = Date.now() + EXPIRY_DAYS * 24 * 60 * 60 * 1000;
+    meta[lessonId + '_' + type] = {
+      lessonId, title, type, userId, courseTitle, moduleTitle,
+      fileName, expiresAt, downloadedAt: Date.now(),
+      mimeType: type === 'pdf' ? 'application/pdf' : 'video/mp4',
+    };
+    writeMeta(meta);
+    return { success: true, message: 'Downloaded successfully.' };
+  } catch (err) {
+    return { success: false, message: err.message || 'Download failed.' };
+  }
+});
+
+// Get all downloads (with expiry check)
+ipcMain.handle('get-downloads', async (event, { userId }) => {
+  try {
+    const meta = readMeta();
+    const now = Date.now();
+    const valid = [];
+    let changed = false;
+    for (const key of Object.keys(meta)) {
+      const item = meta[key];
+      if (item.userId !== userId) continue;
+      if (now > item.expiresAt) {
+        const filePath = path.join(DOWNLOADS_DIR, item.fileName);
+        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+        delete meta[key];
+        changed = true;
+        continue;
+      }
+      valid.push({ ...item, daysLeft: Math.ceil((item.expiresAt - now) / (24 * 60 * 60 * 1000)) });
+    }
+    if (changed) writeMeta(meta);
+    return { success: true, downloads: valid };
+  } catch {
+    return { success: false, downloads: [] };
+  }
+});
+
+// Play/view — decrypt and serve via local HTTP server
+ipcMain.handle('play-download', async (event, { lessonId, type, userId }) => {
+  try {
+    const meta = readMeta();
+    const item = meta[lessonId + '_' + type];
+    if (!item || item.userId !== userId) return { success: false, message: 'Not found.' };
+    if (Date.now() > item.expiresAt) return { success: false, message: 'Expired.' };
+    const filePath = path.join(DOWNLOADS_DIR, item.fileName);
+    const encrypted = fs.readFileSync(filePath);
+    const decrypted = decryptBuffer(encrypted, userId);
+    pendingServeBuffer = decrypted;
+    pendingServeMime = item.mimeType;
+    const port = await startContentServer();
+    return { success: true, serveUrl: `http://127.0.0.1:${port}/content`, mimeType: item.mimeType, type: item.type };
+  } catch (err) {
+    return { success: false, message: err.message || 'Playback failed.' };
+  }
+});
+
+// Delete a download
+ipcMain.handle('delete-download', async (event, { lessonId, type, userId }) => {
+  try {
+    const meta = readMeta();
+    const key = lessonId + '_' + type;
+    const item = meta[key];
+    if (!item || item.userId !== userId) return { success: false };
+    const filePath = path.join(DOWNLOADS_DIR, item.fileName);
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    delete meta[key];
+    writeMeta(meta);
+    return { success: true };
+  } catch {
+    return { success: false };
+  }
 });

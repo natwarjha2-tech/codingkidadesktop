@@ -254,9 +254,9 @@ function openEditProfile() {
 
 // Navigation
 
-const appPages = ['dashboard','courses','course-detail','video','chat','ai','live','downloads','profile'];
+const appPages = ['dashboard','courses','course-detail','video','chat','ai','live','downloads','offline-downloads','profile'];
 const authPages = ['login','signup'];
-const sidebarMap = { dashboard:'nav-dashboard', courses:'nav-courses', 'course-detail':'nav-courses', video:'nav-courses', chat:'nav-chat', ai:'nav-ai', live:'nav-live', downloads:'nav-downloads', profile:'nav-profile' };
+const sidebarMap = { dashboard:'nav-dashboard', courses:'nav-courses', 'course-detail':'nav-courses', video:'nav-courses', chat:'nav-chat', ai:'nav-ai', live:'nav-live', downloads:'nav-downloads', 'offline-downloads':'nav-offline-downloads', profile:'nav-profile' };
 
 function navigate(page) {
   authPages.forEach(p => {
@@ -284,6 +284,7 @@ function navigate(page) {
   if (target) target.classList.add('active');
 
   if (page === 'downloads') renderDownloads();
+  if (page === 'offline-downloads') renderOfflineDownloads();
 
   // Refresh dashboard data when navigating to profile
   if (page === 'profile' || page === 'dashboard') {
@@ -606,7 +607,7 @@ async function openVideoFromBackend(courseId, moduleId, lessonId) {
     document.getElementById('video-meta').textContent = mod.title + ' - ' + (lesson.duration || '');
     await loadVideo(lesson.videoUrl || '');
 
-    _currentVideoData = { lessonId: lesson.id, title: lesson.title, courseTitle: course.title || '', moduleTitle: mod.title, videoUrl: lesson.videoUrl };
+    _currentVideoData = { lessonId: lesson.id, title: lesson.title, courseTitle: course.title || '', moduleTitle: mod.title, videoUrl: lesson.videoUrl, notesUrl: lesson.notes || '' };
     const saveBtn = document.getElementById('save-download-btn');
     if (saveBtn) {
       const saved = JSON.parse(localStorage.getItem('ck_downloads') || '[]').find(d => d.lessonId === lesson.id);
@@ -618,7 +619,7 @@ async function openVideoFromBackend(courseId, moduleId, lessonId) {
     document.getElementById('tab-notes').innerHTML =
       '<h4 style="margin-bottom:12px">Notes</h4>' +
       '<p style="color:var(--muted);font-size:0.88rem;line-height:1.8">' + (notesUrl ? 'PDF notes available for this lesson.' : 'No notes available.') + '</p>' +
-      (notesUrl ? '<button class="btn btn-outline btn-sm" style="margin-top:14px" onclick="downloadPdf(\'' + notesUrl + '\')"><i class="fas fa-download"></i> Download PDF</button>' : '');
+      (notesUrl ? '<button class="btn btn-outline btn-sm" style="margin-top:14px" onclick="openPdfInApp(\'' + notesUrl + '\')"><i class="fas fa-file-pdf"></i> View PDF</button>' : '');
 
     document.getElementById('tab-quiz').innerHTML =
       '<h4 style="margin-bottom:14px">Quiz</h4>' +
@@ -941,6 +942,193 @@ function initCourseFilters() {
       renderCourseGrid(courses);
     });
   });
+}
+
+// ─── Offline Downloads ───────────────────────────────────────────────────────────────
+
+function getCurrentUserId() {
+  const cached = JSON.parse(localStorage.getItem('ck_user') || sessionStorage.getItem('ck_user') || '{}');
+  return cached.id || cached.userId || '';
+}
+
+async function downloadOffline() {
+  if (!window.electron || !window.electron.downloadContent) {
+    alert('Downloads only available in the desktop app.');
+    return;
+  }
+  if (!_currentVideoData) return;
+
+  const userId = getCurrentUserId();
+  if (!userId) { alert('Please log in to download.'); return; }
+
+  const btn = document.getElementById('offline-download-btn');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Downloading...'; }
+
+  const { lessonId, title, courseTitle, moduleTitle, videoUrl } = _currentVideoData;
+  const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+  let downloadedAny = false;
+
+  // Helper: get signed URL for S3 files
+  async function getSignedUrl(url) {
+    if (!url || !url.includes('amazonaws.com')) return url;
+    try {
+      const res = await fetch(BASE_URL + '/api/media/signed-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
+        body: JSON.stringify({ url }),
+      });
+      if (res.ok) { const d = await res.json(); if (d.signedUrl) return d.signedUrl; }
+    } catch {}
+    return url;
+  }
+
+  // Download video
+  if (videoUrl) {
+    try {
+      const dlUrl = await getSignedUrl(videoUrl);
+      const result = await window.electron.downloadContent({
+        url: dlUrl, lessonId, title, type: 'video',
+        userId, courseTitle, moduleTitle,
+      });
+      if (result.success) downloadedAny = true;
+    } catch {}
+  }
+
+  // Download PDF (notes) if available
+  const notesUrl = _currentVideoData.notesUrl || '';
+  if (notesUrl) {
+    try {
+      const dlUrl = await getSignedUrl(notesUrl);
+      const result = await window.electron.downloadContent({
+        url: dlUrl, lessonId, title: title + ' (PDF)', type: 'pdf',
+        userId, courseTitle, moduleTitle,
+      });
+      if (result.success) downloadedAny = true;
+    } catch {}
+  }
+
+  if (btn) {
+    btn.innerHTML = downloadedAny
+      ? '<i class="fas fa-check"></i> Downloaded'
+      : '<i class="fas fa-check"></i> Already saved';
+  }
+}
+
+async function renderOfflineDownloads() {
+  const container = document.getElementById('offline-downloads-list');
+  if (!container) return;
+
+  if (!window.electron || !window.electron.getDownloads) {
+    container.innerHTML = '<p style="color:var(--muted);padding:20px">Downloads only available in the desktop app.</p>';
+    return;
+  }
+
+  const userId = getCurrentUserId();
+  if (!userId) {
+    container.innerHTML = '<p style="color:var(--muted);padding:20px">Please log in to view downloads.</p>';
+    return;
+  }
+
+  container.innerHTML = '<p style="color:var(--muted);padding:20px">Loading...</p>';
+  const result = await window.electron.getDownloads({ userId });
+
+  if (!result.success || result.downloads.length === 0) {
+    container.innerHTML =
+      '<div style="text-align:center;padding:60px 20px">' +
+      '<i class="fas fa-download" style="font-size:2.5rem;color:var(--muted);margin-bottom:16px;display:block"></i>' +
+      '<p style="color:var(--muted);font-size:0.95rem;font-weight:600">No offline downloads yet</p>' +
+      '<p style="color:var(--muted);font-size:0.82rem;margin-top:6px">Open a lesson and click "Download" to save for offline use</p>' +
+      '</div>';
+    return;
+  }
+
+  container.innerHTML = result.downloads.map((d, i) => {
+    const icon = d.type === 'pdf' ? 'fa-file-pdf' : 'fa-file-video';
+    const iconColor = d.type === 'pdf' ? '#ef4444' : 'var(--primary)';
+    return '<div class="download-item">' +
+      '<div class="download-icon" style="color:' + iconColor + '"><i class="fas ' + icon + '"></i></div>' +
+      '<div class="download-info">' +
+      '<h4>' + sanitize(d.title) + '</h4>' +
+      '<p style="font-size:0.78rem;color:var(--muted);margin-top:2px">' + sanitize(d.courseTitle || '') + (d.moduleTitle ? ' · ' + sanitize(d.moduleTitle) : '') + '</p>' +
+      '<p style="font-size:0.72rem;color:#f59e0b;margin-top:2px">Expires in ' + d.daysLeft + ' day' + (d.daysLeft !== 1 ? 's' : '') + '</p>' +
+      '</div>' +
+      '<div style="display:flex;gap:8px">' +
+      '<button class="btn btn-primary btn-sm" onclick="playOfflineContent(\'' + d.lessonId + '\',\'' + d.type + '\')">' +
+      '<i class="fas ' + (d.type === 'pdf' ? 'fa-eye' : 'fa-play') + '"></i> ' + (d.type === 'pdf' ? 'View' : 'Watch') + '</button>' +
+      '<button class="btn btn-outline btn-sm" onclick="deleteOfflineContent(\'' + d.lessonId + '\',\'' + d.type + '\')"><i class="fas fa-trash"></i></button>' +
+      '</div>' +
+      '</div>';
+  }).join('');
+}
+
+async function playOfflineContent(lessonId, type) {
+  if (!window.electron || !window.electron.playDownload) return;
+  const userId = getCurrentUserId();
+  const result = await window.electron.playDownload({ lessonId, type, userId });
+  if (!result.success) { alert(result.message || 'Playback failed.'); return; }
+
+  if (type === 'pdf') {
+    const viewer = document.getElementById('pdf-viewer-modal');
+    const iframe = document.getElementById('pdf-viewer-iframe');
+    if (viewer && iframe) {
+      iframe.src = result.serveUrl;
+      viewer.style.display = 'flex';
+    }
+  } else {
+    const iframeEl = document.getElementById('video-iframe');
+    const videoEl = document.getElementById('video-player');
+    if (iframeEl) { iframeEl.style.display = 'none'; iframeEl.src = ''; }
+    if (videoEl) { videoEl.style.display = 'block'; videoEl.src = result.serveUrl; }
+    navigate('video');
+  }
+}
+
+async function deleteOfflineContent(lessonId, type) {
+  if (!window.electron || !window.electron.deleteDownload) return;
+  const userId = getCurrentUserId();
+  await window.electron.deleteDownload({ lessonId, type, userId });
+  renderOfflineDownloads();
+}
+
+function closePdfViewer() {
+  const viewer = document.getElementById('pdf-viewer-modal');
+  const iframe = document.getElementById('pdf-viewer-iframe');
+  if (viewer) viewer.style.display = 'none';
+  if (iframe) iframe.src = '';
+}
+
+async function openPdfInApp(url) {
+  if (!url) return;
+  // Use local HTTP server to serve PDF — avoids CSP issues and works offline
+  if (window.electron && window.electron.playDownload) {
+    const userId = getCurrentUserId();
+    const lessonId = _currentVideoData ? _currentVideoData.lessonId : null;
+    if (lessonId) {
+      const result = await window.electron.playDownload({ lessonId, type: 'pdf', userId });
+      if (result.success) {
+        const viewer = document.getElementById('pdf-viewer-modal');
+        const iframe = document.getElementById('pdf-viewer-iframe');
+        if (viewer && iframe) { iframe.src = result.serveUrl; viewer.style.display = 'flex'; }
+        return;
+      }
+    }
+  }
+  // Fallback: open signed URL in iframe (online only)
+  try {
+    const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+    let pdfUrl = url;
+    if (url.includes('amazonaws.com')) {
+      const res = await fetch(BASE_URL + '/api/media/signed-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
+        body: JSON.stringify({ url }),
+      });
+      if (res.ok) { const d = await res.json(); if (d.signedUrl) pdfUrl = d.signedUrl; }
+    }
+    const viewer = document.getElementById('pdf-viewer-modal');
+    const iframe = document.getElementById('pdf-viewer-iframe');
+    if (viewer && iframe) { iframe.src = pdfUrl; viewer.style.display = 'flex'; }
+  } catch { alert('Could not open PDF.'); }
 }
 
 document.addEventListener('keydown', (e) => {
