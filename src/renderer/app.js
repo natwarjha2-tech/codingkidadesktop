@@ -587,13 +587,20 @@ function renderCourseDetailFromMock(course) {
 // Open video from backend data
 async function openVideoFromBackend(courseId, moduleId, lessonId) {
   try {
-    const data = await CoursesAPI.getById(courseId);
+    const data = await CoursesAPI.getByIdSigned(courseId);
     if (!data.success) return;
     const course = data.course;
     const mod = (course.modules || []).find(m => m.id === moduleId);
     if (!mod) return;
     const lesson = (mod.lessons || []).find(l => l.id === lessonId);
     if (!lesson) return;
+
+    // Check if lesson is locked (empty videoUrl means not enrolled + not free)
+    if (!lesson.videoUrl || lesson.videoUrl === '') {
+      alert('This lesson is locked. Please enroll in the course to access it.');
+      openPaymentPage(courseId);
+      return;
+    }
 
     document.getElementById('video-title').textContent = lesson.title || '';
     document.getElementById('video-meta').textContent = mod.title + ' - ' + (lesson.duration || '');

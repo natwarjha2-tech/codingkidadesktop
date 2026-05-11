@@ -81,7 +81,8 @@ const CoursesAPI = {
     return apiRequest('/api/courses' + (query ? '?' + query : ''));
   },
 
-  getById: (id) => apiRequest('/api/courses/' + id + '?signed=true'),
+  getById: (id) => apiRequest('/api/courses/' + id),
+  getByIdSigned: (id) => apiRequest('/api/courses/' + id + '?signed=true'),
 
   enroll: (courseId) => apiRequest('/api/courses/' + courseId + '/enroll', {
     method: 'POST',
