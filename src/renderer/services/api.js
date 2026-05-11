@@ -82,6 +82,11 @@ const CoursesAPI = {
   },
 
   getById: (id) => apiRequest('/api/courses/' + id),
+
+  enroll: (courseId) => apiRequest('/api/courses/' + courseId + '/enroll', {
+    method: 'POST',
+    body: JSON.stringify({}),
+  }),
 };
 
 // Survey APIs

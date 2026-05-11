@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; font-src https://cdnjs.cloudflare.com https://fonts.gstatic.com; connect-src http://localhost:3000 https://www.codingkida.com https://generativelanguage.googleapis.com; frame-src https://www.youtube.com; img-src 'self' data:"/>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; font-src https://cdnjs.cloudflare.com https://fonts.gstatic.com; connect-src http://localhost:3000 https://www.codingkida.com https://generativelanguage.googleapis.com; frame-src https://www.youtube.com; media-src https://*.amazonaws.com https://*.s3.amazonaws.com blob:; img-src 'self' data: https://*.amazonaws.com;"/>
   <title>CodingKida</title>
   <link rel="stylesheet" href="styles/global.css"/>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
@@ -271,7 +271,8 @@
       <div class="video-layout">
         <div class="video-main">
           <div class="video-player-box">
-            <iframe id="video-iframe" src="" allowfullscreen sandbox="allow-scripts allow-same-origin allow-presentation"></iframe>
+            <iframe id="video-iframe" src="" allowfullscreen sandbox="allow-scripts allow-same-origin allow-presentation" style="display:block"></iframe>
+            <video id="video-player" controls style="display:none;width:100%;height:100%;background:#000;border-radius:var(--radius)"></video>
           </div>
           <div style="padding:6px 0">
             <h3 id="video-title" style="font-size:1rem;font-weight:700"></h3>

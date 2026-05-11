@@ -141,8 +141,10 @@ async function loadStudentData() {
     }
   }
 
-  // Load dashboard data in background
-  StudentAPI.getDashboard().then(data => {
+  // Load dashboard data in background — outside loadStudentData so splash is not blocked
+}
+
+function _applyDashboardData(data) {
     if (!data.success) return;
 
     // Dashboard stats
@@ -164,12 +166,12 @@ async function loadStudentData() {
       if (continueBtn) continueBtn.onclick = () => openVideoFromBackend(lw.courseId, lw.moduleId, lw.lessonId);
     }
 
-    // Profile enrolled courses
+    // Profile enrolled courses — always update regardless of which page is active
     const profileCoursesContainer = document.querySelector('.profile-courses-list');
     if (profileCoursesContainer) {
       if (data.enrolledCourses && data.enrolledCourses.length > 0) {
         profileCoursesContainer.innerHTML = data.enrolledCourses.map(c =>
-          '<div>' +
+          '<div style="margin-bottom:12px">' +
           '<div style="display:flex;justify-content:space-between;font-size:0.85rem;margin-bottom:6px">' +
           '<span>' + sanitize(c.title) + '</span>' +
           '<span style="color:var(--muted)">' + c.progressPercent + '%</span>' +
@@ -181,7 +183,6 @@ async function loadStudentData() {
         profileCoursesContainer.innerHTML = '<p style="color:var(--muted);font-size:0.85rem">No courses enrolled yet.</p>';
       }
     }
-  }).catch(() => {});
 }
 
 function logout() {
@@ -283,6 +284,12 @@ function navigate(page) {
   if (target) target.classList.add('active');
 
   if (page === 'downloads') renderDownloads();
+
+  // Refresh dashboard data when navigating to profile
+  if (page === 'profile' || page === 'dashboard') {
+    const t = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token');
+    if (t) StudentAPI.getDashboard().then(data => _applyDashboardData(data)).catch(() => {});
+  }
 
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   const navId = sidebarMap[page];
@@ -426,7 +433,7 @@ function mapCourse(c) {
     icon: c.icon ? (c.icon.startsWith('fa') ? c.icon : 'fas ' + c.icon) : 'fas fa-book',
     gradient: c.color || 'linear-gradient(135deg,#6c47ff,#3b1fa8)',
     rating: c.rating || 0,
-    price: c.isFree ? 'Free' : (c.price ? 'Rs.' + c.price : 'Paid'),
+    price: c.isFree ? 'Free' : 'Paid',
     free: c.isFree || false,
     category: c.category || 'Programming',
     instructor: c.instructor || '',
@@ -464,7 +471,7 @@ function renderCourseGrid(courses) {
         <p>${sanitize(c.subtitle)}</p>
         <div class="course-meta">
           <span class="course-rating"><i class="fas fa-star"></i> ${c.rating}</span>
-          <span class="badge ${c.free ? 'badge-free' : 'badge-paid'}">${sanitize(c.price)}</span>
+          <span class="badge ${c.free ? 'badge-free' : 'badge-paid'}">${c.free ? 'Free' : 'Paid'}</span>
         </div>
       </div>
     </div>`).join('');
@@ -505,8 +512,8 @@ function renderCourseDetailFromBackend(course) {
   document.getElementById('cd-instructor-meta').textContent = course.institute || '';
   document.getElementById('cd-instructor-rating').textContent = (course.rating || '') + (course.students ? ' - ' + course.students + ' students' : '');
   const priceBtn = document.getElementById('cd-price-btn');
-  priceBtn.textContent = course.isFree ? 'Free Course' : 'Unlock Rs.' + (course.price || '');
-  priceBtn.onclick = course.isFree ? null : () => openPaymentPage();
+  priceBtn.textContent = course.isFree ? 'Free Course' : 'Unlock Course';
+  priceBtn.onclick = course.isFree ? null : () => openPaymentPage(course.id);
 
   const modulesContainer = document.getElementById('cd-modules');
   const modules = course.modules || [];
@@ -530,6 +537,9 @@ function renderCourseDetailFromBackend(course) {
       item.className = 'playlist-item' + (lesson.isFree ? '' : ' locked');
       if (lesson.isFree) {
         item.onclick = () => openVideoFromBackend(course.id, mod.id, lesson.id);
+      } else {
+        item.onclick = () => openPaymentPage(course.id);
+        item.style.cursor = 'pointer';
       }
       item.innerHTML =
         '<i class="fas ' + (lesson.isFree ? 'fa-play-circle' : 'fa-lock') + '" style="color:' + (lesson.isFree ? 'var(--success)' : '') + '"></i>' +
@@ -555,7 +565,7 @@ function renderCourseDetailFromMock(course) {
   document.getElementById('cd-instructor-meta').textContent = course.instructorMeta;
   document.getElementById('cd-instructor-rating').textContent = course.rating + ' - ' + course.students + ' students';
   const priceBtnMock = document.getElementById('cd-price-btn');
-  priceBtnMock.textContent = course.free ? 'Free Course' : 'Unlock ' + course.price;
+  priceBtnMock.textContent = course.free ? 'Free Course' : 'Unlock Course';
   priceBtnMock.onclick = course.free ? null : () => openPaymentPage();
 
   const modulesContainer = document.getElementById('cd-modules');
@@ -575,8 +585,9 @@ function renderCourseDetailFromMock(course) {
 }
 
 // Open video from backend data
-function openVideoFromBackend(courseId, moduleId, lessonId) {
-  CoursesAPI.getById(courseId).then(data => {
+async function openVideoFromBackend(courseId, moduleId, lessonId) {
+  try {
+    const data = await CoursesAPI.getById(courseId);
     if (!data.success) return;
     const course = data.course;
     const mod = (course.modules || []).find(m => m.id === moduleId);
@@ -584,9 +595,9 @@ function openVideoFromBackend(courseId, moduleId, lessonId) {
     const lesson = (mod.lessons || []).find(l => l.id === lessonId);
     if (!lesson) return;
 
-    document.getElementById('video-iframe').src = lesson.videoUrl ? lesson.videoUrl + (lesson.videoUrl.includes('youtube') ? '?rel=0' : '') : '';
     document.getElementById('video-title').textContent = lesson.title || '';
     document.getElementById('video-meta').textContent = mod.title + ' - ' + (lesson.duration || '');
+    await loadVideo(lesson.videoUrl || '');
 
     _currentVideoData = { lessonId: lesson.id, title: lesson.title, courseTitle: course.title || '', moduleTitle: mod.title, videoUrl: lesson.videoUrl };
     const saveBtn = document.getElementById('save-download-btn');
@@ -633,7 +644,7 @@ function openVideoFromBackend(courseId, moduleId, lessonId) {
     document.querySelectorAll('.video-tab').forEach((t, i) => t.classList.toggle('active', i === 0));
 
     navigate('video');
-  }).catch(() => {});
+  } catch {}
 }
 
 // Open video from mockData
@@ -648,6 +659,7 @@ function openVideo(courseId, moduleId, videoId) {
   document.getElementById('video-iframe').src = 'https://www.youtube.com/embed/' + video.youtubeId + '?rel=0';
   document.getElementById('video-title').textContent = video.title;
   document.getElementById('video-meta').textContent = mod.title + ' - ' + video.duration;
+  loadVideo('https://www.youtube.com/embed/' + video.youtubeId);
 
   _currentVideoData = { lessonId: String(video.id), title: video.title, courseTitle: course.title || '', moduleTitle: mod.title, videoUrl: 'https://www.youtube.com/embed/' + video.youtubeId };
   const saveBtn = document.getElementById('save-download-btn');
@@ -731,12 +743,64 @@ function submitExercise() {
   if (result) result.innerHTML = '<span style="color:var(--success)">✅ Exercise submitted! Keep it up.</span>';
 }
 
-function openPaymentPage() {
-  const url = 'https://www.codingkida.com/payment';
+async function loadVideo(url) {
+  const iframe = document.getElementById('video-iframe');
+  const videoEl = document.getElementById('video-player');
+  if (!iframe || !videoEl) return;
+
+  if (!url) {
+    iframe.src = ''; iframe.style.display = 'block';
+    videoEl.src = ''; videoEl.style.display = 'none';
+    return;
+  }
+
+  if (url.includes('youtube') || url.includes('youtu.be')) {
+    // YouTube — use iframe
+    iframe.src = url.includes('?') ? url + '&rel=0' : url + '?rel=0';
+    iframe.style.display = 'block';
+    videoEl.style.display = 'none';
+    videoEl.src = '';
+  } else {
+    // S3 video — get signed URL then use video tag
+    iframe.style.display = 'none';
+    iframe.src = '';
+    videoEl.style.display = 'block';
+    try {
+      const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+      const res = await fetch(BASE_URL + '/api/media/signed-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
+        body: JSON.stringify({ url }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.signedUrl) { videoEl.src = data.signedUrl; return; }
+      }
+    } catch {}
+    videoEl.src = url; // fallback
+  }
+}
+
+function openPaymentPage(courseId) {
+  const url = 'https://www.codingkida.com/payment' + (courseId ? '?courseId=' + courseId : '');
   if (window.electron && window.electron.ipcRenderer) {
     window.electron.ipcRenderer.invoke('open-external', url);
   } else {
     window.open(url, '_blank');
+  }
+}
+
+async function enrollCourse(courseId) {
+  if (!courseId) return;
+  try {
+    const data = await CoursesAPI.enroll(courseId);
+    if (data.success) {
+      // Refresh dashboard to reflect enrollment
+      StudentAPI.getDashboard().then(d => _applyDashboardData(d)).catch(() => {});
+      alert('Course enrolled successfully! Check your profile.');
+    }
+  } catch (err) {
+    alert(err.message || 'Enrollment failed.');
   }
 }
 
@@ -846,9 +910,9 @@ async function playDownloadedVideo(index) {
       const data = await res.json();
       if (data.signedUrl) playUrl = data.signedUrl;
     }
-    document.getElementById('video-iframe').src = playUrl.includes('youtube') ? playUrl + '?rel=0' : playUrl;
     document.getElementById('video-title').textContent = d.title || '';
     document.getElementById('video-meta').textContent = (d.courseTitle || '') + (d.moduleTitle ? ' · ' + d.moduleTitle : '');
+    await loadVideo(d.videoUrl || '');
     _currentVideoData = d;
     const btn = document.getElementById('save-download-btn');
     if (btn) { btn.innerHTML = '<i class="fas fa-check"></i> Saved!'; btn.disabled = true; }
@@ -893,32 +957,85 @@ document.addEventListener('keydown', (e) => {
 
 // Init
 (async function init() {
+  // Hide splash immediately — never block on any network call
+  const splash = document.getElementById('splash');
+
   if (window.electron && window.electron.getPendingAuth) {
-    const pending = await window.electron.getPendingAuth();
-    if (pending && pending.token) {
-      if (pending.remember) {
-        localStorage.setItem('ck_token', pending.token);
-        localStorage.setItem('ck_user', pending.user || '{}');
-      } else {
-        sessionStorage.setItem('ck_token', pending.token);
-        sessionStorage.setItem('ck_user', pending.user || '{}');
+    try {
+      const pending = await Promise.race([
+        window.electron.getPendingAuth(),
+        new Promise(resolve => setTimeout(() => resolve(null), 2000))
+      ]);
+      if (pending && pending.token) {
+        if (pending.remember) {
+          localStorage.setItem('ck_token', pending.token);
+          localStorage.setItem('ck_user', pending.user || '{}');
+        } else {
+          sessionStorage.setItem('ck_token', pending.token);
+          sessionStorage.setItem('ck_user', pending.user || '{}');
+        }
       }
-    }
+    } catch {}
   }
 
   const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token');
   if (token) {
-    await loadStudentData();
+    const cached = JSON.parse(localStorage.getItem('ck_user') || sessionStorage.getItem('ck_user') || '{}');
+    if (cached.name) {
+      const initial = cached.name.charAt(0).toUpperCase();
+      const sidebarName = document.getElementById('sidebar-user-name');
+      const sidebarAvatar = document.getElementById('sidebar-user-avatar');
+      const dashWelcome = document.getElementById('dashboard-welcome-name');
+      if (sidebarName) sidebarName.textContent = cached.name;
+      if (sidebarAvatar) sidebarAvatar.textContent = initial;
+      if (dashWelcome) dashWelcome.textContent = cached.name;
+    }
     navigate('dashboard');
   } else {
     navigate('login');
   }
 
-  // Hide splash immediately after navigation — don't wait for courses
-  const splash = document.getElementById('splash');
+  // Hide splash immediately after navigation
   if (splash) splash.style.display = 'none';
 
-  // Load courses in background
-  loadCourses().then(courses => renderCourseGrid(courses));
+  // All backend calls in background — never block UI
+  if (token) {
+    loadStudentData();
+    StudentAPI.getDashboard().then(data => _applyDashboardData(data)).catch(() => {});
+  }
+  loadCourses().then(courses => renderCourseGrid(courses)).catch(() => renderCourseGrid(MOCK_COURSES));
   initCourseFilters();
+
+  // Refresh dashboard on window focus (payment browser se wapas aane pe)
+  window.addEventListener('focus', () => {
+    const t = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token');
+    if (t) StudentAPI.getDashboard().then(data => _applyDashboardData(data)).catch(() => {});
+  });
+
+  // Listen for enrollment complete from deep link
+  if (window.electron && window.electron.ipcRenderer) {
+    window.electron.ipcRenderer.on('enrollment-complete', () => {
+      StudentAPI.getDashboard().then(d => _applyDashboardData(d)).catch(() => {});
+      loadCourses().then(courses => renderCourseGrid(courses)).catch(() => {});
+    });
+  }
+
+  // Polling fallback — har 5s mein enrollment check karo
+  let _lastEnrolledCount = -1;
+  setInterval(() => {
+    if (!document.hasFocus()) return;
+    const t = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token');
+    if (!t) return;
+    StudentAPI.getDashboard().then(data => {
+      if (!data.success) return;
+      if (_lastEnrolledCount === -1) {
+        _lastEnrolledCount = data.enrolledCount;
+        return;
+      }
+      if (data.enrolledCount !== _lastEnrolledCount) {
+        _lastEnrolledCount = data.enrolledCount;
+        _applyDashboardData(data);
+      }
+    }).catch(() => {});
+  }, 5000);
 })();
