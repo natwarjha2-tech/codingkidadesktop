@@ -29,9 +29,12 @@ async function apiRequest(endpoint, options = {}) {
     if (!res.ok) {
       const message = data.message || data.error || `Request failed (${res.status})`;
       if (res.status === 401) {
-        localStorage.removeItem('ck_token');
-        localStorage.removeItem('ck_user');
-        navigate('login');
+        // Only force logout on auth-specific endpoints
+        if (endpoint.startsWith('/api/auth') || endpoint === '/api/student' || endpoint === '/api/student/profile') {
+          localStorage.removeItem('ck_token');
+          localStorage.removeItem('ck_user');
+          navigate('login');
+        }
       }
       throw new Error(message);
     }

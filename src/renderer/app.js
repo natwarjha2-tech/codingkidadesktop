@@ -768,23 +768,11 @@ async function loadVideo(url) {
     videoEl.style.display = 'none';
     videoEl.src = '';
   } else {
-    // S3 video — get signed URL then use video tag
+    // S3 video — URL is already signed from ?signed=true, play directly
     iframe.style.display = 'none';
     iframe.src = '';
     videoEl.style.display = 'block';
-    try {
-      const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
-      const res = await fetch(BASE_URL + '/api/media/signed-url', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
-        body: JSON.stringify({ url }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.signedUrl) { videoEl.src = data.signedUrl; return; }
-      }
-    } catch {}
-    videoEl.src = url; // fallback
+    videoEl.src = url;
   }
 }
 
