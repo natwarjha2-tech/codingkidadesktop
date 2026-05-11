@@ -62,7 +62,7 @@ const AuthAPI = {
 // Student API
 const StudentAPI = {
   getProfile: () => apiRequest('/api/student'),
-  getDashboard: () => apiRequest('/api/student/dashboard'),
+  getDashboard: () => apiRequest('/api/student/dashboard?signed=true'),
   updateProfile: (data) => apiRequest('/api/student/profile', {
     method: 'PATCH',
     body: JSON.stringify(data),
@@ -71,7 +71,7 @@ const StudentAPI = {
 
 // Courses API
 // GET /api/courses — returns { success, courses: [...] }
-// GET /api/courses/:id — returns { success, course: { ...modules: [ ...lessons ] } }
+// GET /api/courses/:id?signed=true — returns course with signed video URLs for private S3
 const CoursesAPI = {
   getAll: (category, search) => {
     const params = new URLSearchParams();
@@ -81,7 +81,7 @@ const CoursesAPI = {
     return apiRequest('/api/courses' + (query ? '?' + query : ''));
   },
 
-  getById: (id) => apiRequest('/api/courses/' + id),
+  getById: (id) => apiRequest('/api/courses/' + id + '?signed=true'),
 
   enroll: (courseId) => apiRequest('/api/courses/' + courseId + '/enroll', {
     method: 'POST',
