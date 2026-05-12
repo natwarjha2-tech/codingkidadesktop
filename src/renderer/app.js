@@ -92,6 +92,15 @@ async function loadStudentData() {
     const dashWelcome = document.getElementById('dashboard-welcome-name');
     if (dashWelcome) dashWelcome.textContent = name;
 
+    const dashGreeting = document.getElementById('dashboard-greeting');
+    if (dashGreeting) {
+      const hour = new Date().getHours();
+      let greeting = 'Good Evening';
+      if (hour < 12) greeting = 'Good Morning';
+      else if (hour < 18) greeting = 'Good Afternoon';
+      dashGreeting.textContent = greeting;
+    }
+
     const profileName = document.getElementById('profile-name');
     const profileEmail = document.getElementById('profile-email');
     const profileAvatar = document.getElementById('profile-avatar');
@@ -165,17 +174,52 @@ function _applyDashboardData(data) {
     if (streakEl) streakEl.textContent = streak;
 
     // Continue Learning — use API data or localStorage fallback
-    const lwData = data.lastWatched || JSON.parse(localStorage.getItem('ck_last_lesson') || 'null');
-    if (lwData) {
-      const lw = lwData;
-      const continueTitle = document.querySelector('.continue-info h4');
-      const continueLabel = document.querySelector('.continue-info .progress-label');
-      const continueFill = document.querySelector('.continue-card .progress-fill');
-      const continueBtn = document.querySelector('.continue-card .btn');
-      if (continueTitle) continueTitle.textContent = lw.courseTitle;
-      if (continueLabel) continueLabel.textContent = lw.moduleTitle + ' · ' + lw.lessonTitle;
-      if (continueFill) continueFill.style.width = (lw.progressPercent || 0) + '%';
-      if (continueBtn) continueBtn.onclick = () => openVideoFromBackend(lw.courseId, lw.moduleId, lw.lessonId);
+    let lw = data.lastWatched || JSON.parse(localStorage.getItem('ck_last_lesson') || 'null');
+    
+    // Fallback: if no last watched, use first enrolled course
+    if (!lw && data.enrolledCourses && data.enrolledCourses.length > 0) {
+      const first = data.enrolledCourses[0];
+      lw = {
+        courseId: first.courseId?._id || first.courseId || first.id,
+        courseTitle: first.title,
+        courseIcon: first.icon,
+        moduleTitle: 'Get started',
+        lessonTitle: 'First Lesson',
+        progressPercent: first.progressPercent || 0
+      };
+    }
+
+    const continueSection = document.getElementById('continue-learning-section');
+    if (lw) {
+      if (continueSection) continueSection.style.display = 'block';
+      const cTitle = document.getElementById('continue-title');
+      const cSub = document.getElementById('continue-subtitle');
+      const cFill = document.getElementById('continue-progress-fill');
+      const cText = document.getElementById('continue-progress-text');
+      const cIcon = document.getElementById('continue-icon');
+      const cBtn = document.getElementById('continue-resume-btn');
+      
+      if (cTitle) cTitle.textContent = lw.courseTitle || 'Continue Learning';
+      if (cSub) cSub.textContent = (lw.moduleTitle || '') + (lw.lessonTitle ? ' · ' + lw.lessonTitle : '');
+      const progress = lw.progressPercent || 0;
+      if (cFill) cFill.style.width = progress + '%';
+      if (cText) cText.textContent = progress + '% Complete';
+      if (cIcon) {
+        if (lw.courseIcon) {
+          cIcon.className = lw.courseIcon.startsWith('fa') ? lw.courseIcon : 'fas ' + lw.courseIcon;
+        } else {
+          cIcon.className = 'fas fa-play'; 
+        }
+      }
+      if (cBtn) {
+        if (lw.moduleId && lw.lessonId) {
+          cBtn.onclick = () => openVideoFromBackend(lw.courseId, lw.moduleId, lw.lessonId);
+        } else {
+          cBtn.onclick = () => openCourseDetail(lw.courseId);
+        }
+      }
+    } else {
+      if (continueSection) continueSection.style.display = 'none';
     }
 
     // Profile enrolled courses — always update regardless of which page is active
@@ -183,16 +227,18 @@ function _applyDashboardData(data) {
     if (profileCoursesContainer) {
       if (data.enrolledCourses && data.enrolledCourses.length > 0) {
         profileCoursesContainer.innerHTML = data.enrolledCourses.map(c =>
-          '<div style="margin-bottom:12px">' +
-          '<div style="display:flex;justify-content:space-between;font-size:0.85rem;margin-bottom:6px">' +
-          '<span>' + sanitize(c.title) + '</span>' +
-          '<span style="color:var(--muted)">' + c.progressPercent + '%</span>' +
+          '<div class="hover-glow" style="margin-bottom:16px; background:rgba(255,255,255,0.03); padding:12px; border-radius:12px; border:1px solid rgba(255,255,255,0.05)">' +
+          '<div style="display:flex;justify-content:space-between;font-size:0.85rem;margin-bottom:8px">' +
+          '<span style="font-weight:700; color:#fff">' + sanitize(c.title) + '</span>' +
+          '<span style="color:var(--primary); font-weight:800">' + (c.progressPercent || 0) + '%</span>' +
           '</div>' +
-          '<div class="progress-bar"><div class="progress-fill" style="width:' + c.progressPercent + '%"></div></div>' +
+          '<div class="progress-bar" style="height:6px; background:rgba(255,255,255,0.1); border-radius:10px; overflow:hidden">' +
+          '<div class="progress-fill" style="width:' + (c.progressPercent || 0) + '%; height:100%; background:linear-gradient(to right, #6c47ff, #ec4899); border-radius:10px"></div>' +
+          '</div>' +
           '</div>'
         ).join('');
       } else {
-        profileCoursesContainer.innerHTML = '<p style="color:var(--muted);font-size:0.85rem">No courses enrolled yet.</p>';
+        profileCoursesContainer.innerHTML = '<div style="text-align:center; padding:20px; color:var(--muted); font-size:0.85rem">No courses enrolled yet.</div>';
       }
     }
 }
@@ -313,8 +359,13 @@ function navigate(page) {
 }
 
 function switchTab(el, tabId) {
-  el.parentElement.querySelectorAll('.video-tab').forEach(t => t.classList.remove('active'));
-  el.classList.add('active');
+  // Update panel tab classes
+  const tabs = el.parentElement.querySelectorAll('.panel-tab');
+  if (tabs.length > 0) {
+    tabs.forEach(t => t.classList.remove('active'));
+    el.classList.add('active');
+  }
+
   ['tab-notes','tab-quiz','tab-exercise','tab-chat'].forEach(id => {
     const t = document.getElementById(id);
     if (t) t.style.display = 'none';
@@ -473,18 +524,27 @@ function renderCourseGrid(courses) {
   const grid = document.getElementById('courses-grid');
   if (!grid) return;
   if (!courses || courses.length === 0) {
-    grid.innerHTML = '<p style="color:var(--muted);padding:20px">No courses found.</p>';
+    grid.innerHTML = '<div style="grid-column: 1/-1; text-align:center; padding:60px 20px; background:rgba(255,255,255,0.02); border-radius:24px; border:1px solid rgba(255,255,255,0.05)">' +
+      '<i class="fas fa-search" style="font-size:3rem; color:var(--muted); margin-bottom:16px; display:block"></i>' +
+      '<p style="color:var(--muted); font-size:1.1rem; font-weight:600">No courses found</p>' +
+      '<p style="color:var(--muted); font-size:0.9rem; margin-top:8px">Try adjusting your filters or search terms</p>' +
+      '</div>';
     return;
   }
   grid.innerHTML = courses.map(c => `
-    <div class="course-card" onclick="openCourseDetail('${c.id}')">
-      <div class="course-thumb" style="background:${c.gradient}"><i class="${c.icon}"></i></div>
-      <div class="course-body">
-        <h3>${sanitize(c.title)}</h3>
-        <p>${sanitize(c.subtitle)}</p>
-        <div class="course-meta">
-          <span class="course-rating"><i class="fas fa-star"></i> ${c.rating}</span>
-          <span class="badge ${c.free ? 'badge-free' : 'badge-paid'}">${c.free ? 'Free' : 'Paid'}</span>
+    <div class="course-card hover-glow" onclick="openCourseDetail('${c.id}')" style="background:#161B22; border:1px solid rgba(255,255,255,0.05); border-radius:24px; overflow:hidden; cursor:pointer; position:relative; box-shadow:0 12px 30px rgba(0,0,0,0.2);">
+      <div class="course-thumb" style="height:160px; background:${c.gradient}; display:flex; align-items:center; justify-content:center; position:relative; overflow:hidden;">
+        <div style="position:absolute; width:100%; height:100%; background:radial-gradient(circle, rgba(255,255,255,0.2), transparent 70%);"></div>
+        <i class="${c.icon}" style="font-size:4.5rem; color:rgba(255,255,255,0.9); z-index:1; filter: drop-shadow(0 0 15px rgba(255,255,255,0.3));"></i>
+      </div>
+      <div class="course-body" style="padding:20px;">
+        <h3 style="font-size:1.1rem; font-weight:800; color:#fff; margin-bottom:8px;">${sanitize(c.title)}</h3>
+        <p style="font-size:0.85rem; color:var(--muted); margin-bottom:16px; min-height:40px;">${sanitize(c.subtitle)}</p>
+        <div class="course-meta" style="display:flex; justify-content:space-between; align-items:center;">
+          <span class="course-rating" style="display:flex; align-items:center; gap:6px; font-size:0.9rem; font-weight:700; color:#F59E0B;">
+            <i class="fas fa-star"></i> ${c.rating}
+          </span>
+          <span class="badge ${c.free ? 'badge-free' : 'badge-paid'}" style="font-size:0.85rem; font-weight:800; color:${c.free ? '#10B981' : 'rgba(255,255,255,0.9)'}">${c.free ? 'Free' : 'Paid'}</span>
         </div>
       </div>
     </div>`).join('');
@@ -758,12 +818,18 @@ function openVideo(courseId, moduleId, videoId) {
     '<div id="exercise-result" style="margin-top:10px;font-size:0.85rem"></div>';
 
   const playlist = document.getElementById('video-playlist');
-  playlist.innerHTML = mod.videos.map(v => `
-    <div class="playlist-item ${v.id === videoId ? 'active' : ''} ${v.free ? '' : 'locked'}" onclick="${v.free ? 'openVideo(' + courseId + ',' + moduleId + ',' + v.id + ')' : 'void(0)'}">
-      <i class="fas ${v.free ? 'fa-play-circle' : 'fa-lock'}"></i>
-      <span class="item-title">${sanitize(v.title)}</span>
-      <span class="item-duration">${v.duration}</span>
-    </div>`).join('');
+  if (playlist) {
+    playlist.innerHTML = mod.videos.map(v => `
+      <div class="playlist-item ${v.id === videoId ? 'active' : ''} ${v.free ? '' : 'locked'}" 
+           style="display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: ${v.id === videoId ? 'rgba(108,71,255,0.1)' : 'rgba(255,255,255,0.02)'}; border: 1px solid ${v.id === videoId ? 'var(--primary)' : 'rgba(255,255,255,0.05)'}; border-radius: 12px; cursor: pointer; transition: all 0.2s;"
+           onmouseover="this.style.background='rgba(255,255,255,0.05)'"
+           onmouseout="this.style.background='${v.id === videoId ? 'rgba(108,71,255,0.1)' : 'rgba(255,255,255,0.02)'}'"
+           onclick="${v.free ? 'openVideo(' + courseId + ',' + moduleId + ',' + v.id + ')' : 'void(0)'}">
+        <i class="fas ${v.free ? (v.id === videoId ? 'fa-play-circle' : 'fa-play-circle') : 'fa-lock'}" style="color: ${v.free ? 'var(--primary)' : 'var(--muted)'}"></i>
+        <span class="item-title" style="font-size: 0.9rem; font-weight: ${v.id === videoId ? '700' : '500'}; color: #fff; flex: 1;">${sanitize(v.title)}</span>
+        <span class="item-duration" style="font-size: 0.75rem; color: var(--muted);">${v.duration}</span>
+      </div>`).join('');
+  }
 
   const mockChatContainer = document.querySelector('#tab-chat .video-chat-messages');
   if (mockChatContainer) mockChatContainer.innerHTML = '';
@@ -772,7 +838,14 @@ function openVideo(courseId, moduleId, videoId) {
   document.getElementById('tab-exercise').style.display = 'none';
   document.getElementById('tab-chat').style.display = 'none';
   document.getElementById('tab-notes').style.display = 'block';
-  document.querySelectorAll('.video-tab').forEach((t, i) => t.classList.toggle('active', i === 0));
+  
+  // Set summary preview
+  const summary = document.getElementById('video-notes-summary');
+  if (summary) summary.innerHTML = video.notes || 'No summary available for this lesson.';
+
+  // Reset tabs UI
+  const firstTab = document.querySelector('.panel-tab');
+  if (firstTab) switchTab(firstTab, 'tab-notes');
 
   navigate('video');
 }
@@ -989,17 +1062,45 @@ function removeDownload(index) {
   renderDownloads();
 }
 
-function initCourseFilters() {
-  document.querySelectorAll('.filter-tab').forEach(tab => {
-    tab.addEventListener('click', async () => {
-      tab.closest('.filter-tabs').querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
-      tab.classList.add('active');
-      const filter = tab.textContent.trim();
-      const search = document.getElementById('course-search-input')?.value.trim() || '';
-      const courses = await loadCourses(filter, search);
-      renderCourseGrid(courses);
-    });
-  });
+let _allCourseCategories = ['All', 'Programming', 'Web Dev', 'Data Science', 'DSA'];
+
+async function initCourseFilters() {
+  const container = document.getElementById('course-categories');
+  if (!container) return;
+
+  // Initial render of categories
+  renderCourseCategories();
+
+  // Try to fetch real categories from available courses
+  try {
+    const courses = await loadCourses('All');
+    const cats = new Set(['All']);
+    courses.forEach(c => { if (c.category) cats.add(c.category); });
+    _allCourseCategories = Array.from(cats);
+    renderCourseCategories();
+  } catch (err) {}
+}
+
+function renderCourseCategories() {
+  const container = document.getElementById('course-categories');
+  if (!container) return;
+  const currentActive = container.querySelector('.filter-tab.active')?.textContent.trim() || 'All';
+  
+  container.innerHTML = _allCourseCategories.map(cat => `
+    <button class="filter-tab ${cat === currentActive ? 'active' : ''}" onclick="filterCourses('${cat}', this)">${cat}</button>
+  `).join('');
+}
+
+async function filterCourses(category, btn) {
+  const container = document.getElementById('course-categories');
+  if (container) {
+    container.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
+  }
+  if (btn) btn.classList.add('active');
+
+  const search = document.getElementById('course-search-input')?.value.trim() || '';
+  const courses = await loadCourses(category, search);
+  renderCourseGrid(courses);
 }
 
 // ─── Offline Downloads ───────────────────────────────────────────────────────────────
