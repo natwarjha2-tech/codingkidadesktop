@@ -106,8 +106,9 @@ async function loadStudentData() {
     if (profileNameInput) profileNameInput.value = name;
     if (profileEmailInput) profileEmailInput.value = email;
 
-    // Restore saved avatar photo
-    const savedAvatar = localStorage.getItem('ck_avatar');
+    // Restore saved avatar photo — user-specific
+    const userId = getCurrentUserId();
+    const savedAvatar = localStorage.getItem('ck_avatar_' + userId);
     if (savedAvatar) {
       const img = document.getElementById('profile-avatar-img');
       const text = document.getElementById('profile-avatar-text');
@@ -148,21 +149,32 @@ function _applyDashboardData(data) {
     if (!data.success) return;
 
     // Dashboard stats
-    const enrolledEl = document.querySelector('.stat-card:nth-child(1) .stat-value');
-    const completedEl = document.querySelector('.stat-card:nth-child(2) .stat-value');
+    const enrolledEl = document.getElementById('stat-enrolled');
+    const completedEl = document.getElementById('stat-completed');
+    const certEl = document.getElementById('stat-certificates');
+    const streakEl = document.getElementById('stat-streak');
     if (enrolledEl) enrolledEl.textContent = data.enrolledCount || 0;
     if (completedEl) completedEl.textContent = data.completedVideos || 0;
 
-    // Continue Learning
-    if (data.lastWatched) {
-      const lw = data.lastWatched;
+    // Certificates = courses where progressPercent is 100
+    const certCount = (data.enrolledCourses || []).filter(c => c.progressPercent === 100).length;
+    if (certEl) certEl.textContent = certCount;
+
+    // Daily streak from localStorage
+    const streak = updateDailyStreak();
+    if (streakEl) streakEl.textContent = streak;
+
+    // Continue Learning — use API data or localStorage fallback
+    const lwData = data.lastWatched || JSON.parse(localStorage.getItem('ck_last_lesson') || 'null');
+    if (lwData) {
+      const lw = lwData;
       const continueTitle = document.querySelector('.continue-info h4');
       const continueLabel = document.querySelector('.continue-info .progress-label');
       const continueFill = document.querySelector('.continue-card .progress-fill');
       const continueBtn = document.querySelector('.continue-card .btn');
       if (continueTitle) continueTitle.textContent = lw.courseTitle;
       if (continueLabel) continueLabel.textContent = lw.moduleTitle + ' · ' + lw.lessonTitle;
-      if (continueFill) continueFill.style.width = lw.progressPercent + '%';
+      if (continueFill) continueFill.style.width = (lw.progressPercent || 0) + '%';
       if (continueBtn) continueBtn.onclick = () => openVideoFromBackend(lw.courseId, lw.moduleId, lw.lessonId);
     }
 
@@ -235,14 +247,14 @@ async function saveProfile() {
 function handleProfilePhoto(input) {
   const file = input.files?.[0];
   if (!file) return;
+  const userId = getCurrentUserId();
   const reader = new FileReader();
   reader.onload = (e) => {
     const img = document.getElementById('profile-avatar-img');
     const text = document.getElementById('profile-avatar-text');
     if (img) { img.src = e.target.result; img.style.display = 'block'; }
     if (text) text.style.display = 'none';
-    // Save to localStorage for persistence
-    localStorage.setItem('ck_avatar', e.target.result);
+    localStorage.setItem('ck_avatar_' + userId, e.target.result);
   };
   reader.readAsDataURL(file);
 }
@@ -513,8 +525,17 @@ function renderCourseDetailFromBackend(course) {
   document.getElementById('cd-instructor-meta').textContent = course.institute || '';
   document.getElementById('cd-instructor-rating').textContent = (course.rating || '') + (course.students ? ' - ' + course.students + ' students' : '');
   const priceBtn = document.getElementById('cd-price-btn');
-  priceBtn.textContent = course.isFree ? 'Free Course' : 'Unlock Course';
-  priceBtn.onclick = course.isFree ? null : () => openPaymentPage(course.id);
+  if (course.isFree) {
+    priceBtn.textContent = 'Free Course';
+    priceBtn.onclick = null;
+  } else if (course.isEnrolled) {
+    priceBtn.textContent = '✅ Enrolled';
+    priceBtn.onclick = null;
+    priceBtn.style.background = 'var(--success)';
+  } else {
+    priceBtn.textContent = 'Unlock Course';
+    priceBtn.onclick = () => openPaymentPage(course.id);
+  }
 
   const modulesContainer = document.getElementById('cd-modules');
   const modules = course.modules || [];
@@ -535,18 +556,19 @@ function renderCourseDetailFromBackend(course) {
 
     (mod.lessons || []).forEach(lesson => {
       const item = document.createElement('div');
-      item.className = 'playlist-item' + (lesson.isFree ? '' : ' locked');
-      if (lesson.isFree) {
+      const canAccess = course.isEnrolled || lesson.isFree;
+      item.className = 'playlist-item' + (canAccess ? '' : ' locked');
+      if (canAccess) {
         item.onclick = () => openVideoFromBackend(course.id, mod.id, lesson.id);
       } else {
         item.onclick = () => openPaymentPage(course.id);
         item.style.cursor = 'pointer';
       }
       item.innerHTML =
-        '<i class="fas ' + (lesson.isFree ? 'fa-play-circle' : 'fa-lock') + '" style="color:' + (lesson.isFree ? 'var(--success)' : '') + '"></i>' +
+        '<i class="fas ' + (canAccess ? 'fa-play-circle' : 'fa-lock') + '" style="color:' + (canAccess ? 'var(--success)' : '') + '"></i>' +
         '<span class="item-title">' + sanitize(lesson.title) + '</span>' +
         '<span class="item-duration">' + (lesson.duration || '') + '</span>' +
-        '<span class="badge ' + (lesson.isFree ? 'badge-free' : 'badge-paid') + '">' + (lesson.isFree ? 'Free' : 'Pro') + '</span>';
+        '<span class="badge ' + (lesson.isFree ? 'badge-free' : (course.isEnrolled ? 'badge-free' : 'badge-paid')) + '">' + (lesson.isFree ? 'Free' : (course.isEnrolled ? 'Enrolled' : 'Pro')) + '</span>';
       modDiv.appendChild(item);
     });
 
@@ -608,6 +630,14 @@ async function openVideoFromBackend(courseId, moduleId, lessonId) {
     await loadVideo(lesson.videoUrl || '');
 
     _currentVideoData = { lessonId: lesson.id, title: lesson.title, courseTitle: course.title || '', moduleTitle: mod.title, videoUrl: lesson.videoUrl, notesUrl: lesson.notes || '' };
+    // Mark lesson as complete
+    markLessonComplete(lesson.id);
+    // Track last opened lesson for continue learning
+    const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+    if (token) {
+      const lastLesson = { courseId: course.id, courseTitle: course.title, moduleId: mod.id, moduleTitle: mod.title, lessonId: lesson.id, lessonTitle: lesson.title, videoUrl: lesson.videoUrl };
+      localStorage.setItem('ck_last_lesson', JSON.stringify(lastLesson));
+    }
     const saveBtn = document.getElementById('save-download-btn');
     if (saveBtn) {
       const saved = JSON.parse(localStorage.getItem('ck_downloads') || '[]').find(d => d.lessonId === lesson.id);
@@ -653,6 +683,34 @@ async function openVideoFromBackend(courseId, moduleId, lessonId) {
 
     navigate('video');
   } catch {}
+}
+
+function updateDailyStreak() {
+  const userId = getCurrentUserId();
+  const key = 'ck_streak_' + userId;
+  const today = new Date().toDateString();
+  let streakData = JSON.parse(localStorage.getItem(key) || '{"count":0,"lastDate":""}');
+  const yesterday = new Date(Date.now() - 86400000).toDateString();
+  if (streakData.lastDate === today) {
+    return streakData.count;
+  } else if (streakData.lastDate === yesterday) {
+    streakData.count += 1;
+  } else {
+    streakData.count = 1;
+  }
+  streakData.lastDate = today;
+  localStorage.setItem(key, JSON.stringify(streakData));
+  return streakData.count;
+}
+
+// Mark lesson as complete when video is opened
+function markLessonComplete(lessonId) {
+  const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+  if (!token || !lessonId) return;
+  apiRequest('/api/lessons/' + lessonId + '/progress', {
+    method: 'POST',
+    body: JSON.stringify({ completed: true }),
+  }).catch(() => {});
 }
 
 // Open video from mockData
