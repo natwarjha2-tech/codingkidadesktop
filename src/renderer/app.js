@@ -1280,3 +1280,97 @@ document.addEventListener('keydown', (e) => {
     }).catch(() => {});
   }, 5000);
 })();
+
+// Chat and AI Functionality
+function sendAI() {
+  const input = document.getElementById('aiInput');
+  const messages = document.getElementById('aiMessages');
+  if (!input || !messages) return;
+  const text = input.value.trim();
+  if (!text) return;
+
+  const userMsg = document.createElement('div');
+  userMsg.className = 'ai-msg';
+  userMsg.style.cssText = 'display: flex; gap: 16px; max-width: 85%; align-self: flex-end; flex-direction: row-reverse; animation: slideInRight 0.3s ease;';
+  userMsg.innerHTML = `
+    <div class="ai-icon" style="width: 36px; height: 36px; border-radius: 50%; background: linear-gradient(135deg, #10b981, #34d399); display: flex; align-items: center; justify-content: center; font-size: 0.8rem; font-weight: 700; color: #fff; flex-shrink: 0; box-shadow: 0 4px 10px rgba(16, 185, 129, 0.3);">You</div>
+    <div class="ai-bubble" style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 16px 0 16px 16px; padding: 16px 20px; color: #fff; font-size: 0.95rem; line-height: 1.5;">${sanitize(text)}</div>
+  `;
+  messages.appendChild(userMsg);
+  input.value = '';
+  messages.scrollTo({ top: messages.scrollHeight, behavior: 'smooth' });
+
+  setTimeout(() => {
+    const aiMsg = document.createElement('div');
+    aiMsg.className = 'ai-msg';
+    aiMsg.style.cssText = 'display: flex; gap: 16px; max-width: 85%; animation: slideInLeft 0.3s ease;';
+    aiMsg.innerHTML = `
+      <div class="ai-icon" style="width: 36px; height: 36px; border-radius: 50%; background: linear-gradient(135deg, #3b1fa8, #6c47ff); display: flex; align-items: center; justify-content: center; font-size: 0.8rem; font-weight: 700; color: #fff; flex-shrink: 0; box-shadow: 0 4px 10px rgba(108, 71, 255, 0.3);">AI</div>
+      <div class="ai-bubble" style="background: rgba(255,255,255,0.05); border: 1px solid var(--border); border-radius: 0 16px 16px 16px; padding: 16px 20px; color: #fff; font-size: 0.95rem; line-height: 1.5;">
+        <span style="font-style:italic; color:var(--muted)">Thinking...</span>
+      </div>
+    `;
+    messages.appendChild(aiMsg);
+    messages.scrollTo({ top: messages.scrollHeight, behavior: 'smooth' });
+
+    setTimeout(async () => {
+      const bubble = aiMsg.querySelector('.ai-bubble');
+      const lowerText = text.toLowerCase();
+      let reply = "";
+
+      try {
+        if (lowerText.includes('hello') || lowerText.includes('hi ') || lowerText === 'hi' || lowerText === 'hey') {
+          reply = "Hello there! I am your CodingKida AI Mentor, powered by Antigravity magic ✨. How can I help you learn today?";
+        } else if (lowerText.includes('joke') || lowerText.includes('funny')) {
+          const res = await fetch('https://v2.jokeapi.dev/joke/Programming?type=single');
+          const data = await res.json();
+          reply = data.joke || "Why do programmers prefer dark mode? Because light attracts bugs! 🐛";
+        } else if (lowerText.includes('who are you') || lowerText.includes('your name')) {
+          reply = "I am an advanced AI Mentor built by Antigravity for CodingKida. I know about code, tech, and the universe! 🚀";
+        } else {
+          const searchRes = await fetch(`https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(text)}&utf8=&format=json&origin=*`);
+          const searchData = await searchRes.json();
+          if (searchData.query && searchData.query.search.length > 0) {
+            const title = searchData.query.search[0].title;
+            const summaryRes = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`);
+            const summaryData = await summaryRes.json();
+            if (summaryData.extract) {
+              reply = `Here is what I found about **${title}**:<br><br>${summaryData.extract}`;
+            } else {
+              reply = "I couldn't find a detailed answer, but keep asking! I'm best at programming questions.";
+            }
+          } else {
+            reply = "I couldn't find a specific answer for that in my database. But as your CodingKida mentor, I'm always here to help you learn coding! Ask me about Python, JavaScript, or AI.";
+          }
+        }
+      } catch (err) {
+        reply = "Oops! My magical Antigravity servers are taking a short break. Try asking again in a moment! ⚡";
+      }
+
+      bubble.innerHTML = reply;
+      messages.scrollTo({ top: messages.scrollHeight, behavior: 'smooth' });
+    }, 1000);
+
+  }, 500);
+}
+
+function sendChat() {
+  const input = document.getElementById('chatInput');
+  const messages = document.getElementById('chatMessages');
+  if (!input || !messages) return;
+  const text = input.value.trim();
+  if (!text) return;
+
+  const msg = document.createElement('div');
+  msg.className = 'chat-msg own';
+  msg.innerHTML = `
+    <div class="chat-avatar" style="background:#10b981">You</div>
+    <div class="chat-bubble">
+      <p>${sanitize(text)}</p>
+      <div class="time">Just now</div>
+    </div>
+  `;
+  messages.appendChild(msg);
+  input.value = '';
+  messages.scrollTo({ top: messages.scrollHeight, behavior: 'smooth' });
+}
