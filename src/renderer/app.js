@@ -358,20 +358,49 @@ function navigate(page) {
   }
 }
 
-function switchTab(el, tabId) {
-  // Update panel tab classes
-  const tabs = el.parentElement.querySelectorAll('.panel-tab');
-  if (tabs.length > 0) {
-    tabs.forEach(t => t.classList.remove('active'));
-    el.classList.add('active');
-  }
+function switchVpTab(el, panelId) {
+  el.closest('.vp-tabs').querySelectorAll('.vp-tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  document.querySelectorAll('.vp-tab-panel').forEach(p => p.classList.remove('active'));
+  const panel = document.getElementById(panelId);
+  if (panel) panel.classList.add('active');
+}
 
-  ['tab-notes','tab-quiz','tab-exercise','tab-chat'].forEach(id => {
-    const t = document.getElementById(id);
-    if (t) t.style.display = 'none';
-  });
-  const tab = document.getElementById(tabId);
-  if (tab) tab.style.display = 'block';
+async function sendVpAI() {
+  const input = document.getElementById('vp-ai-input');
+  const messages = document.getElementById('vp-ai-messages');
+  if (!input || !messages) return;
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+
+  const userMsg = document.createElement('div');
+  userMsg.style.cssText = 'display:flex;gap:10px;align-items:flex-start;flex-direction:row-reverse;';
+  userMsg.innerHTML = `<div style="width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,#10b981,#34d399);display:flex;align-items:center;justify-content:center;font-size:0.7rem;font-weight:700;color:#fff;flex-shrink:0;">You</div><div style="background:rgba(108,71,255,0.15);border:1px solid rgba(108,71,255,0.3);border-radius:10px 0 10px 10px;padding:10px 14px;font-size:0.82rem;color:#fff;line-height:1.6;">${sanitize(text)}</div>`;
+  messages.appendChild(userMsg);
+  messages.scrollTop = messages.scrollHeight;
+
+  const aiMsg = document.createElement('div');
+  aiMsg.style.cssText = 'display:flex;gap:10px;align-items:flex-start;';
+  aiMsg.innerHTML = `<div style="width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,var(--primary),#ec4899);display:flex;align-items:center;justify-content:center;font-size:0.7rem;font-weight:700;color:#fff;flex-shrink:0;">AI</div><div style="background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:0 10px 10px 10px;padding:10px 14px;font-size:0.82rem;color:var(--muted);line-height:1.6;">Thinking...</div>`;
+  messages.appendChild(aiMsg);
+  messages.scrollTop = messages.scrollHeight;
+
+  try {
+    const lessonTitle = document.getElementById('video-title')?.textContent || '';
+    const response = await fetch(
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + CONFIG.GEMINI_API_KEY,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents: [{ parts: [{ text: 'You are a coding tutor. Current lesson: "' + lessonTitle + '". Student asks: ' + text }] }] }) }
+    );
+    const data = await response.json();
+    const answer = data.candidates?.[0]?.content?.parts?.[0]?.text || 'Sorry, could not get a response.';
+    aiMsg.querySelector('div:last-child').innerHTML = answer.replace(/\n/g, '<br/>');
+    aiMsg.querySelector('div:last-child').style.color = '#fff';
+  } catch {
+    aiMsg.querySelector('div:last-child').textContent = 'Error connecting to AI.';
+  }
+  messages.scrollTop = messages.scrollHeight;
 }
 
 function selectOption(el) {
@@ -527,27 +556,37 @@ function renderCourseGrid(courses) {
     grid.innerHTML = '<div style="grid-column: 1/-1; text-align:center; padding:60px 20px; background:rgba(255,255,255,0.02); border-radius:24px; border:1px solid rgba(255,255,255,0.05)">' +
       '<i class="fas fa-search" style="font-size:3rem; color:var(--muted); margin-bottom:16px; display:block"></i>' +
       '<p style="color:var(--muted); font-size:1.1rem; font-weight:600">No courses found</p>' +
-      '<p style="color:var(--muted); font-size:0.9rem; margin-top:8px">Try adjusting your filters or search terms</p>' +
       '</div>';
     return;
   }
-  grid.innerHTML = courses.map(c => `
-    <div class="course-card hover-glow" onclick="openCourseDetail('${c.id}')" style="background:#161B22; border:1px solid rgba(255,255,255,0.05); border-radius:24px; overflow:hidden; cursor:pointer; position:relative; box-shadow:0 12px 30px rgba(0,0,0,0.2);">
-      <div class="course-thumb" style="height:160px; background:${c.gradient}; display:flex; align-items:center; justify-content:center; position:relative; overflow:hidden;">
-        <div style="position:absolute; width:100%; height:100%; background:radial-gradient(circle, rgba(255,255,255,0.2), transparent 70%);"></div>
-        <i class="${c.icon}" style="font-size:4.5rem; color:rgba(255,255,255,0.9); z-index:1; filter: drop-shadow(0 0 15px rgba(255,255,255,0.3));"></i>
+  // Fallback gradients for courses without color
+  const fallbackGradients = [
+    'linear-gradient(135deg,#6c47ff,#3b1fa8)',
+    'linear-gradient(135deg,#ec4899,#be185d)',
+    'linear-gradient(135deg,#f97316,#c2410c)',
+    'linear-gradient(135deg,#10b981,#065f46)',
+    'linear-gradient(135deg,#3b82f6,#1d4ed8)',
+    'linear-gradient(135deg,#8b5cf6,#6d28d9)',
+  ];
+  grid.innerHTML = courses.map((c, i) => {
+    const gradient = c.gradient && c.gradient.includes('gradient') ? c.gradient : fallbackGradients[i % fallbackGradients.length];
+    return `
+    <div class="course-card hover-glow" onclick="openCourseDetail('${c.id}')" style="background:#161B22; border:1px solid rgba(255,255,255,0.06); border-radius:20px; overflow:hidden; cursor:pointer; box-shadow:0 8px 24px rgba(0,0,0,0.3); transition:transform 0.25s, box-shadow 0.25s;">
+      <div style="height:150px; background:${gradient}; display:flex; align-items:center; justify-content:center; position:relative; overflow:hidden;">
+        <div style="position:absolute;inset:0;background:linear-gradient(to bottom,transparent 40%,rgba(0,0,0,0.4));"></div>
+        <i class="${c.icon}" style="font-size:4rem; color:rgba(255,255,255,0.95); z-index:1; filter:drop-shadow(0 4px 12px rgba(0,0,0,0.4));"></i>
+        <span style="position:absolute;top:12px;right:12px;background:rgba(0,0,0,0.35);backdrop-filter:blur(8px);color:#fff;font-size:0.72rem;font-weight:700;padding:4px 10px;border-radius:50px;z-index:2;border:1px solid rgba(255,255,255,0.15);">${c.category}</span>
       </div>
-      <div class="course-body" style="padding:20px;">
-        <h3 style="font-size:1.1rem; font-weight:800; color:#fff; margin-bottom:8px;">${sanitize(c.title)}</h3>
-        <p style="font-size:0.85rem; color:var(--muted); margin-bottom:16px; min-height:40px;">${sanitize(c.subtitle)}</p>
-        <div class="course-meta" style="display:flex; justify-content:space-between; align-items:center;">
-          <span class="course-rating" style="display:flex; align-items:center; gap:6px; font-size:0.9rem; font-weight:700; color:#F59E0B;">
-            <i class="fas fa-star"></i> ${c.rating}
-          </span>
-          <span class="badge ${c.free ? 'badge-free' : 'badge-paid'}" style="font-size:0.85rem; font-weight:800; color:${c.free ? '#10B981' : 'rgba(255,255,255,0.9)'}">${c.free ? 'Free' : 'Paid'}</span>
+      <div style="padding:16px;">
+        <h3 style="font-size:1rem; font-weight:800; color:#fff; margin-bottom:6px; line-height:1.3;">${sanitize(c.title)}</h3>
+        <p style="font-size:0.8rem; color:var(--muted); margin-bottom:14px; line-height:1.5; min-height:36px;">${sanitize(c.subtitle)}</p>
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span style="display:flex;align-items:center;gap:5px;font-size:0.82rem;font-weight:700;color:#F59E0B;"><i class="fas fa-star"></i> ${c.rating || '4.5'}</span>
+          <span style="font-size:0.82rem;font-weight:800;padding:3px 10px;border-radius:50px;background:${c.free ? 'rgba(34,197,94,0.15)' : 'rgba(108,71,255,0.15)'};color:${c.free ? '#22c55e' : '#a78bfa'};">${c.free ? 'Free' : 'Pro'}</span>
         </div>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 async function openCourseDetail(courseId) {
@@ -670,37 +709,16 @@ function renderCourseDetailFromMock(course) {
 // Track current lesson context for next lesson CTA
 let _currentLessonContext = null;
 
-function updateVideoProgressBar(completedLessons, totalLessons) {
-  const pct = totalLessons > 0 ? Math.round((completedLessons / totalLessons) * 100) : 0;
-  const fill = document.getElementById('video-progress-fill');
-  const text = document.getElementById('video-progress-text');
-  const count = document.getElementById('video-lesson-count');
-  if (fill) fill.style.width = pct + '%';
-  if (text) text.textContent = pct + '% Completed';
-  if (count) count.textContent = completedLessons + '/' + totalLessons + ' Lessons';
-}
-
-function goToNextLesson() {
-  const ctx = _currentLessonContext;
-  if (!ctx) return;
-  const { courseId, moduleId, lessons, currentLessonId } = ctx;
-  const idx = lessons.findIndex(l => l.id === currentLessonId);
-  if (idx === -1 || idx >= lessons.length - 1) return;
-  const next = lessons[idx + 1];
-  if (next && next.isFree) {
-    document.getElementById('next-lesson-float').style.display = 'none';
-    openVideoFromBackend(courseId, moduleId, next.id);
-  }
-}
-// Track current lesson context for next lesson CTA
-let _currentLessonContext = null;
-
 function updateVideoProgressBar(completedCount, totalLessons) {
   const pct = totalLessons > 0 ? Math.round((completedCount / totalLessons) * 100) : 0;
+  // top thin bar
   const fill = document.getElementById('video-progress-fill');
+  if (fill) fill.style.width = pct + '%';
+  // right panel progress
+  const rightFill = document.getElementById('vp-right-progress-fill');
+  if (rightFill) rightFill.style.width = pct + '%';
   const text = document.getElementById('video-progress-text');
   const count = document.getElementById('video-lesson-count');
-  if (fill) fill.style.width = pct + '%';
   if (text) text.textContent = pct + '% Completed';
   if (count) count.textContent = completedCount + '/' + totalLessons + ' Lessons';
 }
@@ -749,16 +767,18 @@ async function openVideoFromBackend(courseId, moduleId, lessonId) {
       const lastLesson = { courseId: course.id, courseTitle: course.title, moduleId: mod.id, moduleTitle: mod.title, lessonId: lesson.id, lessonTitle: lesson.title, videoUrl: lesson.videoUrl };
       localStorage.setItem('ck_last_lesson', JSON.stringify(lastLesson));
     }
-    const saveBtn = document.getElementById('save-download-btn');
-    if (saveBtn) {
-      const saved = JSON.parse(localStorage.getItem('ck_downloads') || '[]').find(d => d.lessonId === lesson.id);
-      saveBtn.innerHTML = saved ? '<i class="fas fa-check"></i> Saved!' : '<i class="fas fa-bookmark"></i> Save to Watchlist';
-      saveBtn.disabled = !!saved;
+    // Reset download button state for this lesson
+    const dlBtn = document.getElementById('offline-download-btn');
+    if (dlBtn) {
+      dlBtn.disabled = false;
+      dlBtn.innerHTML = '<i class="fas fa-download"></i> Download Lesson';
+      dlBtn.style.background = 'linear-gradient(135deg,#6c47ff,#ec4899)';
     }
 
-    // Update progress tracker
+    // Update progress tracker — count completed lessons across ALL modules
     const allLessons = (course.modules || []).flatMap(m => m.lessons || []);
-    const completedCount = (course.completedLessons || []).length;
+    const completedLessons = course.completedLessons || [];
+    const completedCount = allLessons.filter(l => completedLessons.includes(l.id)).length;
     updateVideoProgressBar(completedCount, allLessons.length);
 
     // Store context for next lesson CTA
@@ -769,40 +789,49 @@ async function openVideoFromBackend(courseId, moduleId, lessonId) {
     if (floatBtn) floatBtn.style.display = (nextLesson && nextLesson.isFree) ? 'flex' : 'none';
 
     const notesUrl = lesson.notes || '';
-    document.getElementById('tab-notes').innerHTML =
-      '<h4 style="margin-bottom:12px">Notes</h4>' +
-      '<p style="color:var(--muted);font-size:0.88rem;line-height:1.8">' + (notesUrl ? 'PDF notes available for this lesson.' : 'No notes available.') + '</p>' +
+    document.getElementById('vp-notes').innerHTML =
+      '<h4 style="margin-bottom:12px;font-weight:700;">Notes</h4>' +
+      '<p style="color:var(--muted);font-size:0.88rem;line-height:1.8">' + (notesUrl ? 'PDF notes available for this lesson.' : 'No notes available for this lesson.') + '</p>' +
       (notesUrl ? '<button class="btn btn-outline btn-sm" style="margin-top:14px" onclick="openPdfInApp(\'' + notesUrl + '\')"><i class="fas fa-file-pdf"></i> View PDF</button>' : '');
 
-    document.getElementById('tab-quiz').innerHTML =
-      '<h4 style="margin-bottom:14px">Quiz</h4>' +
+    document.getElementById('vp-quiz').innerHTML =
+      '<h4 style="margin-bottom:14px;font-weight:700;">Quiz</h4>' +
       '<p style="color:var(--muted);font-size:0.88rem">Quiz coming soon for this lesson.</p>';
 
-    document.getElementById('tab-exercise').innerHTML =
-      '<h4 style="margin-bottom:12px">Exercise</h4>' +
+    document.getElementById('vp-exercise').innerHTML =
+      '<h4 style="margin-bottom:12px;font-weight:700;">Exercise</h4>' +
       '<p style="color:var(--muted);font-size:0.88rem">Exercise coming soon for this lesson.</p>';
 
+    // Render ALL modules and their lessons in playlist
     const playlist = document.getElementById('video-playlist');
     playlist.innerHTML = '';
-    (mod.lessons || []).forEach(l => {
-      const item = document.createElement('div');
-      item.className = 'playlist-item' + (l.id === lessonId ? ' active' : '') + (l.isFree ? '' : ' locked');
-      if (l.isFree) item.onclick = () => openVideoFromBackend(courseId, moduleId, l.id);
-      item.innerHTML =
-        '<i class="fas ' + (l.isFree ? 'fa-play-circle' : 'fa-lock') + '"></i>' +
-        '<span class="item-title">' + sanitize(l.title) + '</span>' +
-        '<span class="item-duration">' + (l.duration || '') + '</span>';
-      playlist.appendChild(item);
+    (course.modules || []).forEach(m => {
+      // Module header
+      const modHeader = document.createElement('div');
+      modHeader.style.cssText = 'padding:10px 10px 6px;font-size:0.75rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;border-top:1px solid var(--border);margin-top:4px;';
+      modHeader.textContent = m.title;
+      playlist.appendChild(modHeader);
+      // Lessons
+      (m.lessons || []).forEach(l => {
+        const isActive = l.id === lessonId;
+        const isCompleted = completedLessons.includes(l.id);
+        const item = document.createElement('div');
+        item.className = 'playlist-item' + (isActive ? ' active' : '') + (l.isFree ? '' : ' locked');
+        if (l.isFree) item.onclick = () => openVideoFromBackend(courseId, m.id, l.id);
+        item.innerHTML =
+          '<i class="fas ' + (isCompleted ? 'fa-check-circle' : (l.isFree ? 'fa-play-circle' : 'fa-lock')) + '" style="color:' + (isCompleted ? 'var(--success)' : (l.isFree ? (isActive ? '#a78bfa' : 'var(--muted)') : 'var(--danger)')) + ';font-size:0.8rem;flex-shrink:0;"></i>' +
+          '<span class="item-title">' + sanitize(l.title) + '</span>' +
+          '<span class="item-duration">' + (l.duration || '') + '</span>';
+        playlist.appendChild(item);
+      });
     });
 
-    const chatContainer = document.querySelector('#tab-chat .video-chat-messages');
-    if (chatContainer) chatContainer.innerHTML = '';
+    const chatContainer = document.querySelector('#vp-ai-messages');
+    if (chatContainer) chatContainer.innerHTML = `<div style="display:flex;gap:10px;align-items:flex-start;"><div style="width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,var(--primary),#ec4899);display:flex;align-items:center;justify-content:center;font-size:0.7rem;font-weight:700;color:#fff;flex-shrink:0;">AI</div><div style="background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:0 10px 10px 10px;padding:10px 14px;font-size:0.85rem;color:var(--text);line-height:1.6;">Hi! Ask me anything about this lesson 🚀</div></div>`;
 
-    document.getElementById('tab-quiz').style.display = 'none';
-    document.getElementById('tab-exercise').style.display = 'none';
-    document.getElementById('tab-chat').style.display = 'none';
-    document.getElementById('tab-notes').style.display = 'block';
-    document.querySelectorAll('.video-tab').forEach((t, i) => t.classList.toggle('active', i === 0));
+    // Reset to notes tab
+    document.querySelectorAll('.vp-tab').forEach((t, i) => t.classList.toggle('active', i === 0));
+    document.querySelectorAll('.vp-tab-panel').forEach((p, i) => p.classList.toggle('active', i === 0));
 
     navigate('video');
   } catch {}
@@ -1087,31 +1116,20 @@ async function playDownloadedVideo(index) {
   const d = downloads[index];
   if (!d) return;
   try {
-    const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
-    const res = await fetch(BASE_URL + '/api/media/signed-url', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
-      body: JSON.stringify({ url: d.videoUrl }),
-    });
-    let playUrl = d.videoUrl;
-    if (res.ok) {
-      const data = await res.json();
-      if (data.signedUrl) playUrl = data.signedUrl;
-    }
     document.getElementById('video-title').textContent = d.title || '';
     document.getElementById('video-meta').textContent = (d.courseTitle || '') + (d.moduleTitle ? ' · ' + d.moduleTitle : '');
     await loadVideo(d.videoUrl || '');
     _currentVideoData = d;
     const btn = document.getElementById('save-download-btn');
     if (btn) { btn.innerHTML = '<i class="fas fa-check"></i> Saved!'; btn.disabled = true; }
-    document.getElementById('tab-notes').innerHTML = '<h4 style="margin-bottom:12px">Notes</h4><p style="color:var(--muted);font-size:0.88rem">Open the lesson from Courses to view notes.</p>';
-    document.getElementById('tab-quiz').innerHTML = '<h4 style="margin-bottom:14px">Quiz</h4><p style="color:var(--muted)">Quiz coming soon.</p>';
-    document.getElementById('tab-exercise').innerHTML = '<h4 style="margin-bottom:12px">Exercise</h4><p style="color:var(--muted)">Exercise coming soon.</p>';
-    document.getElementById('tab-quiz').style.display = 'none';
-    document.getElementById('tab-exercise').style.display = 'none';
-    document.getElementById('tab-chat').style.display = 'none';
-    document.getElementById('tab-notes').style.display = 'block';
-    document.querySelectorAll('.video-tab').forEach((t, i) => t.classList.toggle('active', i === 0));
+    const notesEl = document.getElementById('vp-notes');
+    if (notesEl) notesEl.innerHTML = '<h4 style="margin-bottom:12px;font-weight:700;">Notes</h4><p style="color:var(--muted);font-size:0.88rem">Open the lesson from Courses to view notes.</p>';
+    const quizEl = document.getElementById('vp-quiz');
+    if (quizEl) quizEl.innerHTML = '<h4 style="margin-bottom:14px;font-weight:700;">Quiz</h4><p style="color:var(--muted)">Quiz coming soon.</p>';
+    const exEl = document.getElementById('vp-exercise');
+    if (exEl) exEl.innerHTML = '<h4 style="margin-bottom:12px;font-weight:700;">Exercise</h4><p style="color:var(--muted)">Exercise coming soon.</p>';
+    document.querySelectorAll('.vp-tab').forEach((t, i) => t.classList.toggle('active', i === 0));
+    document.querySelectorAll('.vp-tab-panel').forEach((p, i) => p.classList.toggle('active', i === 0));
     navigate('video');
   } catch { alert('Could not play video. Please try again.'); }
 }
@@ -1182,13 +1200,13 @@ async function downloadOffline() {
   if (!userId) { alert('Please log in to download.'); return; }
 
   const btn = document.getElementById('offline-download-btn');
-  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Downloading...'; }
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Downloading...'; btn.style.background = 'rgba(255,255,255,0.1)'; }
 
   const { lessonId, title, courseTitle, moduleTitle, videoUrl } = _currentVideoData;
+  const notesUrl = _currentVideoData.notesUrl || '';
   const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
   let downloadedAny = false;
 
-  // Helper: get signed URL for S3 files
   async function getSignedUrl(url) {
     if (!url || !url.includes('amazonaws.com')) return url;
     try {
@@ -1206,31 +1224,32 @@ async function downloadOffline() {
   if (videoUrl) {
     try {
       const dlUrl = await getSignedUrl(videoUrl);
-      const result = await window.electron.downloadContent({
-        url: dlUrl, lessonId, title, type: 'video',
-        userId, courseTitle, moduleTitle,
-      });
+      const result = await window.electron.downloadContent({ url: dlUrl, lessonId, title, type: 'video', userId, courseTitle, moduleTitle });
       if (result.success) downloadedAny = true;
     } catch {}
   }
 
-  // Download PDF (notes) if available
-  const notesUrl = _currentVideoData.notesUrl || '';
+  // Download PDF if available
   if (notesUrl) {
     try {
       const dlUrl = await getSignedUrl(notesUrl);
-      const result = await window.electron.downloadContent({
-        url: dlUrl, lessonId, title: title + ' (PDF)', type: 'pdf',
-        userId, courseTitle, moduleTitle,
-      });
+      const result = await window.electron.downloadContent({ url: dlUrl, lessonId, title: title + ' (PDF)', type: 'pdf', userId, courseTitle, moduleTitle });
       if (result.success) downloadedAny = true;
     } catch {}
   }
 
   if (btn) {
+    btn.disabled = false;
     btn.innerHTML = downloadedAny
-      ? '<i class="fas fa-check"></i> Downloaded'
-      : '<i class="fas fa-check"></i> Already saved';
+      ? '<i class="fas fa-check"></i> Downloaded!'
+      : '<i class="fas fa-download"></i> Download Lesson';
+    btn.style.background = downloadedAny ? 'var(--success)' : 'linear-gradient(135deg,#6c47ff,#ec4899)';
+    // Reset back after 3 seconds
+    if (downloadedAny) {
+      setTimeout(() => {
+        if (btn) { btn.innerHTML = '<i class="fas fa-download"></i> Download Lesson'; btn.style.background = 'linear-gradient(135deg,#6c47ff,#ec4899)'; }
+      }, 3000);
+    }
   }
 }
 
@@ -1468,96 +1487,4 @@ document.addEventListener('keydown', (e) => {
   }, 5000);
 })();
 
-// Chat and AI Functionality
-function sendAI() {
-  const input = document.getElementById('aiInput');
-  const messages = document.getElementById('aiMessages');
-  if (!input || !messages) return;
-  const text = input.value.trim();
-  if (!text) return;
 
-  const userMsg = document.createElement('div');
-  userMsg.className = 'ai-msg';
-  userMsg.style.cssText = 'display: flex; gap: 16px; max-width: 85%; align-self: flex-end; flex-direction: row-reverse; animation: slideInRight 0.3s ease;';
-  userMsg.innerHTML = `
-    <div class="ai-icon" style="width: 36px; height: 36px; border-radius: 50%; background: linear-gradient(135deg, #10b981, #34d399); display: flex; align-items: center; justify-content: center; font-size: 0.8rem; font-weight: 700; color: #fff; flex-shrink: 0; box-shadow: 0 4px 10px rgba(16, 185, 129, 0.3);">You</div>
-    <div class="ai-bubble" style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 16px 0 16px 16px; padding: 16px 20px; color: #fff; font-size: 0.95rem; line-height: 1.5;">${sanitize(text)}</div>
-  `;
-  messages.appendChild(userMsg);
-  input.value = '';
-  messages.scrollTo({ top: messages.scrollHeight, behavior: 'smooth' });
-
-  setTimeout(() => {
-    const aiMsg = document.createElement('div');
-    aiMsg.className = 'ai-msg';
-    aiMsg.style.cssText = 'display: flex; gap: 16px; max-width: 85%; animation: slideInLeft 0.3s ease;';
-    aiMsg.innerHTML = `
-      <div class="ai-icon" style="width: 36px; height: 36px; border-radius: 50%; background: linear-gradient(135deg, #3b1fa8, #6c47ff); display: flex; align-items: center; justify-content: center; font-size: 0.8rem; font-weight: 700; color: #fff; flex-shrink: 0; box-shadow: 0 4px 10px rgba(108, 71, 255, 0.3);">AI</div>
-      <div class="ai-bubble" style="background: rgba(255,255,255,0.05); border: 1px solid var(--border); border-radius: 0 16px 16px 16px; padding: 16px 20px; color: #fff; font-size: 0.95rem; line-height: 1.5;">
-        <span style="font-style:italic; color:var(--muted)">Thinking...</span>
-      </div>
-    `;
-    messages.appendChild(aiMsg);
-    messages.scrollTo({ top: messages.scrollHeight, behavior: 'smooth' });
-
-    setTimeout(async () => {
-      const bubble = aiMsg.querySelector('.ai-bubble');
-      const lowerText = text.toLowerCase();
-      let reply = "";
-
-      try {
-        if (lowerText.includes('hello') || lowerText.includes('hi ') || lowerText === 'hi' || lowerText === 'hey') {
-          reply = "Hello there! I am your CodingKida AI Mentor, powered by Antigravity magic ✨. How can I help you learn today?";
-        } else if (lowerText.includes('joke') || lowerText.includes('funny')) {
-          const res = await fetch('https://v2.jokeapi.dev/joke/Programming?type=single');
-          const data = await res.json();
-          reply = data.joke || "Why do programmers prefer dark mode? Because light attracts bugs! 🐛";
-        } else if (lowerText.includes('who are you') || lowerText.includes('your name')) {
-          reply = "I am an advanced AI Mentor built by Antigravity for CodingKida. I know about code, tech, and the universe! 🚀";
-        } else {
-          const searchRes = await fetch(`https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(text)}&utf8=&format=json&origin=*`);
-          const searchData = await searchRes.json();
-          if (searchData.query && searchData.query.search.length > 0) {
-            const title = searchData.query.search[0].title;
-            const summaryRes = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`);
-            const summaryData = await summaryRes.json();
-            if (summaryData.extract) {
-              reply = `Here is what I found about **${title}**:<br><br>${summaryData.extract}`;
-            } else {
-              reply = "I couldn't find a detailed answer, but keep asking! I'm best at programming questions.";
-            }
-          } else {
-            reply = "I couldn't find a specific answer for that in my database. But as your CodingKida mentor, I'm always here to help you learn coding! Ask me about Python, JavaScript, or AI.";
-          }
-        }
-      } catch (err) {
-        reply = "Oops! My magical Antigravity servers are taking a short break. Try asking again in a moment! ⚡";
-      }
-
-      bubble.innerHTML = reply;
-      messages.scrollTo({ top: messages.scrollHeight, behavior: 'smooth' });
-    }, 1000);
-
-  }, 500);
-}
-
-function sendChat() {
-  const input = document.getElementById('chatInput');
-  const messages = document.getElementById('chatMessages');
-  if (!input || !messages) return;
-  const text = input.value.trim();
-  if (!text) return;
-
-  const msg = document.createElement('div');
-  msg.className = 'chat-msg own';
-  msg.innerHTML = `
-    <div class="chat-avatar" style="background:#10b981">You</div>
-    <div class="chat-bubble">
-      <p>${sanitize(text)}</p>
-      <div class="time">Just now</div>
-    </div>
-  `;
-  messages.appendChild(msg);
-  input.value = '';
-  messages.scrollTo({ top: messages.scrollHeight, behavior: 'smooth' });
-}
