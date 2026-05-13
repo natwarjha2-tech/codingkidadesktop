@@ -413,9 +413,9 @@ body {
 /* ===== VIDEO PLAYER REDESIGN ===== */
 .video-layout {
   display: grid;
-  grid-template-columns: 1fr 380px;
-  gap: 24px;
-  align-items: stretch; /* This ensures both columns have same height */
+  grid-template-columns: 1fr 280px;
+  gap: 20px;
+  align-items: stretch;
   margin-bottom: 24px;
 }
 
@@ -426,7 +426,7 @@ body {
 
 .video-player-box {
   background: #000;
-  border-radius: 24px;
+  border-radius: 20px;
   overflow: hidden;
   aspect-ratio: 16/9;
   display: flex;
@@ -435,19 +435,18 @@ body {
   position: relative;
   box-shadow: 0 20px 50px rgba(0,0,0,0.5);
   border: 1px solid rgba(255,255,255,0.05);
-  height: 100%; /* Fill the grid cell height */
+  height: 100%;
 }
 
-/* Premium Sidebar - Now strictly same height as video */
 .video-sidebar-panel {
   background: var(--card-bg);
   border: 1px solid var(--border);
-  border-radius: 24px;
+  border-radius: 20px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   box-shadow: 0 10px 30px rgba(0,0,0,0.3);
-  height: 100%; /* Match height of the video column */
+  height: 100%;
 }
 
 .panel-tabs {
@@ -457,6 +456,74 @@ body {
   gap: 2px;
   border-bottom: 1px solid var(--border);
 }
+
+/* ===== MINI PROGRESS TRACKER ===== */
+.video-progress-bar {
+  height: 3px;
+  background: rgba(255,255,255,0.08);
+  border-radius: 2px;
+  margin-bottom: 12px;
+  overflow: hidden;
+}
+.video-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--primary), #ec4899);
+  border-radius: 2px;
+  transition: width 0.4s ease;
+}
+.video-progress-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+/* ===== NEXT LESSON FLOATING CTA ===== */
+.next-lesson-float {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background: linear-gradient(135deg, #6c47ff, #ec4899);
+  border-radius: 14px;
+  padding: 14px 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-shadow: 0 8px 32px rgba(108,71,255,0.4);
+  z-index: 1000;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  border: 1px solid rgba(255,255,255,0.15);
+  animation: slideUp 0.3s ease;
+}
+.next-lesson-float:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 40px rgba(108,71,255,0.5);
+}
+.next-lesson-float .check { color: #4ade80; font-size: 1rem; }
+.next-lesson-float .label { color: #fff; font-size: 0.85rem; font-weight: 700; }
+.next-lesson-float .arrow { color: rgba(255,255,255,0.8); font-size: 0.85rem; }
+@keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+/* ===== PLAYLIST ITEM ===== */
+.playlist-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 1px solid transparent;
+}
+.playlist-item:hover { background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.08); }
+.playlist-item.active { background: rgba(108,71,255,0.15); border-color: rgba(108,71,255,0.3); }
+.playlist-item.locked { opacity: 0.5; cursor: not-allowed; }
+.playlist-item .item-title { font-size: 0.82rem; color: #fff; font-weight: 500; flex: 1; }
+.playlist-item .item-duration { font-size: 0.72rem; color: var(--muted); }
 
 .panel-tab {
   flex: 1;

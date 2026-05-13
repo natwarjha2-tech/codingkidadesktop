@@ -667,7 +667,58 @@ function renderCourseDetailFromMock(course) {
   navigate('course-detail');
 }
 
-// Open video from backend data
+// Track current lesson context for next lesson CTA
+let _currentLessonContext = null;
+
+function updateVideoProgressBar(completedLessons, totalLessons) {
+  const pct = totalLessons > 0 ? Math.round((completedLessons / totalLessons) * 100) : 0;
+  const fill = document.getElementById('video-progress-fill');
+  const text = document.getElementById('video-progress-text');
+  const count = document.getElementById('video-lesson-count');
+  if (fill) fill.style.width = pct + '%';
+  if (text) text.textContent = pct + '% Completed';
+  if (count) count.textContent = completedLessons + '/' + totalLessons + ' Lessons';
+}
+
+function goToNextLesson() {
+  const ctx = _currentLessonContext;
+  if (!ctx) return;
+  const { courseId, moduleId, lessons, currentLessonId } = ctx;
+  const idx = lessons.findIndex(l => l.id === currentLessonId);
+  if (idx === -1 || idx >= lessons.length - 1) return;
+  const next = lessons[idx + 1];
+  if (next && next.isFree) {
+    document.getElementById('next-lesson-float').style.display = 'none';
+    openVideoFromBackend(courseId, moduleId, next.id);
+  }
+}
+// Track current lesson context for next lesson CTA
+let _currentLessonContext = null;
+
+function updateVideoProgressBar(completedCount, totalLessons) {
+  const pct = totalLessons > 0 ? Math.round((completedCount / totalLessons) * 100) : 0;
+  const fill = document.getElementById('video-progress-fill');
+  const text = document.getElementById('video-progress-text');
+  const count = document.getElementById('video-lesson-count');
+  if (fill) fill.style.width = pct + '%';
+  if (text) text.textContent = pct + '% Completed';
+  if (count) count.textContent = completedCount + '/' + totalLessons + ' Lessons';
+}
+
+function goToNextLesson() {
+  const ctx = _currentLessonContext;
+  if (!ctx) return;
+  const { courseId, moduleId, lessons, currentLessonId } = ctx;
+  const idx = lessons.findIndex(l => l.id === currentLessonId);
+  if (idx === -1 || idx >= lessons.length - 1) return;
+  const next = lessons[idx + 1];
+  if (next && next.isFree) {
+    const floatBtn = document.getElementById('next-lesson-float');
+    if (floatBtn) floatBtn.style.display = 'none';
+    openVideoFromBackend(courseId, moduleId, next.id);
+  }
+}
+
 async function openVideoFromBackend(courseId, moduleId, lessonId) {
   try {
     const data = await CoursesAPI.getByIdSigned(courseId);
@@ -704,6 +755,18 @@ async function openVideoFromBackend(courseId, moduleId, lessonId) {
       saveBtn.innerHTML = saved ? '<i class="fas fa-check"></i> Saved!' : '<i class="fas fa-bookmark"></i> Save to Watchlist';
       saveBtn.disabled = !!saved;
     }
+
+    // Update progress tracker
+    const allLessons = (course.modules || []).flatMap(m => m.lessons || []);
+    const completedCount = (course.completedLessons || []).length;
+    updateVideoProgressBar(completedCount, allLessons.length);
+
+    // Store context for next lesson CTA
+    _currentLessonContext = { courseId, moduleId, lessons: mod.lessons, currentLessonId: lessonId };
+    const idx = mod.lessons.findIndex(l => l.id === lessonId);
+    const nextLesson = mod.lessons[idx + 1];
+    const floatBtn = document.getElementById('next-lesson-float');
+    if (floatBtn) floatBtn.style.display = (nextLesson && nextLesson.isFree) ? 'flex' : 'none';
 
     const notesUrl = lesson.notes || '';
     document.getElementById('tab-notes').innerHTML =
@@ -894,13 +957,11 @@ async function loadVideo(url) {
   }
 
   if (url.includes('youtube') || url.includes('youtu.be')) {
-    // YouTube — use iframe
     iframe.src = url.includes('?') ? url + '&rel=0' : url + '?rel=0';
     iframe.style.display = 'block';
     videoEl.style.display = 'none';
     videoEl.src = '';
   } else {
-    // S3 video — URL is already signed from ?signed=true, play directly
     iframe.style.display = 'none';
     iframe.src = '';
     videoEl.style.display = 'block';
@@ -1294,6 +1355,31 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
     if (document.activeElement.id === 'chatInput') sendChat();
     if (document.activeElement.id === 'aiInput') sendAI();
+  }
+
+  // Video keyboard shortcuts — only when video page is active
+  const videoPage = document.getElementById('page-video');
+  if (!videoPage || !videoPage.classList.contains('active')) return;
+  if (['INPUT','TEXTAREA'].includes(document.activeElement.tagName)) return;
+
+  const videoEl = document.getElementById('video-player');
+  if (e.code === 'Space') {
+    e.preventDefault();
+    if (videoEl && videoEl.style.display !== 'none') {
+      videoEl.paused ? videoEl.play() : videoEl.pause();
+    }
+  }
+  if (e.key === 'j' || e.key === 'J') {
+    if (videoEl && videoEl.style.display !== 'none') videoEl.currentTime -= 10;
+  }
+  if (e.key === 'l' || e.key === 'L') {
+    if (videoEl && videoEl.style.display !== 'none') videoEl.currentTime += 10;
+  }
+  if (e.key === 'ArrowRight') {
+    if (videoEl && videoEl.style.display !== 'none') videoEl.currentTime += 5;
+  }
+  if (e.key === 'ArrowLeft') {
+    if (videoEl && videoEl.style.display !== 'none') videoEl.currentTime -= 5;
   }
 });
 
