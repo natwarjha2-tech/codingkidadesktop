@@ -85,7 +85,7 @@ async function loadStudentData() {
     const initial = sanitize(name.charAt(0).toUpperCase());
 
     const sidebarName = document.getElementById('sidebar-user-name');
-    const sidebarAvatar = document.getElementById('sidebar-user-avatar');
+    const sidebarAvatar = document.getElementById('sidebar-avatar-text');
     if (sidebarName) sidebarName.textContent = name;
     if (sidebarAvatar) sidebarAvatar.textContent = initial;
 
@@ -123,9 +123,19 @@ async function loadStudentData() {
       const text = document.getElementById('profile-avatar-text');
       if (img) { img.src = savedAvatar; img.style.display = 'block'; }
       if (text) text.style.display = 'none';
+      // Also update sidebar avatar with photo
+      const sidebarImg = document.getElementById('sidebar-avatar-img');
+      const sidebarText = document.getElementById('sidebar-avatar-text');
+      if (sidebarImg) { sidebarImg.src = savedAvatar; sidebarImg.style.display = 'block'; }
+      if (sidebarText) sidebarText.style.display = 'none';
     } else {
       const text = document.getElementById('profile-avatar-text');
       if (text) text.textContent = initial;
+      // Sidebar shows initial
+      const sidebarText = document.getElementById('sidebar-avatar-text');
+      if (sidebarText) { sidebarText.textContent = initial; sidebarText.style.display = ''; }
+      const sidebarImg = document.getElementById('sidebar-avatar-img');
+      if (sidebarImg) sidebarImg.style.display = 'none';
     }
   } catch (err) {
     const cached = JSON.parse(localStorage.getItem('ck_user') || '{}');
@@ -133,7 +143,7 @@ async function loadStudentData() {
       const name = cached.name;
       const initial = name.charAt(0).toUpperCase();
       const sidebarName = document.getElementById('sidebar-user-name');
-      const sidebarAvatar = document.getElementById('sidebar-user-avatar');
+      const sidebarAvatar = document.getElementById('sidebar-avatar-text');
       const dashWelcome = document.getElementById('dashboard-welcome-name');
       const profileName = document.getElementById('profile-name');
       const profileEmail = document.getElementById('profile-email');
@@ -275,7 +285,7 @@ async function saveProfile() {
     const profileName = document.getElementById('profile-name');
     const profileAvatarText = document.getElementById('profile-avatar-text');
     const sidebarName = document.getElementById('sidebar-user-name');
-    const sidebarAvatar = document.getElementById('sidebar-user-avatar');
+    const sidebarAvatar = document.getElementById('sidebar-avatar-text');
     const dashWelcome = document.getElementById('dashboard-welcome-name');
     if (profileName) profileName.textContent = name;
     if (profileAvatarText) profileAvatarText.textContent = initial;
@@ -301,6 +311,11 @@ function handleProfilePhoto(input) {
     if (img) { img.src = e.target.result; img.style.display = 'block'; }
     if (text) text.style.display = 'none';
     localStorage.setItem('ck_avatar_' + userId, e.target.result);
+    // Sync sidebar avatar
+    const sidebarImg = document.getElementById('sidebar-avatar-img');
+    const sidebarText = document.getElementById('sidebar-avatar-text');
+    if (sidebarImg) { sidebarImg.src = e.target.result; sidebarImg.style.display = 'block'; }
+    if (sidebarText) sidebarText.style.display = 'none';
   };
   reader.readAsDataURL(file);
 }
@@ -312,9 +327,9 @@ function openEditProfile() {
 
 // Navigation
 
-const appPages = ['dashboard','courses','course-detail','video','chat','ai','live','downloads','offline-downloads','profile'];
+const appPages = ['dashboard','courses','course-detail','video','chat','ai','live','downloads','offline-downloads','profile','enrolled-detail','completed-videos'];
 const authPages = ['login','signup'];
-const sidebarMap = { dashboard:'nav-dashboard', courses:'nav-courses', 'course-detail':'nav-courses', video:'nav-courses', chat:'nav-chat', ai:'nav-ai', live:'nav-live', downloads:'nav-downloads', 'offline-downloads':'nav-offline-downloads', profile:'nav-profile' };
+const sidebarMap = { dashboard:'nav-dashboard', courses:'nav-courses', 'course-detail':'nav-courses', video:'nav-courses', chat:'nav-chat', ai:'nav-ai', live:'nav-live', downloads:'nav-downloads', 'offline-downloads':'nav-offline-downloads', profile:'nav-profile', 'enrolled-detail':'nav-dashboard', 'completed-videos':'nav-dashboard' };
 
 function navigate(page) {
   authPages.forEach(p => {
@@ -393,9 +408,11 @@ function renderNotesTab(pdfUrl, notePoints) {
   }
 
   if (pdfUrl) {
-    html += '<div style="margin-top:16px; padding-top:16px; border-top:1px solid rgba(255,255,255,0.06);">';
+    html += '<div style="margin-top:16px; padding-top:16px; border-top:1px solid rgba(255,255,255,0.06); display:flex; gap:10px;">';
     html += '<button class="btn btn-outline btn-sm" style="padding:10px 20px; border-radius:10px; display:flex; align-items:center; gap:8px;" onclick="openPdfInApp(\'' + pdfUrl + '\')">';
     html += '<i class="fas fa-file-pdf" style="color:#ef4444;"></i> View PDF Notes</button>';
+    html += '<button class="btn btn-outline btn-sm" style="padding:10px 20px; border-radius:10px; display:flex; align-items:center; gap:8px; border-color:rgba(34,197,94,0.4); color:#22c55e;" onclick="downloadPdfOffline(\'' + pdfUrl + '\')">';
+    html += '<i class="fas fa-download"></i> Download PDF</button>';
     html += '</div>';
   }
 
@@ -962,12 +979,38 @@ async function openVideoFromBackend(courseId, moduleId, lessonId) {
       const lastLesson = { courseId: course.id, courseTitle: course.title, moduleId: mod.id, moduleTitle: mod.title, lessonId: lesson.id, lessonTitle: lesson.title, videoUrl: lesson.videoUrl };
       localStorage.setItem('ck_last_lesson', JSON.stringify(lastLesson));
     }
-    // Reset download button state for this lesson
+    // Reset download button state for this lesson — check if already downloaded
     const dlBtn = document.getElementById('offline-download-btn');
     if (dlBtn) {
-      dlBtn.disabled = false;
-      dlBtn.innerHTML = '<i class="fas fa-download"></i> Download Lesson';
-      dlBtn.style.background = 'linear-gradient(135deg,#6c47ff,#ec4899)';
+      if (window.electron && window.electron.getDownloads) {
+        const userId = getCurrentUserId();
+        window.electron.getDownloads({ userId }).then(result => {
+          if (result.success) {
+            const alreadyDownloaded = result.downloads.find(d => d.lessonId === lesson.id && d.type === 'video');
+            if (alreadyDownloaded) {
+              dlBtn.disabled = true;
+              dlBtn.innerHTML = '<i class="fas fa-check"></i> Downloaded (' + alreadyDownloaded.daysLeft + 'd left)';
+              dlBtn.style.background = 'var(--success)';
+            } else {
+              dlBtn.disabled = false;
+              dlBtn.innerHTML = '<i class="fas fa-download"></i> Download Lesson';
+              dlBtn.style.background = 'linear-gradient(135deg,#6c47ff,#ec4899)';
+            }
+          } else {
+            dlBtn.disabled = false;
+            dlBtn.innerHTML = '<i class="fas fa-download"></i> Download Lesson';
+            dlBtn.style.background = 'linear-gradient(135deg,#6c47ff,#ec4899)';
+          }
+        }).catch(() => {
+          dlBtn.disabled = false;
+          dlBtn.innerHTML = '<i class="fas fa-download"></i> Download Lesson';
+          dlBtn.style.background = 'linear-gradient(135deg,#6c47ff,#ec4899)';
+        });
+      } else {
+        dlBtn.disabled = false;
+        dlBtn.innerHTML = '<i class="fas fa-download"></i> Download Lesson';
+        dlBtn.style.background = 'linear-gradient(135deg,#6c47ff,#ec4899)';
+      }
     }
 
     // Update progress tracker — count completed lessons across ALL modules
@@ -1070,7 +1113,9 @@ function openVideo(courseId, moduleId, videoId) {
   _currentVideoData = { lessonId: String(video.id), title: video.title, courseTitle: course.title || '', moduleTitle: mod.title, videoUrl: 'https://www.youtube.com/embed/' + video.youtubeId };
   const saveBtn = document.getElementById('save-download-btn');
   if (saveBtn) {
-    const saved = JSON.parse(localStorage.getItem('ck_downloads') || '[]').find(d => d.lessonId === String(video.id));
+    const _uid = getCurrentUserId();
+    const _sk = _uid ? 'ck_downloads_' + _uid : 'ck_downloads';
+    const saved = JSON.parse(localStorage.getItem(_sk) || '[]').find(d => d.lessonId === String(video.id));
     saveBtn.innerHTML = saved ? '<i class="fas fa-check"></i> Saved!' : '<i class="fas fa-bookmark"></i> Save to Watchlist';
     saveBtn.disabled = !!saved;
   }
@@ -1214,14 +1259,16 @@ function saveToDownloads() {
     alert('No video available for this lesson.');
     return;
   }
-  const downloads = JSON.parse(localStorage.getItem('ck_downloads') || '[]');
+  const userId = getCurrentUserId();
+  const storageKey = userId ? 'ck_downloads_' + userId : 'ck_downloads';
+  const downloads = JSON.parse(localStorage.getItem(storageKey) || '[]');
   const exists = downloads.find(d => d.lessonId === lessonId);
   if (exists) {
     alert('Already saved to Watchlist!');
     return;
   }
   downloads.push({ lessonId, title, courseTitle, moduleTitle, videoUrl, savedAt: new Date().toISOString() });
-  localStorage.setItem('ck_downloads', JSON.stringify(downloads));
+  localStorage.setItem(storageKey, JSON.stringify(downloads));
   const btn = document.getElementById('save-download-btn');
   if (btn) { btn.innerHTML = '<i class="fas fa-check"></i> Saved!'; btn.disabled = true; }
 }
@@ -1229,7 +1276,9 @@ function saveToDownloads() {
 function renderDownloads() {
   const container = document.getElementById('downloads-list');
   if (!container) return;
-  const downloads = JSON.parse(localStorage.getItem('ck_downloads') || '[]');
+  const userId = getCurrentUserId();
+  const storageKey = userId ? 'ck_downloads_' + userId : 'ck_downloads';
+  const downloads = JSON.parse(localStorage.getItem(storageKey) || '[]');
   if (downloads.length === 0) {
     container.innerHTML =
       '<div style="text-align:center;padding:60px 20px">' +
@@ -1255,7 +1304,9 @@ function renderDownloads() {
 }
 
 async function playDownloadedVideo(index) {
-  const downloads = JSON.parse(localStorage.getItem('ck_downloads') || '[]');
+  const userId = getCurrentUserId();
+  const storageKey = userId ? 'ck_downloads_' + userId : 'ck_downloads';
+  const downloads = JSON.parse(localStorage.getItem(storageKey) || '[]');
   const d = downloads[index];
   if (!d) return;
   try {
@@ -1278,9 +1329,11 @@ async function playDownloadedVideo(index) {
 }
 
 function removeDownload(index) {
-  const downloads = JSON.parse(localStorage.getItem('ck_downloads') || '[]');
+  const userId = getCurrentUserId();
+  const storageKey = userId ? 'ck_downloads_' + userId : 'ck_downloads';
+  const downloads = JSON.parse(localStorage.getItem(storageKey) || '[]');
   downloads.splice(index, 1);
-  localStorage.setItem('ck_downloads', JSON.stringify(downloads));
+  localStorage.setItem(storageKey, JSON.stringify(downloads));
   renderDownloads();
 }
 
@@ -1332,6 +1385,97 @@ function getCurrentUserId() {
   return cached.id || cached.userId || '';
 }
 
+// ─── Enrolled Courses Detail & Completed Videos Pages ─────────────────────────
+
+async function showEnrolledDetail() {
+  navigate('enrolled-detail');
+  const container = document.getElementById('enrolled-detail-list');
+  if (!container) return;
+  container.innerHTML = '<p style="color:var(--muted)">Loading...</p>';
+
+  try {
+    const data = await StudentAPI.getDashboard();
+    if (!data.success || !data.enrolledCourses || data.enrolledCourses.length === 0) {
+      container.innerHTML = '<div style="text-align:center;padding:40px"><i class="fas fa-book-open" style="font-size:2rem;color:var(--muted);margin-bottom:12px;display:block"></i><p style="color:var(--muted)">No enrolled courses yet.</p></div>';
+      return;
+    }
+    container.innerHTML = data.enrolledCourses.map(c =>
+      '<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:16px;padding:20px;display:flex;align-items:center;gap:16px;transition:all 0.2s;cursor:pointer" onmouseover="this.style.borderColor=\'rgba(108,71,255,0.3)\';this.style.background=\'rgba(108,71,255,0.05)\'" onmouseout="this.style.borderColor=\'rgba(255,255,255,0.06)\';this.style.background=\'rgba(255,255,255,0.03)\'" onclick="openCourseDetail(\'' + c.id + '\')">' +
+      '<div style="width:50px;height:50px;border-radius:14px;background:linear-gradient(135deg,rgba(108,71,255,0.3),rgba(236,72,153,0.2));display:flex;align-items:center;justify-content:center;font-size:1.5rem;flex-shrink:0">📚</div>' +
+      '<div style="flex:1">' +
+      '<h4 style="color:#fff;font-weight:700;font-size:0.95rem;margin:0 0 4px">' + sanitize(c.title) + '</h4>' +
+      '<p style="color:var(--muted);font-size:0.8rem;margin:0">' + c.completedLessons + '/' + c.totalLessons + ' lessons completed</p>' +
+      '</div>' +
+      '<div style="text-align:right;min-width:60px">' +
+      '<div style="font-size:1.1rem;font-weight:800;color:' + (c.progressPercent === 100 ? '#22c55e' : '#a78bfa') + '">' + c.progressPercent + '%</div>' +
+      '<div style="width:60px;height:5px;background:rgba(255,255,255,0.1);border-radius:10px;margin-top:6px;overflow:hidden"><div style="width:' + c.progressPercent + '%;height:100%;background:linear-gradient(to right,#6c47ff,#ec4899);border-radius:10px"></div></div>' +
+      '</div>' +
+      '</div>'
+    ).join('');
+  } catch {
+    container.innerHTML = '<p style="color:var(--danger)">Failed to load courses.</p>';
+  }
+}
+
+async function showCompletedVideos() {
+  navigate('completed-videos');
+  const container = document.getElementById('completed-videos-list');
+  if (!container) return;
+  container.innerHTML = '<p style="color:var(--muted)">Loading...</p>';
+
+  try {
+    const data = await StudentAPI.getDashboard();
+    if (!data.success) {
+      container.innerHTML = '<p style="color:var(--danger)">Failed to load data.</p>';
+      return;
+    }
+
+    // Get enrolled courses with their lessons to find completed ones
+    const enrolledCourses = data.enrolledCourses || [];
+    if (enrolledCourses.length === 0 || data.completedVideos === 0) {
+      container.innerHTML = '<div style="text-align:center;padding:40px"><i class="fas fa-check-circle" style="font-size:2rem;color:var(--muted);margin-bottom:12px;display:block"></i><p style="color:var(--muted)">No completed videos yet. Start learning!</p></div>';
+      return;
+    }
+
+    // Fetch full course data to get lesson names
+    let allCompleted = [];
+    for (const course of enrolledCourses) {
+      if (course.completedLessons === 0) continue;
+      try {
+        const courseData = await CoursesAPI.getById(course.id);
+        if (courseData.success && courseData.course) {
+          const completedLessonIds = courseData.course.completedLessons || [];
+          (courseData.course.modules || []).forEach(mod => {
+            (mod.lessons || []).forEach(lesson => {
+              if (completedLessonIds.includes(lesson.id)) {
+                allCompleted.push({ title: lesson.title, courseTitle: course.title, moduleTitle: mod.title, duration: lesson.duration });
+              }
+            });
+          });
+        }
+      } catch {}
+    }
+
+    if (allCompleted.length === 0) {
+      container.innerHTML = '<div style="text-align:center;padding:40px"><i class="fas fa-check-circle" style="font-size:2rem;color:var(--muted);margin-bottom:12px;display:block"></i><p style="color:var(--muted)">No completed videos found.</p></div>';
+      return;
+    }
+
+    container.innerHTML = allCompleted.map(v =>
+      '<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:14px 18px;display:flex;align-items:center;gap:14px">' +
+      '<div style="width:36px;height:36px;border-radius:10px;background:rgba(34,197,94,0.15);display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="fas fa-check" style="color:#22c55e;font-size:0.8rem"></i></div>' +
+      '<div style="flex:1">' +
+      '<p style="color:#fff;font-weight:600;font-size:0.88rem;margin:0">' + sanitize(v.title) + '</p>' +
+      '<p style="color:var(--muted);font-size:0.75rem;margin:2px 0 0">' + sanitize(v.courseTitle) + ' · ' + sanitize(v.moduleTitle) + '</p>' +
+      '</div>' +
+      '<span style="color:var(--muted);font-size:0.75rem;flex-shrink:0">' + (v.duration || '') + '</span>' +
+      '</div>'
+    ).join('');
+  } catch {
+    container.innerHTML = '<p style="color:var(--danger)">Failed to load data.</p>';
+  }
+}
+
 async function downloadOffline() {
   if (!window.electron || !window.electron.downloadContent) {
     alert('Downloads only available in the desktop app.');
@@ -1346,7 +1490,6 @@ async function downloadOffline() {
   if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Downloading...'; btn.style.background = 'rgba(255,255,255,0.1)'; }
 
   const { lessonId, title, courseTitle, moduleTitle, videoUrl } = _currentVideoData;
-  const notesUrl = _currentVideoData.notesUrl || '';
   const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
   let downloadedAny = false;
 
@@ -1363,20 +1506,11 @@ async function downloadOffline() {
     return url;
   }
 
-  // Download video
+  // Download video only (PDF is downloaded separately via downloadPdfOffline)
   if (videoUrl) {
     try {
       const dlUrl = await getSignedUrl(videoUrl);
       const result = await window.electron.downloadContent({ url: dlUrl, lessonId, title, type: 'video', userId, courseTitle, moduleTitle });
-      if (result.success) downloadedAny = true;
-    } catch {}
-  }
-
-  // Download PDF if available
-  if (notesUrl) {
-    try {
-      const dlUrl = await getSignedUrl(notesUrl);
-      const result = await window.electron.downloadContent({ url: dlUrl, lessonId, title: title + ' (PDF)', type: 'pdf', userId, courseTitle, moduleTitle });
       if (result.success) downloadedAny = true;
     } catch {}
   }
@@ -1393,6 +1527,41 @@ async function downloadOffline() {
         if (btn) { btn.innerHTML = '<i class="fas fa-download"></i> Download Lesson'; btn.style.background = 'linear-gradient(135deg,#6c47ff,#ec4899)'; }
       }, 3000);
     }
+  }
+}
+
+// Download PDF separately for offline viewing
+async function downloadPdfOffline(notesUrl) {
+  if (!window.electron || !window.electron.downloadContent) {
+    alert('Downloads only available in the desktop app.');
+    return;
+  }
+  if (!notesUrl) { alert('No PDF available.'); return; }
+  const userId = getCurrentUserId();
+  if (!userId) { alert('Please log in to download.'); return; }
+  if (!_currentVideoData) { alert('Please open a lesson first.'); return; }
+
+  const { lessonId, title, courseTitle, moduleTitle } = _currentVideoData;
+  const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+
+  try {
+    let dlUrl = notesUrl;
+    if (notesUrl.includes('amazonaws.com')) {
+      const res = await fetch(BASE_URL + '/api/media/signed-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
+        body: JSON.stringify({ url: notesUrl }),
+      });
+      if (res.ok) { const d = await res.json(); if (d.signedUrl) dlUrl = d.signedUrl; }
+    }
+    const result = await window.electron.downloadContent({ url: dlUrl, lessonId, title: title + ' (PDF)', type: 'pdf', userId, courseTitle, moduleTitle });
+    if (result.success) {
+      alert('PDF downloaded for offline viewing!');
+    } else {
+      alert(result.message || 'PDF download failed.');
+    }
+  } catch (err) {
+    alert('PDF download failed. Please try again.');
   }
 }
 
@@ -1450,12 +1619,7 @@ async function playOfflineContent(lessonId, type) {
   if (!result.success) { alert(result.message || 'Playback failed.'); return; }
 
   if (type === 'pdf') {
-    const viewer = document.getElementById('pdf-viewer-modal');
-    const iframe = document.getElementById('pdf-viewer-iframe');
-    if (viewer && iframe) {
-      iframe.src = result.serveUrl;
-      viewer.style.display = 'flex';
-    }
+    _openPdfInCanvas(result.serveUrl);
   } else {
     const iframeEl = document.getElementById('video-iframe');
     const videoEl = document.getElementById('video-player');
@@ -1474,9 +1638,74 @@ async function deleteOfflineContent(lessonId, type) {
 
 function closePdfViewer() {
   const viewer = document.getElementById('pdf-viewer-modal');
-  const iframe = document.getElementById('pdf-viewer-iframe');
   if (viewer) viewer.style.display = 'none';
-  if (iframe) iframe.src = '';
+  _pdfDoc = null;
+  _pdfCurrentPage = 1;
+  const canvas = document.getElementById('pdf-canvas');
+  if (canvas) { const ctx = canvas.getContext('2d'); ctx.clearRect(0, 0, canvas.width, canvas.height); }
+}
+
+// ─── PDF.js Canvas Viewer (no download/print possible) ───────────────────────
+
+let _pdfDoc = null;
+let _pdfCurrentPage = 1;
+let _pdfScale = 1.5;
+
+function _renderPdfPage(pageNum) {
+  if (!_pdfDoc) return;
+  _pdfDoc.getPage(pageNum).then(function(page) {
+    const canvas = document.getElementById('pdf-canvas');
+    const ctx = canvas.getContext('2d');
+    const viewport = page.getViewport({ scale: _pdfScale });
+    canvas.height = viewport.height;
+    canvas.width = viewport.width;
+    page.render({ canvasContext: ctx, viewport: viewport });
+    document.getElementById('pdf-page-info').textContent = pageNum + ' / ' + _pdfDoc.numPages;
+    _pdfCurrentPage = pageNum;
+  });
+}
+
+function pdfPrevPage() {
+  if (_pdfCurrentPage <= 1) return;
+  _renderPdfPage(_pdfCurrentPage - 1);
+}
+
+function pdfNextPage() {
+  if (!_pdfDoc || _pdfCurrentPage >= _pdfDoc.numPages) return;
+  _renderPdfPage(_pdfCurrentPage + 1);
+}
+
+function pdfZoomIn() {
+  _pdfScale = Math.min(_pdfScale + 0.25, 3.0);
+  _renderPdfPage(_pdfCurrentPage);
+}
+
+function pdfZoomOut() {
+  _pdfScale = Math.max(_pdfScale - 0.25, 0.5);
+  _renderPdfPage(_pdfCurrentPage);
+}
+
+function _openPdfInCanvas(url) {
+  const viewer = document.getElementById('pdf-viewer-modal');
+  if (!viewer) return;
+  viewer.style.display = 'flex';
+  _pdfScale = 1.5;
+  _pdfCurrentPage = 1;
+  document.getElementById('pdf-page-info').textContent = 'Loading...';
+
+  if (typeof pdfjsLib !== 'undefined') {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'lib/pdf.worker.min.js';
+    pdfjsLib.getDocument(url).promise.then(function(pdf) {
+      _pdfDoc = pdf;
+      _renderPdfPage(1);
+    }).catch(function() {
+      alert('Could not load PDF.');
+      closePdfViewer();
+    });
+  } else {
+    alert('PDF viewer not available.');
+    closePdfViewer();
+  }
 }
 
 async function openPdfInApp(url) {
@@ -1488,14 +1717,12 @@ async function openPdfInApp(url) {
     if (lessonId) {
       const result = await window.electron.playDownload({ lessonId, type: 'pdf', userId });
       if (result.success) {
-        const viewer = document.getElementById('pdf-viewer-modal');
-        const iframe = document.getElementById('pdf-viewer-iframe');
-        if (viewer && iframe) { iframe.src = result.serveUrl; viewer.style.display = 'flex'; }
+        _openPdfInCanvas(result.serveUrl);
         return;
       }
     }
   }
-  // Fallback: open signed URL in iframe (online only)
+  // Fallback: open signed URL in canvas viewer (online only)
   try {
     const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
     let pdfUrl = url;
@@ -1507,9 +1734,7 @@ async function openPdfInApp(url) {
       });
       if (res.ok) { const d = await res.json(); if (d.signedUrl) pdfUrl = d.signedUrl; }
     }
-    const viewer = document.getElementById('pdf-viewer-modal');
-    const iframe = document.getElementById('pdf-viewer-iframe');
-    if (viewer && iframe) { iframe.src = pdfUrl; viewer.style.display = 'flex'; }
+    _openPdfInCanvas(pdfUrl);
   } catch { alert('Could not open PDF.'); }
 }
 
@@ -1574,7 +1799,7 @@ document.addEventListener('keydown', (e) => {
     if (cached.name) {
       const initial = cached.name.charAt(0).toUpperCase();
       const sidebarName = document.getElementById('sidebar-user-name');
-      const sidebarAvatar = document.getElementById('sidebar-user-avatar');
+      const sidebarAvatar = document.getElementById('sidebar-avatar-text');
       const dashWelcome = document.getElementById('dashboard-welcome-name');
       if (sidebarName) sidebarName.textContent = cached.name;
       if (sidebarAvatar) sidebarAvatar.textContent = initial;
