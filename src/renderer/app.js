@@ -366,6 +366,199 @@ function switchVpTab(el, panelId) {
   if (panel) panel.classList.add('active');
 }
 
+// ============================================================
+// DATA-DRIVEN TAB RENDERERS
+// These functions accept data objects. When backend is ready,
+// just pass the API response data — no UI code changes needed.
+// ============================================================
+
+/**
+ * Render Notes Tab
+ * @param {string} pdfUrl - URL to PDF notes (optional)
+ * @param {string[]} notePoints - Array of note bullet points (optional)
+ */
+function renderNotesTab(pdfUrl, notePoints) {
+  const el = document.getElementById('vp-notes');
+  if (!el) return;
+
+  let html = '<div class="tab-card">';
+  html += '<div class="tab-card-title"><i class="fas fa-file-alt"></i> Lesson Notes</div>';
+
+  if (notePoints && notePoints.length > 0) {
+    html += '<ul class="notes-list">';
+    notePoints.forEach(note => {
+      html += '<li><span class="note-bullet"></span><span>' + sanitize(note) + '</span></li>';
+    });
+    html += '</ul>';
+  }
+
+  if (pdfUrl) {
+    html += '<div style="margin-top:16px; padding-top:16px; border-top:1px solid rgba(255,255,255,0.06);">';
+    html += '<button class="btn btn-outline btn-sm" style="padding:10px 20px; border-radius:10px; display:flex; align-items:center; gap:8px;" onclick="openPdfInApp(\'' + pdfUrl + '\')">';
+    html += '<i class="fas fa-file-pdf" style="color:#ef4444;"></i> View PDF Notes</button>';
+    html += '</div>';
+  }
+
+  if (!pdfUrl && (!notePoints || notePoints.length === 0)) {
+    html += '<div style="text-align:center; padding:30px 20px;">';
+    html += '<i class="fas fa-book-open" style="font-size:2.5rem; color:rgba(255,255,255,0.15); margin-bottom:12px; display:block;"></i>';
+    html += '<p style="color:var(--muted); font-size:0.9rem;">No notes available for this lesson yet.</p>';
+    html += '</div>';
+  }
+
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+/**
+ * Render Quiz Tab
+ * @param {object|null} quizData - { question: string, options: string[], answer: number }
+ * Can also accept array: [{ question, options, answer }, ...]
+ */
+function renderQuizTab(quizData) {
+  const el = document.getElementById('vp-quiz');
+  if (!el) return;
+
+  let html = '<div class="tab-card">';
+  html += '<div class="tab-card-title"><i class="fas fa-tasks"></i> Quiz</div>';
+
+  if (!quizData) {
+    html += '<div style="text-align:center; padding:30px 20px;">';
+    html += '<i class="fas fa-question-circle" style="font-size:2.5rem; color:rgba(255,255,255,0.15); margin-bottom:12px; display:block;"></i>';
+    html += '<p style="color:var(--muted); font-size:0.9rem;">Quiz coming soon for this lesson.</p>';
+    html += '</div>';
+    html += '</div>';
+    el.innerHTML = html;
+    return;
+  }
+
+  // Support single quiz object or array
+  const quizzes = Array.isArray(quizData) ? quizData : [quizData];
+  
+  quizzes.forEach((quiz, qIndex) => {
+    const letters = ['A', 'B', 'C', 'D', 'E', 'F'];
+    html += '<div class="quiz-question-card" data-answer="' + quiz.answer + '" data-qindex="' + qIndex + '">';
+    html += '<div class="quiz-question-text">' + (quizzes.length > 1 ? 'Q' + (qIndex + 1) + '. ' : '') + sanitize(quiz.question) + '</div>';
+    html += '<div class="quiz-options">';
+    quiz.options.forEach((opt, i) => {
+      html += '<div class="quiz-option" onclick="selectQuizOption(this, ' + qIndex + ')" data-index="' + i + '">';
+      html += '<span class="quiz-option-letter">' + letters[i] + '</span>';
+      html += '<span>' + sanitize(opt) + '</span>';
+      html += '</div>';
+    });
+    html += '</div>';
+    html += '<button class="quiz-submit-btn" onclick="submitQuiz(' + qIndex + ')">Check Answer</button>';
+    html += '<div class="quiz-result" id="quiz-result-' + qIndex + '" style="display:none;"></div>';
+    html += '</div>';
+  });
+
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+/**
+ * Select a quiz option
+ */
+function selectQuizOption(optEl, qIndex) {
+  const card = optEl.closest('.quiz-question-card');
+  card.querySelectorAll('.quiz-option').forEach(o => o.classList.remove('selected'));
+  optEl.classList.add('selected');
+}
+
+/**
+ * Submit quiz answer and show result
+ */
+function submitQuiz(qIndex) {
+  const card = document.querySelector('.quiz-question-card[data-qindex="' + qIndex + '"]');
+  if (!card) return;
+  const selected = card.querySelector('.quiz-option.selected');
+  if (!selected) {
+    const result = document.getElementById('quiz-result-' + qIndex);
+    if (result) {
+      result.style.display = 'block';
+      result.className = 'quiz-result wrong';
+      result.innerHTML = '<i class="fas fa-exclamation-circle"></i> Please select an option first.';
+    }
+    return;
+  }
+
+  const selectedIndex = parseInt(selected.dataset.index);
+  const correctIndex = parseInt(card.dataset.answer);
+  const result = document.getElementById('quiz-result-' + qIndex);
+  const options = card.querySelectorAll('.quiz-option');
+
+  // Disable further clicks
+  options.forEach(o => { o.style.pointerEvents = 'none'; });
+
+  if (selectedIndex === correctIndex) {
+    selected.classList.add('correct');
+    if (result) {
+      result.style.display = 'block';
+      result.className = 'quiz-result correct';
+      result.innerHTML = '<i class="fas fa-check-circle"></i> Correct! Well done! 🎉';
+    }
+  } else {
+    selected.classList.add('wrong');
+    options[correctIndex].classList.add('correct');
+    if (result) {
+      result.style.display = 'block';
+      result.className = 'quiz-result wrong';
+      result.innerHTML = '<i class="fas fa-times-circle"></i> Incorrect. The correct answer is highlighted.';
+    }
+  }
+
+  // Hide submit button
+  const btn = card.querySelector('.quiz-submit-btn');
+  if (btn) btn.style.display = 'none';
+}
+
+/**
+ * Render Exercise Tab
+ * @param {object|null} exerciseData - { description: string, hint?: string, starterCode?: string }
+ * Can also accept string (simple exercise text)
+ */
+function renderExerciseTab(exerciseData) {
+  const el = document.getElementById('vp-exercise');
+  if (!el) return;
+
+  let html = '<div class="tab-card">';
+  html += '<div class="tab-card-title"><i class="fas fa-code"></i> Practice Exercise</div>';
+
+  if (!exerciseData) {
+    html += '<div style="text-align:center; padding:30px 20px;">';
+    html += '<i class="fas fa-laptop-code" style="font-size:2.5rem; color:rgba(255,255,255,0.15); margin-bottom:12px; display:block;"></i>';
+    html += '<p style="color:var(--muted); font-size:0.9rem;">Exercise coming soon for this lesson.</p>';
+    html += '</div>';
+    html += '</div>';
+    el.innerHTML = html;
+    return;
+  }
+
+  // Support string or object
+  const exercise = typeof exerciseData === 'string' ? { description: exerciseData } : exerciseData;
+
+  html += '<div class="exercise-card">';
+  html += '<div class="exercise-description">' + sanitize(exercise.description) + '</div>';
+
+  if (exercise.hint) {
+    html += '<div class="exercise-hint">';
+    html += '<i class="fas fa-lightbulb"></i>';
+    html += '<span>' + sanitize(exercise.hint) + '</span>';
+    html += '</div>';
+  }
+
+  if (exercise.starterCode) {
+    html += '<div style="margin-top:16px;">';
+    html += '<div style="font-size:0.8rem; font-weight:600; color:var(--muted); margin-bottom:8px;">Starter Code:</div>';
+    html += '<pre style="background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.1); border-radius:10px; padding:16px; color:#a78bfa; font-size:0.85rem; overflow-x:auto; font-family:monospace;">' + sanitize(exercise.starterCode) + '</pre>';
+    html += '</div>';
+  }
+
+  html += '</div>';
+  html += '</div>';
+  el.innerHTML = html;
+}
+
 async function sendVpAI() {
   const input = document.getElementById('vp-ai-input');
   const messages = document.getElementById('vp-ai-messages');
@@ -378,13 +571,14 @@ async function sendVpAI() {
   userMsg.style.cssText = 'display:flex;gap:10px;align-items:flex-start;flex-direction:row-reverse;';
   userMsg.innerHTML = `<div style="width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,#10b981,#34d399);display:flex;align-items:center;justify-content:center;font-size:0.7rem;font-weight:700;color:#fff;flex-shrink:0;">You</div><div style="background:rgba(108,71,255,0.15);border:1px solid rgba(108,71,255,0.3);border-radius:10px 0 10px 10px;padding:10px 14px;font-size:0.82rem;color:#fff;line-height:1.6;">${sanitize(text)}</div>`;
   messages.appendChild(userMsg);
-  messages.scrollTop = messages.scrollHeight;
+  const vpCenter = messages.closest('.vp-center');
+  if (vpCenter) vpCenter.scrollTop = vpCenter.scrollHeight;
 
   const aiMsg = document.createElement('div');
   aiMsg.style.cssText = 'display:flex;gap:10px;align-items:flex-start;';
   aiMsg.innerHTML = `<div style="width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,var(--primary),#ec4899);display:flex;align-items:center;justify-content:center;font-size:0.7rem;font-weight:700;color:#fff;flex-shrink:0;">AI</div><div style="background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:0 10px 10px 10px;padding:10px 14px;font-size:0.82rem;color:var(--muted);line-height:1.6;">Thinking...</div>`;
   messages.appendChild(aiMsg);
-  messages.scrollTop = messages.scrollHeight;
+  if (vpCenter) vpCenter.scrollTop = vpCenter.scrollHeight;
 
   try {
     const lessonTitle = document.getElementById('video-title')?.textContent || '';
@@ -400,7 +594,8 @@ async function sendVpAI() {
   } catch {
     aiMsg.querySelector('div:last-child').textContent = 'Error connecting to AI.';
   }
-  messages.scrollTop = messages.scrollHeight;
+  const vpCenterEnd = messages.closest('.vp-center');
+  if (vpCenterEnd) vpCenterEnd.scrollTop = vpCenterEnd.scrollHeight;
 }
 
 function selectOption(el) {
@@ -789,18 +984,11 @@ async function openVideoFromBackend(courseId, moduleId, lessonId) {
     if (floatBtn) floatBtn.style.display = (nextLesson && nextLesson.isFree) ? 'flex' : 'none';
 
     const notesUrl = lesson.notes || '';
-    document.getElementById('vp-notes').innerHTML =
-      '<h4 style="margin-bottom:12px;font-weight:700;">Notes</h4>' +
-      '<p style="color:var(--muted);font-size:0.88rem;line-height:1.8">' + (notesUrl ? 'PDF notes available for this lesson.' : 'No notes available for this lesson.') + '</p>' +
-      (notesUrl ? '<button class="btn btn-outline btn-sm" style="margin-top:14px" onclick="openPdfInApp(\'' + notesUrl + '\')"><i class="fas fa-file-pdf"></i> View PDF</button>' : '');
+    renderNotesTab(notesUrl, []);
 
-    document.getElementById('vp-quiz').innerHTML =
-      '<h4 style="margin-bottom:14px;font-weight:700;">Quiz</h4>' +
-      '<p style="color:var(--muted);font-size:0.88rem">Quiz coming soon for this lesson.</p>';
+    renderQuizTab(null);
 
-    document.getElementById('vp-exercise').innerHTML =
-      '<h4 style="margin-bottom:12px;font-weight:700;">Exercise</h4>' +
-      '<p style="color:var(--muted);font-size:0.88rem">Exercise coming soon for this lesson.</p>';
+    renderExerciseTab(null);
 
     // Render ALL modules and their lessons in playlist
     const playlist = document.getElementById('video-playlist');
@@ -887,27 +1075,10 @@ function openVideo(courseId, moduleId, videoId) {
     saveBtn.disabled = !!saved;
   }
 
-  document.getElementById('tab-notes').innerHTML =
-    '<h4 style="margin-bottom:12px">Notes</h4>' +
-    '<ul style="color:var(--muted);font-size:0.88rem;line-height:2;padding-left:20px">' +
-    video.notes.map(n => '<li>' + sanitize(n) + '</li>').join('') +
-    '</ul>' +
-    '<button class="btn btn-outline btn-sm" style="margin-top:14px" onclick="alert(\'No PDF attached to this lesson.\')"><i class="fas fa-download"></i> Download PDF</button>';
-
-  const q = video.quiz;
-  document.getElementById('tab-quiz').innerHTML =
-    '<h4 style="margin-bottom:14px">Quiz</h4>' +
-    '<p style="font-weight:600;margin-bottom:14px" id="quiz-question">Q1. ' + sanitize(q.question) + '</p>' +
-    q.options.map((opt, i) => '<div class="quiz-option" id="quiz-opt-' + i + '" onclick="selectOption(this)" data-index="' + i + '"><span>' + String.fromCharCode(65 + i) + '. ' + sanitize(opt) + '</span></div>').join('') +
-    '<button class="btn btn-primary btn-sm" style="margin-top:14px" onclick="submitQuiz(' + JSON.stringify(q.answer) + ')">Submit</button>' +
-    '<div id="quiz-result" style="margin-top:12px;font-size:0.88rem"></div>';
-
-  document.getElementById('tab-exercise').innerHTML =
-    '<h4 style="margin-bottom:12px">Exercise</h4>' +
-    '<p style="font-size:0.88rem;color:var(--muted);margin-bottom:14px">' + sanitize(video.exercise) + '</p>' +
-    '<textarea id="exercise-code" style="width:100%;height:130px;background:#0d1117;border:1px solid var(--border);border-radius:8px;padding:12px;color:#e6edf3;font-family:monospace;font-size:0.83rem;resize:none" placeholder="// Write your code here..."></textarea>' +
-    '<button class="btn btn-primary btn-sm" style="margin-top:10px" onclick="submitExercise()"><i class="fas fa-paper-plane"></i> Submit</button>' +
-    '<div id="exercise-result" style="margin-top:10px;font-size:0.85rem"></div>';
+  // Use new data-driven renderers with mock data
+  renderNotesTab('', video.notes || []);
+  renderQuizTab(video.quiz || null);
+  renderExerciseTab(video.exercise || null);
 
   const playlist = document.getElementById('video-playlist');
   if (playlist) {
@@ -944,35 +1115,7 @@ function openVideo(courseId, moduleId, videoId) {
 
 let _searchTimeout = null;
 
-function submitQuiz(correctIndex) {
-  const selected = document.querySelector('.quiz-option.selected');
-  const result = document.getElementById('quiz-result');
-  if (!selected) {
-    if (result) result.innerHTML = '<span style="color:#f59e0b">Please select an answer first.</span>';
-    return;
-  }
-  const selectedIndex = parseInt(selected.getAttribute('data-index'));
-  document.querySelectorAll('.quiz-option').forEach(o => o.style.pointerEvents = 'none');
-  if (selectedIndex === correctIndex) {
-    selected.classList.add('correct');
-    if (result) result.innerHTML = '<span style="color:var(--success)">✅ Correct! Well done.</span>';
-  } else {
-    selected.classList.add('wrong');
-    const correctEl = document.querySelector('.quiz-option[data-index="' + correctIndex + '"]');
-    if (correctEl) correctEl.classList.add('correct');
-    if (result) result.innerHTML = '<span style="color:var(--danger)">❌ Incorrect. The correct answer is highlighted.</span>';
-  }
-}
-
-function submitExercise() {
-  const code = document.getElementById('exercise-code')?.value.trim();
-  const result = document.getElementById('exercise-result');
-  if (!code) {
-    if (result) result.innerHTML = '<span style="color:#f59e0b">Please write your code before submitting.</span>';
-    return;
-  }
-  if (result) result.innerHTML = '<span style="color:var(--success)">✅ Exercise submitted! Keep it up.</span>';
-}
+// Old submitQuiz/submitExercise removed — replaced by data-driven versions above
 
 async function loadVideo(url) {
   const iframe = document.getElementById('video-iframe');
@@ -1123,11 +1266,11 @@ async function playDownloadedVideo(index) {
     const btn = document.getElementById('save-download-btn');
     if (btn) { btn.innerHTML = '<i class="fas fa-check"></i> Saved!'; btn.disabled = true; }
     const notesEl = document.getElementById('vp-notes');
-    if (notesEl) notesEl.innerHTML = '<h4 style="margin-bottom:12px;font-weight:700;">Notes</h4><p style="color:var(--muted);font-size:0.88rem">Open the lesson from Courses to view notes.</p>';
+    if (notesEl) renderNotesTab('', []);
     const quizEl = document.getElementById('vp-quiz');
-    if (quizEl) quizEl.innerHTML = '<h4 style="margin-bottom:14px;font-weight:700;">Quiz</h4><p style="color:var(--muted)">Quiz coming soon.</p>';
+    if (quizEl) renderQuizTab(null);
     const exEl = document.getElementById('vp-exercise');
-    if (exEl) exEl.innerHTML = '<h4 style="margin-bottom:12px;font-weight:700;">Exercise</h4><p style="color:var(--muted)">Exercise coming soon.</p>';
+    if (exEl) renderExerciseTab(null);
     document.querySelectorAll('.vp-tab').forEach((t, i) => t.classList.toggle('active', i === 0));
     document.querySelectorAll('.vp-tab-panel').forEach((p, i) => p.classList.toggle('active', i === 0));
     navigate('video');
