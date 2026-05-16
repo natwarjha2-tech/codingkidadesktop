@@ -115,27 +115,28 @@ async function loadStudentData() {
     if (profileNameInput) profileNameInput.value = name;
     if (profileEmailInput) profileEmailInput.value = email;
 
-    // Restore saved avatar photo — user-specific
+    // Restore avatar photo from server API
     const userId = getCurrentUserId();
-    const savedAvatar = localStorage.getItem('ck_avatar_' + userId);
-    if (savedAvatar) {
-      const img = document.getElementById('profile-avatar-img');
-      const text = document.getElementById('profile-avatar-text');
-      if (img) { img.src = savedAvatar; img.style.display = 'block'; }
-      if (text) text.style.display = 'none';
-      // Also update sidebar avatar with photo
-      const sidebarImg = document.getElementById('sidebar-avatar-img');
-      const sidebarText = document.getElementById('sidebar-avatar-text');
-      if (sidebarImg) { sidebarImg.src = savedAvatar; sidebarImg.style.display = 'block'; }
-      if (sidebarText) sidebarText.style.display = 'none';
-    } else {
-      const text = document.getElementById('profile-avatar-text');
-      if (text) text.textContent = initial;
-      // Sidebar shows initial
-      const sidebarText = document.getElementById('sidebar-avatar-text');
-      if (sidebarText) { sidebarText.textContent = initial; sidebarText.style.display = ''; }
-      const sidebarImg = document.getElementById('sidebar-avatar-img');
-      if (sidebarImg) sidebarImg.style.display = 'none';
+    const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+    if (token) {
+      try {
+        const avatarRes = await fetch(BASE_URL + '/api/student/avatar', {
+          headers: { Authorization: 'Bearer ' + token },
+        });
+        if (avatarRes.ok) {
+          const avatarData = await avatarRes.json();
+          if (avatarData.success && avatarData.avatarUrl) {
+            const img = document.getElementById('profile-avatar-img');
+            const text = document.getElementById('profile-avatar-text');
+            if (img) { img.src = avatarData.avatarUrl; img.style.display = 'block'; }
+            if (text) text.style.display = 'none';
+            const sidebarImg = document.getElementById('sidebar-avatar-img');
+            const sidebarText = document.getElementById('sidebar-avatar-text');
+            if (sidebarImg) { sidebarImg.src = avatarData.avatarUrl; sidebarImg.style.display = 'block'; }
+            if (sidebarText) sidebarText.style.display = 'none';
+          }
+        }
+      } catch {}
     }
   } catch (err) {
     const cached = JSON.parse(localStorage.getItem('ck_user') || '{}');
@@ -303,21 +304,31 @@ async function saveProfile() {
 function handleProfilePhoto(input) {
   const file = input.files?.[0];
   if (!file) return;
-  const userId = getCurrentUserId();
   const reader = new FileReader();
   reader.onload = (e) => {
+    // Show preview immediately
     const img = document.getElementById('profile-avatar-img');
     const text = document.getElementById('profile-avatar-text');
     if (img) { img.src = e.target.result; img.style.display = 'block'; }
     if (text) text.style.display = 'none';
-    localStorage.setItem('ck_avatar_' + userId, e.target.result);
-    // Sync sidebar avatar
     const sidebarImg = document.getElementById('sidebar-avatar-img');
     const sidebarText = document.getElementById('sidebar-avatar-text');
     if (sidebarImg) { sidebarImg.src = e.target.result; sidebarImg.style.display = 'block'; }
     if (sidebarText) sidebarText.style.display = 'none';
   };
   reader.readAsDataURL(file);
+
+  // Upload to server for cross-device sync
+  const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+  if (token) {
+    const formData = new FormData();
+    formData.append('avatar', file);
+    fetch(BASE_URL + '/api/student/avatar', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + token },
+      body: formData,
+    }).catch(() => {});
+  }
 }
 
 function openEditProfile() {
