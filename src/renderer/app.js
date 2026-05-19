@@ -94,11 +94,7 @@ async function loadStudentData() {
 
     const dashGreeting = document.getElementById('dashboard-greeting');
     if (dashGreeting) {
-      const hour = new Date().getHours();
-      let greeting = 'Good Evening';
-      if (hour < 12) greeting = 'Good Morning';
-      else if (hour < 18) greeting = 'Good Afternoon';
-      dashGreeting.textContent = greeting;
+      dashGreeting.textContent = 'Welcome';
     }
 
     const profileName = document.getElementById('profile-name');
@@ -165,7 +161,7 @@ async function loadStudentData() {
   // Load dashboard data in background — outside loadStudentData so splash is not blocked
 }
 
-function _applyDashboardData(data) {
+async function _applyDashboardData(data) {
     if (!data.success) return;
 
     // Dashboard stats
@@ -174,15 +170,19 @@ function _applyDashboardData(data) {
     const certEl = document.getElementById('stat-certificates');
     const streakEl = document.getElementById('stat-streak');
     if (enrolledEl) enrolledEl.textContent = data.enrolledCount || 0;
-    if (completedEl) completedEl.textContent = data.completedVideos || 0;
+    // Videos completed = sum of completedLessons from enrolled courses only
+    const enrolledCompletedCount = (data.enrolledCourses || []).reduce((sum, c) => sum + (c.completedLessons || 0), 0);
+    if (completedEl) completedEl.textContent = enrolledCompletedCount;
 
     // Certificates = courses where progressPercent is 100
     const certCount = (data.enrolledCourses || []).filter(c => c.progressPercent === 100).length;
     if (certEl) certEl.textContent = certCount;
 
-    // Daily streak from localStorage
-    const streak = updateDailyStreak();
-    if (streakEl) streakEl.textContent = streak;
+    // Weekly streak count — fetched separately (not in polling)
+    // Streak is loaded once on dashboard navigate, not every 5s
+    if (streakEl && !streakEl.dataset.loaded) {
+      streakEl.textContent = '0';
+    }
 
     // Continue Learning — use API data or localStorage fallback
     let lw = data.lastWatched || JSON.parse(localStorage.getItem('ck_last_lesson') || 'null');
@@ -338,9 +338,9 @@ function openEditProfile() {
 
 // Navigation
 
-const appPages = ['dashboard','courses','course-detail','video','chat','ai','live','downloads','offline-downloads','profile','enrolled-detail','completed-videos'];
+const appPages = ['dashboard','courses','course-detail','video','chat','ai','live','downloads','offline-downloads','profile','enrolled-detail','completed-videos','streak-history'];
 const authPages = ['login','signup'];
-const sidebarMap = { dashboard:'nav-dashboard', courses:'nav-courses', 'course-detail':'nav-courses', video:'nav-courses', chat:'nav-chat', ai:'nav-ai', live:'nav-live', downloads:'nav-downloads', 'offline-downloads':'nav-offline-downloads', profile:'nav-profile', 'enrolled-detail':'nav-dashboard', 'completed-videos':'nav-dashboard' };
+const sidebarMap = { dashboard:'nav-dashboard', courses:'nav-courses', 'course-detail':'nav-courses', video:'nav-courses', chat:'nav-chat', ai:'nav-ai', live:'nav-live', downloads:'nav-downloads', 'offline-downloads':'nav-offline-downloads', profile:'nav-profile', 'enrolled-detail':'nav-dashboard', 'completed-videos':'nav-dashboard', 'streak-history':'nav-dashboard' };
 
 function navigate(page) {
   authPages.forEach(p => {
@@ -374,6 +374,10 @@ function navigate(page) {
   if (page === 'profile' || page === 'dashboard') {
     const t = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token');
     if (t) StudentAPI.getDashboard().then(data => _applyDashboardData(data)).catch(() => {});
+    // Fetch weekly streak count once on dashboard load
+    if (page === 'dashboard' && t) {
+      loadWeeklyStreakCount();
+    }
   }
 
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
@@ -422,7 +426,7 @@ function renderNotesTab(pdfUrl, notePoints) {
     html += '<div style="margin-top:16px; padding-top:16px; border-top:1px solid rgba(255,255,255,0.06); display:flex; gap:10px;">';
     html += '<button class="btn btn-outline btn-sm" style="padding:10px 20px; border-radius:10px; display:flex; align-items:center; gap:8px;" onclick="openPdfInApp(\'' + pdfUrl + '\')">';
     html += '<i class="fas fa-file-pdf" style="color:#ef4444;"></i> View PDF Notes</button>';
-    html += '<button class="btn btn-outline btn-sm" style="padding:10px 20px; border-radius:10px; display:flex; align-items:center; gap:8px; border-color:rgba(34,197,94,0.4); color:#22c55e;" onclick="downloadPdfOffline(\'' + pdfUrl + '\')">';
+    html += '<button id="pdf-download-btn" class="btn btn-outline btn-sm" style="padding:10px 20px; border-radius:10px; display:flex; align-items:center; gap:8px; border-color:rgba(34,197,94,0.4); color:#22c55e;" onclick="downloadPdfOffline(\'' + pdfUrl + '\')">';
     html += '<i class="fas fa-download"></i> Download PDF</button>';
     html += '</div>';
   }
@@ -436,6 +440,28 @@ function renderNotesTab(pdfUrl, notePoints) {
 
   html += '</div>';
   el.innerHTML = html;
+
+  // Check if PDF already downloaded — update button state
+  if (pdfUrl && window.electron && window.electron.getDownloads && _currentVideoData) {
+    const _uid = getCurrentUserId();
+    if (_uid) {
+      window.electron.getDownloads({ userId: _uid }).then(function(result) {
+        if (result.success) {
+          var downloaded = result.downloads.find(function(d) { return d.lessonId === _currentVideoData.lessonId && d.type === 'pdf'; });
+          if (downloaded) {
+            var pdfBtn = document.getElementById('pdf-download-btn');
+            if (pdfBtn) {
+              pdfBtn.innerHTML = '<i class="fas fa-check"></i> Downloaded (' + downloaded.daysLeft + 'd left)';
+              pdfBtn.style.borderColor = 'rgba(34,197,94,0.6)';
+              pdfBtn.style.color = '#22c55e';
+              pdfBtn.style.pointerEvents = 'none';
+              pdfBtn.style.opacity = '0.8';
+            }
+          }
+        }
+      }).catch(function() {});
+    }
+  }
 }
 
 /**
@@ -465,7 +491,7 @@ function renderQuizTab(quizData) {
   
   quizzes.forEach((quiz, qIndex) => {
     const letters = ['A', 'B', 'C', 'D', 'E', 'F'];
-    html += '<div class="quiz-question-card" data-answer="' + quiz.answer + '" data-qindex="' + qIndex + '">';
+    html += '<div class="quiz-question-card" data-answer="' + quiz.answer + '" data-qindex="' + qIndex + '" data-quizid="' + (quiz.id || '') + '">';
     html += '<div class="quiz-question-text">' + (quizzes.length > 1 ? 'Q' + (qIndex + 1) + '. ' : '') + sanitize(quiz.question) + '</div>';
     html += '<div class="quiz-options">';
     quiz.options.forEach((opt, i) => {
@@ -538,6 +564,283 @@ function submitQuiz(qIndex) {
   // Hide submit button
   const btn = card.querySelector('.quiz-submit-btn');
   if (btn) btn.style.display = 'none';
+
+  // Save attempt to server for leaderboard
+  const quizId = card.dataset.quizid || '';
+  const courseId = _currentLessonContext ? _currentLessonContext.courseId : '';
+  const _token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+  if (quizId && courseId && _token) {
+    fetch(BASE_URL + '/api/quiz', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + _token },
+      body: JSON.stringify({ quizId, selected: selectedIndex, courseId }),
+    }).then(() => fetchAndShowQuizRank()).catch(() => fetchAndShowQuizRank());
+  } else {
+    fetchAndShowQuizRank();
+  }
+}
+
+/**
+ * Fetch and display quiz rank in the quiz tab
+ */
+async function fetchAndShowQuizRank() {
+  // Get courseId from current context
+  const courseId = _currentLessonContext ? _currentLessonContext.courseId : null;
+  if (!courseId) return;
+
+  const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+  if (!token) return;
+
+  // Check if rank section already exists
+  let rankSection = document.getElementById('quiz-rank-section');
+  if (!rankSection) {
+    const quizEl = document.getElementById('vp-quiz');
+    if (!quizEl) return;
+    rankSection = document.createElement('div');
+    rankSection.id = 'quiz-rank-section';
+    rankSection.style.cssText = 'margin-top:20px; padding:16px; background:rgba(108,71,255,0.08); border:1px solid rgba(108,71,255,0.2); border-radius:12px;';
+    quizEl.appendChild(rankSection);
+  }
+
+  rankSection.innerHTML = '<p style="color:var(--muted);font-size:0.8rem;text-align:center"><i class="fas fa-spinner fa-spin"></i> Loading rank...</p>';
+
+  try {
+    const res = await fetch(BASE_URL + '/api/leaderboard?courseId=' + courseId, {
+      headers: { Authorization: 'Bearer ' + token },
+    });
+    const data = await res.json();
+    if (data.success && data.currentUserRank) {
+      const r = data.currentUserRank;
+      rankSection.innerHTML =
+        '<div style="text-align:center">' +
+        '<div style="font-size:1.5rem;margin-bottom:4px">🏆</div>' +
+        '<div style="font-size:0.9rem;font-weight:700;color:#fff">Your Quiz Rank</div>' +
+        '<div style="font-size:1.8rem;font-weight:800;color:#a78bfa;margin:6px 0">#' + r.rank + '</div>' +
+        '<div style="font-size:0.8rem;color:var(--muted)">out of ' + r.totalStudents + ' students · Score: ' + r.score + '%</div>' +
+        '</div>';
+    } else {
+      rankSection.innerHTML =
+        '<div style="text-align:center">' +
+        '<div style="font-size:0.85rem;color:var(--muted)">Complete more quizzes to see your rank!</div>' +
+        '</div>';
+    }
+  } catch {
+    rankSection.innerHTML = '';
+  }
+}
+
+/**
+ * Submit exercise answer
+ */
+async function submitExerciseAnswer(exIndex) {
+  const idx = exIndex !== undefined ? exIndex : 0;
+  const codeInput = document.getElementById('exercise-code-input-' + idx);
+  const result = document.getElementById('exercise-submit-result-' + idx);
+  if (!codeInput || !result) return;
+
+  const code = codeInput.value.trim();
+  if (!code) {
+    result.style.display = 'block';
+    result.style.color = '#f59e0b';
+    result.innerHTML = '<i class="fas fa-exclamation-circle"></i> Please write your solution before submitting.';
+    return;
+  }
+
+  // Submit to server for validation
+  const courseId = _currentLessonContext ? _currentLessonContext.courseId : '';
+  const _token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+
+  result.style.display = 'block';
+  result.style.color = 'var(--muted)';
+  result.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Checking...';
+
+  try {
+    // Get exercise ID from rendered data
+    const exerciseCards = document.querySelectorAll('.exercise-card');
+    const exerciseId = exerciseCards[idx] ? exerciseCards[idx].dataset.exerciseid || '' : '';
+
+    if (exerciseId && courseId && _token) {
+      const res = await fetch(BASE_URL + '/api/exercise', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + _token },
+        body: JSON.stringify({ exerciseId, code, courseId }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        if (data.passed) {
+          result.style.color = '#22c55e';
+          result.innerHTML = '<i class="fas fa-check-circle"></i> Correct! Well done! 🎉';
+          codeInput.style.borderColor = 'rgba(34,197,94,0.4)';
+        } else {
+          result.style.color = '#f59e0b';
+          result.innerHTML = '<i class="fas fa-exclamation-triangle"></i> ' + (data.message || 'Not quite right. Keep trying!');
+          codeInput.style.borderColor = 'rgba(245,158,11,0.4)';
+        }
+      } else {
+        result.style.color = '#22c55e';
+        result.innerHTML = '<i class="fas fa-check-circle"></i> Solution submitted!';
+      }
+    } else {
+      // No server validation possible — mark as submitted
+      result.style.color = '#22c55e';
+      result.innerHTML = '<i class="fas fa-check-circle"></i> Solution submitted!';
+    }
+  } catch {
+    result.style.color = '#22c55e';
+    result.innerHTML = '<i class="fas fa-check-circle"></i> Solution submitted!';
+  }
+
+  // Show exercise rank
+  fetchAndShowExerciseRank();
+}
+
+/**
+ * Fetch and display exercise rank
+ */
+async function fetchAndShowExerciseRank() {
+  const courseId = _currentLessonContext ? _currentLessonContext.courseId : null;
+  if (!courseId) return;
+
+  const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+  if (!token) return;
+
+  let rankSection = document.getElementById('exercise-rank-section');
+  if (!rankSection) {
+    const exEl = document.getElementById('vp-exercise');
+    if (!exEl) return;
+    rankSection = document.createElement('div');
+    rankSection.id = 'exercise-rank-section';
+    rankSection.style.cssText = 'margin-top:20px; padding:16px; background:rgba(34,197,94,0.08); border:1px solid rgba(34,197,94,0.2); border-radius:12px;';
+    exEl.appendChild(rankSection);
+  }
+
+  rankSection.innerHTML = '<p style="color:var(--muted);font-size:0.8rem;text-align:center"><i class="fas fa-spinner fa-spin"></i> Loading rank...</p>';
+
+  try {
+    const res = await fetch(BASE_URL + '/api/leaderboard?courseId=' + courseId, {
+      headers: { Authorization: 'Bearer ' + token },
+    });
+    const data = await res.json();
+    if (data.success && data.currentUserRank) {
+      const r = data.currentUserRank;
+      rankSection.innerHTML =
+        '<div style="text-align:center">' +
+        '<div style="font-size:1.5rem;margin-bottom:4px">⚡</div>' +
+        '<div style="font-size:0.9rem;font-weight:700;color:#fff">Your Exercise Rank</div>' +
+        '<div style="font-size:1.8rem;font-weight:800;color:#22c55e;margin:6px 0">#' + r.rank + '</div>' +
+        '<div style="font-size:0.8rem;color:var(--muted)">out of ' + r.totalStudents + ' students · Score: ' + r.score + '%</div>' +
+        '</div>';
+    } else {
+      rankSection.innerHTML =
+        '<div style="text-align:center">' +
+        '<div style="font-size:0.85rem;color:var(--muted)">Complete more exercises to see your rank!</div>' +
+        '</div>';
+    }
+  } catch {
+    rankSection.innerHTML = '';
+  }
+}
+
+/**
+ * Render Weekly Streak Challenge as a separate section (shown via tab)
+ */
+function renderWeeklyStreakSection(streak) {
+  // Create a dedicated streak tab panel if not exists
+  let section = document.getElementById('vp-streak');
+  if (!section) {
+    const exerciseEl = document.getElementById('vp-exercise');
+    if (!exerciseEl) return;
+    section = document.createElement('div');
+    section.id = 'vp-streak';
+    section.className = 'vp-tab-panel';
+    exerciseEl.parentNode.insertBefore(section, exerciseEl.nextSibling);
+  }
+  // Ensure it's hidden initially (tab switching will show it via .active class)
+  section.classList.remove('active');
+
+  // Show the streak tab button (add between Exercise and AI Mentor)
+  const tabsContainer = document.querySelector('.vp-tabs');
+  if (tabsContainer && !document.getElementById('streak-tab-btn')) {
+    const aiTab = tabsContainer.querySelector('[onclick*="vp-ai"]') || tabsContainer.lastElementChild;
+    const streakTab = document.createElement('div');
+    streakTab.id = 'streak-tab-btn';
+    streakTab.className = 'vp-tab';
+    streakTab.innerHTML = '🔥 Streak';
+    streakTab.onclick = function() { switchVpTab(this, 'vp-streak'); };
+    if (aiTab) {
+      tabsContainer.insertBefore(streakTab, aiTab);
+    } else {
+      tabsContainer.appendChild(streakTab);
+    }
+  }
+
+  section.innerHTML =
+    '<div class="tab-card" style="border:1px solid rgba(245,158,11,0.3); background:rgba(245,158,11,0.05);">' +
+    '<div class="tab-card-title" style="color:#f59e0b"><i class="fas fa-fire"></i> Weekly Streak Challenge — Week ' + streak.weekNumber + '</div>' +
+    '<h4 style="color:#fff;font-weight:700;margin-bottom:8px">' + sanitize(streak.title) + '</h4>' +
+    (streak.description ? '<p style="color:var(--muted);font-size:0.85rem;margin-bottom:12px">' + sanitize(streak.description) + '</p>' : '') +
+    '<div style="background:rgba(0,0,0,0.3);border:1px solid rgba(245,158,11,0.2);border-radius:10px;padding:14px;margin-bottom:14px">' +
+    '<div style="font-size:0.75rem;font-weight:600;color:#f59e0b;margin-bottom:6px;text-transform:uppercase">Challenge Problem:</div>' +
+    '<p style="color:#fff;font-size:0.9rem;line-height:1.6">' + sanitize(streak.problem) + '</p>' +
+    '</div>' +
+    '<textarea id="streak-answer-input" style="width:100%;height:120px;background:rgba(0,0,0,0.4);border:1px solid rgba(245,158,11,0.2);border-radius:10px;padding:14px;color:#fbbf24;font-size:0.85rem;resize:vertical;font-family:monospace;outline:none" placeholder="Write your solution here..."></textarea>' +
+    '<button class="quiz-submit-btn" style="margin-top:12px;background:linear-gradient(135deg,#f59e0b,#d97706)" onclick="submitWeeklyStreak(\'' + streak.id + '\')">Submit Challenge</button>' +
+    '<div id="streak-submit-result" style="display:none;margin-top:10px;font-size:0.85rem"></div>' +
+    '</div>';
+}
+
+/**
+ * Submit weekly streak challenge
+ */
+async function submitWeeklyStreak(streakId) {
+  const input = document.getElementById('streak-answer-input');
+  const result = document.getElementById('streak-submit-result');
+  if (!input || !result) return;
+
+  const answer = input.value.trim();
+  if (!answer) {
+    result.style.display = 'block';
+    result.style.color = '#f59e0b';
+    result.innerHTML = '<i class="fas fa-exclamation-circle"></i> Please write your solution.';
+    return;
+  }
+
+  result.style.display = 'block';
+  result.style.color = 'var(--muted)';
+  result.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Evaluating...';
+
+  const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+  try {
+    const res = await fetch(BASE_URL + '/api/weekly-streak', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      body: JSON.stringify({ streakId, answer }),
+    });
+    const data = await res.json();
+    if (data.success) {
+      if (data.passed) {
+        result.style.color = '#22c55e';
+        result.innerHTML = '<i class="fas fa-check-circle"></i> ✅ PASS — Streak Complete! ' + (data.feedback || '');
+        input.style.borderColor = 'rgba(34,197,94,0.4)';
+        // Update streak count on dashboard
+        const streakEl = document.getElementById('stat-streak');
+        if (streakEl) {
+          const current = parseInt(streakEl.textContent) || 0;
+          streakEl.textContent = current + 1;
+        }
+      } else {
+        result.style.color = '#ef4444';
+        result.innerHTML = '<i class="fas fa-times-circle"></i> ❌ FAIL — ' + (data.feedback || 'Incorrect answer. Review and try again!');
+        input.style.borderColor = 'rgba(239,68,68,0.4)';
+      }
+    } else {
+      result.style.color = '#ef4444';
+      result.innerHTML = '<i class="fas fa-times-circle"></i> ' + (data.message || 'Submission failed.');
+    }
+  } catch {
+    result.style.color = '#ef4444';
+    result.innerHTML = '<i class="fas fa-times-circle"></i> Network error. Please try again.';
+  }
 }
 
 /**
@@ -562,30 +865,48 @@ function renderExerciseTab(exerciseData) {
     return;
   }
 
-  // Support string or object
-  const exercise = typeof exerciseData === 'string' ? { description: exerciseData } : exerciseData;
-
-  html += '<div class="exercise-card">';
-  html += '<div class="exercise-description">' + sanitize(exercise.description) + '</div>';
-
-  if (exercise.hint) {
-    html += '<div class="exercise-hint">';
-    html += '<i class="fas fa-lightbulb"></i>';
-    html += '<span>' + sanitize(exercise.hint) + '</span>';
-    html += '</div>';
+  // Support single object, string, or array
+  let exercises = [];
+  if (Array.isArray(exerciseData)) {
+    exercises = exerciseData;
+  } else if (typeof exerciseData === 'string') {
+    exercises = [{ description: exerciseData }];
+  } else {
+    exercises = [exerciseData];
   }
 
-  if (exercise.starterCode) {
+  exercises.forEach((exercise, exIndex) => {
+    html += '<div class="exercise-card" data-exerciseid="' + (exercise.id || '') + '" style="margin-bottom:20px; padding-bottom:20px;' + (exIndex < exercises.length - 1 ? ' border-bottom:1px solid rgba(255,255,255,0.06);' : '') + '">';
+    if (exercises.length > 1) {
+      html += '<div style="font-size:0.75rem; font-weight:700; color:#a78bfa; margin-bottom:8px; text-transform:uppercase; letter-spacing:0.5px;">Exercise ' + (exIndex + 1) + ' of ' + exercises.length + (exercise.difficulty ? ' · ' + exercise.difficulty : '') + '</div>';
+    }
+    html += '<div class="exercise-description">' + sanitize(exercise.description || exercise.title || '') + '</div>';
+
+    if (exercise.hint || (exercise.hints && exercise.hints.length > 0)) {
+      const hintText = exercise.hint || (Array.isArray(exercise.hints) ? exercise.hints.join(' | ') : '');
+      if (hintText) {
+        html += '<div class="exercise-hint">';
+        html += '<i class="fas fa-lightbulb"></i>';
+        html += '<span>' + sanitize(hintText) + '</span>';
+        html += '</div>';
+      }
+    }
+
     html += '<div style="margin-top:16px;">';
-    html += '<div style="font-size:0.8rem; font-weight:600; color:var(--muted); margin-bottom:8px;">Starter Code:</div>';
-    html += '<pre style="background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.1); border-radius:10px; padding:16px; color:#a78bfa; font-size:0.85rem; overflow-x:auto; font-family:monospace;">' + sanitize(exercise.starterCode) + '</pre>';
+    html += '<div style="font-size:0.8rem; font-weight:600; color:var(--muted); margin-bottom:8px;">Your Code:</div>';
+    html += '<textarea id="exercise-code-input-' + exIndex + '" style="width:100%; height:130px; background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.1); border-radius:10px; padding:16px; color:#a78bfa; font-size:0.85rem; resize:vertical; font-family:monospace; outline:none;" placeholder="Write your solution here...">' + sanitize(exercise.starterCode || '') + '</textarea>';
+    html += '<button class="quiz-submit-btn" style="margin-top:12px;" onclick="submitExerciseAnswer(' + exIndex + ')">Submit Solution</button>';
+    html += '<div id="exercise-submit-result-' + exIndex + '" style="display:none; margin-top:10px; font-size:0.85rem;"></div>';
     html += '</div>';
-  }
+    html += '</div>';
+  });
 
-  html += '</div>';
   html += '</div>';
   el.innerHTML = html;
 }
+
+// AI Mentor chat history for lesson context
+let _aiMentorHistory = [];
 
 async function sendVpAI() {
   const input = document.getElementById('vp-ai-input');
@@ -609,18 +930,36 @@ async function sendVpAI() {
   if (vpCenter) vpCenter.scrollTop = vpCenter.scrollHeight;
 
   try {
-    const lessonTitle = document.getElementById('video-title')?.textContent || '';
-    const response = await fetch(
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + CONFIG.GEMINI_API_KEY,
-      { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contents: [{ parts: [{ text: 'You are a coding tutor. Current lesson: "' + lessonTitle + '". Student asks: ' + text }] }] }) }
-    );
-    const data = await response.json();
-    const answer = data.candidates?.[0]?.content?.parts?.[0]?.text || 'Sorry, could not get a response.';
-    aiMsg.querySelector('div:last-child').innerHTML = answer.replace(/\n/g, '<br/>');
-    aiMsg.querySelector('div:last-child').style.color = '#fff';
+    const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+    const lessonId = _currentVideoData ? _currentVideoData.lessonId : '';
+
+    const response = await fetch(BASE_URL + '/api/ai-mentor', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      body: JSON.stringify({ question: text, lessonId: lessonId, mode: 'lesson' }),
+    });
+
+    const result = await response.json();
+
+    if (result.success && result.answer) {
+      let formatted = result.answer
+        .replace(/```(\w*)\n([\s\S]*?)```/g, function(m, lang, code) {
+          const escaped = code.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+          return '<pre style="background:rgba(0,0,0,0.4);border:1px solid var(--border);border-radius:8px;padding:12px;margin:8px 0;overflow-x:auto;font-family:monospace;font-size:0.8rem;color:#a78bfa;">' + escaped + '</pre>';
+        })
+        .replace(/`([^`]+)`/g, function(m, code) {
+          const escaped = code.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+          return '<code style="background:rgba(108,71,255,0.15);padding:2px 6px;border-radius:4px;font-family:monospace;font-size:0.8rem;color:#c4b5fd;">' + escaped + '</code>';
+        })
+        .replace(/\*\*([^*]+)\*\*/g, '<strong style="color:#fff;">$1</strong>')
+        .replace(/\n/g, '<br/>');
+      aiMsg.querySelector('div:last-child').innerHTML = formatted;
+      aiMsg.querySelector('div:last-child').style.color = '#e2e8f0';
+    } else {
+      aiMsg.querySelector('div:last-child').innerHTML = '<span style="color:#f59e0b">\u23f3 ' + (result.message || 'AI is busy. Please wait a few seconds and try again.') + '</span>';
+    }
   } catch {
-    aiMsg.querySelector('div:last-child').textContent = 'Error connecting to AI.';
+    aiMsg.querySelector('div:last-child').innerHTML = '<span style="color:#f59e0b">\u23f3 AI is busy. Please wait a few seconds and try again.</span>';
   }
   const vpCenterEnd = messages.closest('.vp-center');
   if (vpCenterEnd) vpCenterEnd.scrollTop = vpCenterEnd.scrollHeight;
@@ -686,6 +1025,9 @@ function sendChat() {
   input.value = '';
 }
 
+// Dashboard AI chat history
+let _dashboardAIHistory = [];
+
 async function sendAI() {
   const input = document.getElementById('aiInput');
   const msg = input.value.trim();
@@ -706,28 +1048,45 @@ async function sendAI() {
   container.scrollTop = container.scrollHeight;
 
   try {
-    const response = await fetch(
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + CONFIG.GEMINI_API_KEY,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: 'You are a helpful coding tutor for CodingKeda platform. Answer this student question clearly and concisely: ' + msg }] }]
-        })
-      }
-    );
-    const data = await response.json();
-    const answer = data.candidates?.[0]?.content?.parts?.[0]?.text || 'Sorry, could not get a response.';
+    const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+
+    const response = await fetch(BASE_URL + '/api/ai-mentor', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      body: JSON.stringify({ question: msg, mode: 'general' }),
+    });
+
+    const result = await response.json();
     document.getElementById('ai-loading')?.remove();
-    const aiDiv = document.createElement('div');
-    aiDiv.className = 'ai-msg';
-    aiDiv.innerHTML = '<div class="ai-icon">AI</div><div class="ai-bubble">' + answer.replace(/\n/g, '<br/>') + '</div>';
-    container.appendChild(aiDiv);
+
+    if (result.success && result.answer) {
+      let formatted = result.answer
+        .replace(/```(\w*)\n([\s\S]*?)```/g, function(m, lang, code) {
+          const escaped = code.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+          return '<pre style="background:rgba(0,0,0,0.4);border:1px solid var(--border);border-radius:8px;padding:12px;margin:8px 0;overflow-x:auto;font-family:monospace;font-size:0.8rem;color:#a78bfa;">' + escaped + '</pre>';
+        })
+        .replace(/`([^`]+)`/g, function(m, code) {
+          const escaped = code.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+          return '<code style="background:rgba(108,71,255,0.15);padding:2px 6px;border-radius:4px;font-family:monospace;font-size:0.8rem;color:#c4b5fd;">' + escaped + '</code>';
+        })
+        .replace(/\*\*([^*]+)\*\*/g, '<strong style="color:#fff;">$1</strong>')
+        .replace(/\n/g, '<br/>');
+
+      const aiDiv = document.createElement('div');
+      aiDiv.className = 'ai-msg';
+      aiDiv.innerHTML = '<div class="ai-icon">AI</div><div class="ai-bubble" style="color:#e2e8f0">' + formatted + '</div>';
+      container.appendChild(aiDiv);
+    } else {
+      const errDiv = document.createElement('div');
+      errDiv.className = 'ai-msg';
+      errDiv.innerHTML = '<div class="ai-icon">AI</div><div class="ai-bubble" style="color:#f59e0b">\u23f3 ' + (result.message || 'AI is busy. Please wait a few seconds and try again.') + '</div>';
+      container.appendChild(errDiv);
+    }
   } catch (err) {
     document.getElementById('ai-loading')?.remove();
     const errDiv = document.createElement('div');
     errDiv.className = 'ai-msg';
-    errDiv.innerHTML = '<div class="ai-icon">AI</div><div class="ai-bubble" style="color:var(--danger)">Error connecting to AI.</div>';
+    errDiv.innerHTML = '<div class="ai-icon">AI</div><div class="ai-bubble" style="color:#f59e0b">\u23f3 AI is busy. Please wait a few seconds and try again.</div>';
     container.appendChild(errDiv);
   }
 
@@ -763,12 +1122,12 @@ function mapCourse(c) {
 async function loadCourses(category, search) {
   try {
     const data = await CoursesAPI.getAll(category, search);
-    if (data.success && data.courses && data.courses.length > 0) {
+    if (data.success && data.courses) {
       return data.courses.map(mapCourse);
     }
-    return MOCK_COURSES;
+    return search ? [] : MOCK_COURSES;
   } catch (err) {
-    return MOCK_COURSES;
+    return search ? [] : MOCK_COURSES;
   }
 }
 
@@ -982,8 +1341,10 @@ async function openVideoFromBackend(courseId, moduleId, lessonId) {
     await loadVideo(lesson.videoUrl || '');
 
     _currentVideoData = { lessonId: lesson.id, title: lesson.title, courseTitle: course.title || '', moduleTitle: mod.title, videoUrl: lesson.videoUrl, notesUrl: lesson.notes || '' };
-    // Mark lesson as complete
-    markLessonComplete(lesson.id);
+    // Video completion: mark complete only when 90%+ watched (handled by video player event)
+    _pendingLessonComplete = lesson.id;
+    // Reset AI mentor chat for new lesson
+    _aiMentorHistory = [];
     // Track last opened lesson for continue learning
     const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
     if (token) {
@@ -1040,9 +1401,55 @@ async function openVideoFromBackend(courseId, moduleId, lessonId) {
     const notesUrl = lesson.notes || '';
     renderNotesTab(notesUrl, []);
 
-    renderQuizTab(null);
+    // Fetch quiz and exercise from server for this lesson
+    const _lessonToken = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+    (async () => {
+      try {
+        const quizRes = await fetch(BASE_URL + '/api/quiz?lessonId=' + lesson.id, {
+          headers: _lessonToken ? { Authorization: 'Bearer ' + _lessonToken } : {},
+        });
+        const quizData = await quizRes.json();
+        if (quizData.success && quizData.quizzes && quizData.quizzes.length > 0) {
+          renderQuizTab(quizData.quizzes);
+        } else {
+          renderQuizTab(null);
+        }
+      } catch { renderQuizTab(null); }
 
-    renderExerciseTab(null);
+      try {
+        const exRes = await fetch(BASE_URL + '/api/exercise?lessonId=' + lesson.id, {
+          headers: _lessonToken ? { Authorization: 'Bearer ' + _lessonToken } : {},
+        });
+        const exData = await exRes.json();
+        if (exData.success && exData.exercises && exData.exercises.length > 0) {
+          renderExerciseTab(exData.exercises);
+        } else {
+          renderExerciseTab(null);
+        }
+      } catch { renderExerciseTab(null); }
+
+      // Fetch weekly streak challenge for this lesson
+      try {
+        const streakRes = await fetch(BASE_URL + '/api/weekly-streak?lessonId=' + lesson.id, {
+          headers: _lessonToken ? { Authorization: 'Bearer ' + _lessonToken } : {},
+        });
+        const streakData = await streakRes.json();
+        if (streakData.success && streakData.streak) {
+          renderWeeklyStreakSection(streakData.streak);
+        } else {
+          // Remove streak tab if exists (lesson doesn't have streak)
+          const streakTab = document.getElementById('streak-tab-btn');
+          if (streakTab) streakTab.remove();
+          const streakPanel = document.getElementById('vp-streak');
+          if (streakPanel) streakPanel.remove();
+        }
+      } catch {
+        const streakTab = document.getElementById('streak-tab-btn');
+        if (streakTab) streakTab.remove();
+        const streakPanel = document.getElementById('vp-streak');
+        if (streakPanel) streakPanel.remove();
+      }
+    })();
 
     // Render ALL modules and their lessons in playlist
     const playlist = document.getElementById('video-playlist');
@@ -1096,6 +1503,10 @@ function updateDailyStreak() {
   localStorage.setItem(key, JSON.stringify(streakData));
   return streakData.count;
 }
+
+// Track pending lesson completion (marked when 90%+ video watched)
+let _pendingLessonComplete = null;
+let _lessonMarkedComplete = false;
 
 // Mark lesson as complete when video is opened
 function markLessonComplete(lessonId) {
@@ -1194,6 +1605,16 @@ async function loadVideo(url) {
     iframe.src = '';
     videoEl.style.display = 'block';
     videoEl.src = url;
+
+    // Track video progress — mark complete at 90%
+    _lessonMarkedComplete = false;
+    videoEl.ontimeupdate = function() {
+      if (_lessonMarkedComplete || !_pendingLessonComplete) return;
+      if (videoEl.duration && videoEl.currentTime / videoEl.duration >= 0.9) {
+        _lessonMarkedComplete = true;
+        markLessonComplete(_pendingLessonComplete);
+      }
+    };
   }
 }
 
@@ -1257,6 +1678,103 @@ async function handleCourseSearch(value) {
     const courses = await loadCourses(category, value.trim());
     renderCourseGrid(courses);
   }, 300);
+}
+
+// Dashboard search — navigates to courses page with search
+async function handleDashboardSearch(value) {
+  if (!value.trim()) return;
+  // Navigate to courses page and trigger search there
+  navigate('courses');
+  const searchInput = document.getElementById('course-search-input');
+  if (searchInput) searchInput.value = value.trim();
+  const courses = await loadCourses('All', value.trim());
+  renderCourseGrid(courses);
+}
+
+// Weekly Streak History
+async function showWeeklyStreakHistory() {
+  navigate('streak-history');
+  const container = document.getElementById('streak-history-list');
+  if (!container) return;
+  container.innerHTML = '<p style="color:var(--muted)">Loading...</p>';
+
+  const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+  if (!token) {
+    container.innerHTML = '<p style="color:var(--muted)">Please log in to view streak history.</p>';
+    return;
+  }
+
+  try {
+    // Get all enrolled courses first
+    const dashData = await StudentAPI.getDashboard();
+    if (!dashData.success || !dashData.enrolledCourses || dashData.enrolledCourses.length === 0) {
+      container.innerHTML = '<div style="text-align:center;padding:40px"><i class="fas fa-fire" style="font-size:2rem;color:var(--muted);margin-bottom:12px;display:block"></i><p style="color:var(--muted)">No streak challenges available yet.</p></div>';
+      return;
+    }
+
+    let allStreaks = [];
+    for (const course of dashData.enrolledCourses) {
+      try {
+        const res = await fetch(BASE_URL + '/api/weekly-streak?courseId=' + course.id, {
+          headers: { Authorization: 'Bearer ' + token },
+        });
+        const data = await res.json();
+        if (data.success && data.streaks) {
+          data.streaks.forEach(s => {
+            allStreaks.push({ ...s, courseTitle: course.title });
+          });
+        }
+      } catch {}
+    }
+
+    if (allStreaks.length === 0) {
+      container.innerHTML = '<div style="text-align:center;padding:40px"><i class="fas fa-fire" style="font-size:2rem;color:var(--muted);margin-bottom:12px;display:block"></i><p style="color:var(--muted)">No weekly challenges created yet. Complete lessons to unlock!</p></div>';
+      return;
+    }
+
+    container.innerHTML = allStreaks.map(s =>
+      '<div style="background:rgba(255,255,255,0.03);border:1px solid ' + (s.completed ? 'rgba(34,197,94,0.3)' : 'rgba(245,158,11,0.2)') + ';border-radius:12px;padding:16px;display:flex;align-items:center;gap:14px">' +
+      '<div style="width:40px;height:40px;border-radius:10px;background:' + (s.completed ? 'rgba(34,197,94,0.15)' : 'rgba(245,158,11,0.15)') + ';display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="fas ' + (s.completed ? 'fa-check' : 'fa-fire') + '" style="color:' + (s.completed ? '#22c55e' : '#f59e0b') + '"></i></div>' +
+      '<div style="flex:1">' +
+      '<p style="color:#fff;font-weight:600;font-size:0.9rem;margin:0">Week ' + s.weekNumber + ': ' + sanitize(s.title) + '</p>' +
+      '<p style="color:var(--muted);font-size:0.75rem;margin:2px 0 0">' + sanitize(s.courseTitle) + '</p>' +
+      '</div>' +
+      '<span style="font-size:0.75rem;font-weight:700;padding:4px 10px;border-radius:20px;background:' + (s.completed ? 'rgba(34,197,94,0.15)' : 'rgba(245,158,11,0.15)') + ';color:' + (s.completed ? '#22c55e' : '#f59e0b') + '">' + (s.completed ? '✅ PASS' : '⏳ Pending') + '</span>' +
+      '</div>'
+    ).join('');
+  } catch {
+    container.innerHTML = '<p style="color:var(--danger)">Failed to load streak history.</p>';
+  }
+}
+
+// Load weekly streak count — called once on dashboard navigate (not in polling)
+async function loadWeeklyStreakCount() {
+  const streakEl = document.getElementById('stat-streak');
+  if (!streakEl) return;
+  const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+  if (!token) { streakEl.textContent = '0'; return; }
+
+  try {
+    const dashData = await StudentAPI.getDashboard();
+    if (!dashData.success || !dashData.enrolledCourses || dashData.enrolledCourses.length === 0) {
+      streakEl.textContent = '0';
+      return;
+    }
+    let totalCompleted = 0;
+    for (const course of dashData.enrolledCourses) {
+      try {
+        const sRes = await fetch(BASE_URL + '/api/weekly-streak?courseId=' + course.id, { headers: { Authorization: 'Bearer ' + token } });
+        if (sRes.ok) {
+          const sData = await sRes.json();
+          if (sData.success) totalCompleted += (sData.completedCount || 0);
+        }
+      } catch {}
+    }
+    streakEl.textContent = totalCompleted;
+    streakEl.dataset.loaded = 'true';
+  } catch {
+    streakEl.textContent = '0';
+  }
 }
 
 // ─── Downloads ───────────────────────────────────────────────────────────────
@@ -1441,19 +1959,18 @@ async function showCompletedVideos() {
       return;
     }
 
-    // Get enrolled courses with their lessons to find completed ones
     const enrolledCourses = data.enrolledCourses || [];
     if (enrolledCourses.length === 0 || data.completedVideos === 0) {
       container.innerHTML = '<div style="text-align:center;padding:40px"><i class="fas fa-check-circle" style="font-size:2rem;color:var(--muted);margin-bottom:12px;display:block"></i><p style="color:var(--muted)">No completed videos yet. Start learning!</p></div>';
       return;
     }
 
-    // Fetch full course data to get lesson names
+    // Fetch full course data for each enrolled course to get completed lesson details
     let allCompleted = [];
     for (const course of enrolledCourses) {
       if (course.completedLessons === 0) continue;
       try {
-        const courseData = await CoursesAPI.getById(course.id);
+        const courseData = await CoursesAPI.getByIdSigned(course.id);
         if (courseData.success && courseData.course) {
           const completedLessonIds = courseData.course.completedLessons || [];
           (courseData.course.modules || []).forEach(mod => {
@@ -1466,6 +1983,10 @@ async function showCompletedVideos() {
         }
       } catch {}
     }
+
+    // Update the card count to match actual detail
+    const completedEl = document.getElementById('stat-completed');
+    if (completedEl) completedEl.textContent = allCompleted.length;
 
     if (allCompleted.length === 0) {
       container.innerHTML = '<div style="text-align:center;padding:40px"><i class="fas fa-check-circle" style="font-size:2rem;color:var(--muted);margin-bottom:12px;display:block"></i><p style="color:var(--muted)">No completed videos found.</p></div>';
@@ -1567,7 +2088,15 @@ async function downloadPdfOffline(notesUrl) {
     }
     const result = await window.electron.downloadContent({ url: dlUrl, lessonId, title: title + ' (PDF)', type: 'pdf', userId, courseTitle, moduleTitle });
     if (result.success) {
-      alert('PDF downloaded for offline viewing!');
+      // Update button to show "Downloaded"
+      const pdfBtn = document.getElementById('pdf-download-btn');
+      if (pdfBtn) {
+        pdfBtn.innerHTML = '<i class="fas fa-check"></i> Downloaded';
+        pdfBtn.style.borderColor = 'rgba(34,197,94,0.6)';
+        pdfBtn.style.color = '#22c55e';
+        pdfBtn.style.pointerEvents = 'none';
+        pdfBtn.style.opacity = '0.8';
+      }
     } else {
       alert(result.message || 'PDF download failed.');
     }
