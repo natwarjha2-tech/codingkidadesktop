@@ -161,27 +161,46 @@ async function loadStudentData() {
   // Load dashboard data in background — outside loadStudentData so splash is not blocked
 }
 
-async function _applyDashboardData(data) {
+// Apply cached dashboard data instantly (no shimmer flash)
+function _applyCachedDashboard() {
+  const userId = getCurrentUserId();
+  const cacheKey = 'ck_dashboard_cache_' + userId;
+  const cached = localStorage.getItem(cacheKey);
+  if (!cached) return;
+  try {
+    const data = JSON.parse(cached);
+    _applyDashboardData(data, true);
+  } catch {}
+}
+
+async function _applyDashboardData(data, isFromCache) {
     if (!data.success) return;
+
+    // Save to localStorage cache for instant load next time
+    if (!isFromCache) {
+      const userId = getCurrentUserId();
+      const cacheKey = 'ck_dashboard_cache_' + userId;
+      try { localStorage.setItem(cacheKey, JSON.stringify(data)); } catch {}
+    }
 
     // Dashboard stats
     const enrolledEl = document.getElementById('stat-enrolled');
     const completedEl = document.getElementById('stat-completed');
     const certEl = document.getElementById('stat-certificates');
     const streakEl = document.getElementById('stat-streak');
-    if (enrolledEl) enrolledEl.textContent = data.enrolledCount || 0;
+    if (enrolledEl) enrolledEl.innerHTML = String(data.enrolledCount || 0);
     // Videos completed = sum of completedLessons from enrolled courses only
     const enrolledCompletedCount = (data.enrolledCourses || []).reduce((sum, c) => sum + (c.completedLessons || 0), 0);
-    if (completedEl) completedEl.textContent = enrolledCompletedCount;
+    if (completedEl) completedEl.innerHTML = String(enrolledCompletedCount);
 
     // Certificates = courses where progressPercent is 100
     const certCount = (data.enrolledCourses || []).filter(c => c.progressPercent === 100).length;
-    if (certEl) certEl.textContent = certCount;
+    if (certEl) certEl.innerHTML = String(certCount);
 
     // Weekly streak count — fetched separately (not in polling)
     // Streak is loaded once on dashboard navigate, not every 5s
     if (streakEl && !streakEl.dataset.loaded) {
-      streakEl.textContent = '0';
+      streakEl.innerHTML = '0';
     }
 
     // Continue Learning — use API data or localStorage fallback
@@ -255,6 +274,8 @@ async function _applyDashboardData(data) {
 }
 
 function logout() {
+  const userId = getCurrentUserId();
+  if (userId) localStorage.removeItem('ck_dashboard_cache_' + userId);
   localStorage.removeItem('ck_token');
   localStorage.removeItem('ck_user');
   window.location.href = 'login.html';
@@ -298,6 +319,49 @@ async function saveProfile() {
     setTimeout(() => { if (msgEl) msgEl.style.display = 'none'; }, 3000);
   } catch (err) {
     if (msgEl) { msgEl.style.color = 'var(--danger)'; msgEl.textContent = '❌ ' + (err.message || 'Failed to save.'); }
+  }
+}
+
+// Change password
+async function changePassword() {
+  const currentPwd = document.getElementById('pwd-current')?.value.trim();
+  const newPwd = document.getElementById('pwd-new')?.value.trim();
+  const confirmPwd = document.getElementById('pwd-confirm')?.value.trim();
+  const msgEl = document.getElementById('pwd-change-msg');
+
+  if (msgEl) { msgEl.style.display = 'none'; }
+
+  if (!currentPwd || !newPwd || !confirmPwd) {
+    if (msgEl) { msgEl.style.display = 'block'; msgEl.style.color = '#ef4444'; msgEl.style.background = 'rgba(239,68,68,0.1)'; msgEl.textContent = 'All password fields are required.'; }
+    return;
+  }
+  if (newPwd.length < 8) {
+    if (msgEl) { msgEl.style.display = 'block'; msgEl.style.color = '#ef4444'; msgEl.style.background = 'rgba(239,68,68,0.1)'; msgEl.textContent = 'New password must be at least 8 characters.'; }
+    return;
+  }
+  if (newPwd !== confirmPwd) {
+    if (msgEl) { msgEl.style.display = 'block'; msgEl.style.color = '#ef4444'; msgEl.style.background = 'rgba(239,68,68,0.1)'; msgEl.textContent = 'New passwords do not match.'; }
+    return;
+  }
+
+  const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+  try {
+    const res = await fetch(BASE_URL + '/api/auth/change-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      body: JSON.stringify({ currentPassword: currentPwd, newPassword: newPwd }),
+    });
+    const data = await res.json();
+    if (data.success) {
+      if (msgEl) { msgEl.style.display = 'block'; msgEl.style.color = '#10b981'; msgEl.style.background = 'rgba(16,185,129,0.1)'; msgEl.textContent = '✅ Password changed successfully!'; }
+      document.getElementById('pwd-current').value = '';
+      document.getElementById('pwd-new').value = '';
+      document.getElementById('pwd-confirm').value = '';
+    } else {
+      if (msgEl) { msgEl.style.display = 'block'; msgEl.style.color = '#ef4444'; msgEl.style.background = 'rgba(239,68,68,0.1)'; msgEl.textContent = '❌ ' + (data.message || 'Failed to change password.'); }
+    }
+  } catch {
+    if (msgEl) { msgEl.style.display = 'block'; msgEl.style.color = '#ef4444'; msgEl.style.background = 'rgba(239,68,68,0.1)'; msgEl.textContent = '❌ Network error. Please try again.'; }
   }
 }
 
@@ -373,7 +437,7 @@ function navigate(page) {
   // Refresh dashboard data when navigating to profile
   if (page === 'profile' || page === 'dashboard') {
     const t = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token');
-    if (t) StudentAPI.getDashboard().then(data => _applyDashboardData(data)).catch(() => {});
+    if (t) StudentAPI.getDashboard().then(data => _applyDashboardData(data, false)).catch(() => {});
     // Fetch weekly streak count once on dashboard load
     if (page === 'dashboard' && t) {
       loadWeeklyStreakCount();
@@ -388,13 +452,64 @@ function navigate(page) {
   }
 }
 
+// Lazy load state for lesson tabs
+var _currentLessonForTabs = null;
+var _tabDataLoaded = { quiz: false, exercise: false, streak: false };
+
 function switchVpTab(el, panelId) {
   el.closest('.vp-tabs').querySelectorAll('.vp-tab').forEach(t => t.classList.remove('active'));
   el.classList.add('active');
   document.querySelectorAll('.vp-tab-panel').forEach(p => p.classList.remove('active'));
   const panel = document.getElementById(panelId);
   if (panel) panel.classList.add('active');
+
+  // Lazy load: fetch data on first tab click
+  if (_currentLessonForTabs) {
+    const lessonId = _currentLessonForTabs.lessonId;
+    const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+    if (panelId === 'vp-quiz' && !_tabDataLoaded.quiz) {
+      _tabDataLoaded.quiz = true;
+      _lazyLoadQuiz(lessonId, token);
+    } else if (panelId === 'vp-exercise' && !_tabDataLoaded.exercise) {
+      _tabDataLoaded.exercise = true;
+      _lazyLoadExercise(lessonId, token);
+    }
+  }
 }
+
+async function _lazyLoadQuiz(lessonId, token) {
+  const el = document.getElementById('vp-quiz');
+  if (el) el.innerHTML = '<div class="tab-card" style="text-align:center;padding:30px;"><div class="skeleton-shimmer" style="width:60%;height:16px;margin:0 auto 12px;"></div><div class="skeleton-shimmer" style="width:80%;height:12px;margin:0 auto 8px;"></div><div class="skeleton-shimmer" style="width:40%;height:12px;margin:0 auto;"></div></div>';
+  try {
+    const quizRes = await fetch(BASE_URL + '/api/quiz?lessonId=' + lessonId, {
+      headers: token ? { Authorization: 'Bearer ' + token } : {},
+    });
+    const quizData = await quizRes.json();
+    if (quizData.success && quizData.quizzes && quizData.quizzes.length > 0) {
+      renderQuizTab(quizData.quizzes);
+    } else {
+      renderQuizTab(null);
+    }
+  } catch { renderQuizTab(null); }
+}
+
+async function _lazyLoadExercise(lessonId, token) {
+  const el = document.getElementById('vp-exercise');
+  if (el) el.innerHTML = '<div class="tab-card" style="text-align:center;padding:30px;"><div class="skeleton-shimmer" style="width:60%;height:16px;margin:0 auto 12px;"></div><div class="skeleton-shimmer" style="width:80%;height:12px;margin:0 auto 8px;"></div><div class="skeleton-shimmer" style="width:40%;height:12px;margin:0 auto;"></div></div>';
+  try {
+    const exRes = await fetch(BASE_URL + '/api/exercise?lessonId=' + lessonId, {
+      headers: token ? { Authorization: 'Bearer ' + token } : {},
+    });
+    const exData = await exRes.json();
+    if (exData.success && exData.exercises && exData.exercises.length > 0) {
+      renderExerciseTab(exData.exercises);
+    } else {
+      renderExerciseTab(null);
+    }
+  } catch { renderExerciseTab(null); }
+}
+
+
 
 // ============================================================
 // DATA-DRIVEN TAB RENDERERS
@@ -1401,54 +1516,33 @@ async function openVideoFromBackend(courseId, moduleId, lessonId) {
     const notesUrl = lesson.notes || '';
     renderNotesTab(notesUrl, []);
 
-    // Fetch quiz and exercise from server for this lesson
+    // Lazy load: quiz and exercise are fetched only when user clicks the tab
+    // Store lesson context for lazy fetch
+    _currentLessonForTabs = { lessonId: lesson.id, courseId: courseId };
+    _tabDataLoaded = { quiz: false, exercise: false, streak: false };
+
+    // Show placeholder in tabs (will be replaced on tab click)
+    renderQuizTab(null);
+    renderExerciseTab(null);
+    // Remove old streak tab if exists
+    const oldStreakTab = document.getElementById('streak-tab-btn');
+    if (oldStreakTab) oldStreakTab.remove();
+    const oldStreakPanel = document.getElementById('vp-streak');
+    if (oldStreakPanel) oldStreakPanel.remove();
+
+    // Streak: fetch in background (non-blocking) to decide if tab should appear
     const _lessonToken = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
     (async () => {
-      try {
-        const quizRes = await fetch(BASE_URL + '/api/quiz?lessonId=' + lesson.id, {
-          headers: _lessonToken ? { Authorization: 'Bearer ' + _lessonToken } : {},
-        });
-        const quizData = await quizRes.json();
-        if (quizData.success && quizData.quizzes && quizData.quizzes.length > 0) {
-          renderQuizTab(quizData.quizzes);
-        } else {
-          renderQuizTab(null);
-        }
-      } catch { renderQuizTab(null); }
-
-      try {
-        const exRes = await fetch(BASE_URL + '/api/exercise?lessonId=' + lesson.id, {
-          headers: _lessonToken ? { Authorization: 'Bearer ' + _lessonToken } : {},
-        });
-        const exData = await exRes.json();
-        if (exData.success && exData.exercises && exData.exercises.length > 0) {
-          renderExerciseTab(exData.exercises);
-        } else {
-          renderExerciseTab(null);
-        }
-      } catch { renderExerciseTab(null); }
-
-      // Fetch weekly streak challenge for this lesson
       try {
         const streakRes = await fetch(BASE_URL + '/api/weekly-streak?lessonId=' + lesson.id, {
           headers: _lessonToken ? { Authorization: 'Bearer ' + _lessonToken } : {},
         });
         const streakData = await streakRes.json();
         if (streakData.success && streakData.streak) {
+          _tabDataLoaded.streak = true;
           renderWeeklyStreakSection(streakData.streak);
-        } else {
-          // Remove streak tab if exists (lesson doesn't have streak)
-          const streakTab = document.getElementById('streak-tab-btn');
-          if (streakTab) streakTab.remove();
-          const streakPanel = document.getElementById('vp-streak');
-          if (streakPanel) streakPanel.remove();
         }
-      } catch {
-        const streakTab = document.getElementById('streak-tab-btn');
-        if (streakTab) streakTab.remove();
-        const streakPanel = document.getElementById('vp-streak');
-        if (streakPanel) streakPanel.remove();
-      }
+      } catch {}
     })();
 
     // Render ALL modules and their lessons in playlist
@@ -1633,7 +1727,7 @@ async function enrollCourse(courseId) {
     const data = await CoursesAPI.enroll(courseId);
     if (data.success) {
       // Refresh dashboard to reflect enrollment
-      StudentAPI.getDashboard().then(d => _applyDashboardData(d)).catch(() => {});
+      StudentAPI.getDashboard().then(d => _applyDashboardData(d, false)).catch(() => {});
       alert('Course enrolled successfully! Check your profile.');
     }
   } catch (err) {
@@ -2355,8 +2449,9 @@ document.addEventListener('keydown', (e) => {
 
   // All backend calls in background — never block UI
   if (token) {
+    _applyCachedDashboard(); // Show cached data instantly (no shimmer flash)
     loadStudentData();
-    StudentAPI.getDashboard().then(data => _applyDashboardData(data)).catch(() => {});
+    StudentAPI.getDashboard().then(data => _applyDashboardData(data, false)).catch(() => {});
   }
   loadCourses().then(courses => renderCourseGrid(courses)).catch(() => renderCourseGrid(MOCK_COURSES));
   initCourseFilters();
@@ -2364,13 +2459,13 @@ document.addEventListener('keydown', (e) => {
   // Refresh dashboard on window focus (payment browser se wapas aane pe)
   window.addEventListener('focus', () => {
     const t = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token');
-    if (t) StudentAPI.getDashboard().then(data => _applyDashboardData(data)).catch(() => {});
+    if (t) StudentAPI.getDashboard().then(data => _applyDashboardData(data, false)).catch(() => {});
   });
 
   // Listen for enrollment complete from deep link
   if (window.electron && window.electron.ipcRenderer) {
     window.electron.ipcRenderer.on('enrollment-complete', () => {
-      StudentAPI.getDashboard().then(d => _applyDashboardData(d)).catch(() => {});
+      StudentAPI.getDashboard().then(d => _applyDashboardData(d, false)).catch(() => {});
       loadCourses().then(courses => renderCourseGrid(courses)).catch(() => {});
     });
   }
@@ -2389,7 +2484,7 @@ document.addEventListener('keydown', (e) => {
       }
       if (data.enrolledCount !== _lastEnrolledCount) {
         _lastEnrolledCount = data.enrolledCount;
-        _applyDashboardData(data);
+        _applyDashboardData(data, false);
       }
     }).catch(() => {});
   }, 5000);

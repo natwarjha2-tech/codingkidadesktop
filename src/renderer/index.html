@@ -146,7 +146,7 @@
 
         <div style="position:relative; z-index:2; max-width: 65%;">
           <h2 style="font-size:clamp(1.6rem, 3vw, 2rem); font-weight:800; color:#fff; line-height:1.2; margin:0 0 4px 0; letter-spacing:-0.5px;">
-            <span id="dashboard-greeting">Good Morning</span>, 
+            <span id="dashboard-greeting">Welcome</span>, 
             <span style="background: linear-gradient(to right, #a78bfa, #f472b6, #fb923c); -webkit-background-clip: text; -webkit-text-fill-color: transparent;"><span id="dashboard-welcome-name">Learner</span>!</span> 
             <span style="display:inline-block; animation: float1 3s ease-in-out infinite; margin-left:8px;">👋</span>
           </h2>
@@ -185,7 +185,7 @@
           <div style="display:flex; gap:18px; align-items:flex-start;">
             <div class="icon-wrap" style="width:50px; height:50px; border-radius:16px; background:linear-gradient(135deg, rgba(108,71,255,0.2), rgba(167,139,250,0.1)); display:flex; align-items:center; justify-content:center; font-size:1.6rem; z-index:1; border:1px solid rgba(108,71,255,0.4); box-shadow:0 0 15px rgba(108,71,255,0.2); transition:all 0.3s ease;">📚</div>
             <div style="z-index:1;">
-              <div style="font-size:2.2rem; font-weight:800; background:linear-gradient(to right, #fff, #a78bfa); -webkit-background-clip:text; -webkit-text-fill-color:transparent; line-height:1;" id="stat-enrolled">12</div>
+              <div style="font-size:2.2rem; font-weight:800; background:linear-gradient(to right, #fff, #a78bfa); -webkit-background-clip:text; -webkit-text-fill-color:transparent; line-height:1;" id="stat-enrolled"><span class="skeleton-shimmer">00</span></div>
               <div style="font-size:0.9rem; color:rgba(255,255,255,0.6); margin-top:8px; font-weight:500;">Enrolled Courses</div>
             </div>
           </div>
@@ -198,7 +198,7 @@
           <div style="display:flex; gap:18px; align-items:flex-start;">
             <div class="icon-wrap" style="width:50px; height:50px; border-radius:16px; background:linear-gradient(135deg, rgba(34,197,94,0.2), rgba(74,222,128,0.1)); display:flex; align-items:center; justify-content:center; font-size:1.6rem; z-index:1; border:1px solid rgba(34,197,94,0.4); box-shadow:0 0 15px rgba(34,197,94,0.2); transition:all 0.3s ease;">✅</div>
             <div style="z-index:1;">
-              <div style="font-size:2.2rem; font-weight:800; background:linear-gradient(to right, #fff, #4ade80); -webkit-background-clip:text; -webkit-text-fill-color:transparent; line-height:1;" id="stat-completed">42</div>
+              <div style="font-size:2.2rem; font-weight:800; background:linear-gradient(to right, #fff, #4ade80); -webkit-background-clip:text; -webkit-text-fill-color:transparent; line-height:1;" id="stat-completed"><span class="skeleton-shimmer">00</span></div>
               <div style="font-size:0.9rem; color:rgba(255,255,255,0.6); margin-top:8px; font-weight:500;">Videos Completed</div>
             </div>
           </div>
@@ -211,7 +211,7 @@
           <div style="display:flex; gap:18px; align-items:flex-start;">
             <div class="icon-wrap" style="width:50px; height:50px; border-radius:16px; background:linear-gradient(135deg, rgba(245,158,11,0.2), rgba(251,191,36,0.1)); display:flex; align-items:center; justify-content:center; font-size:1.6rem; z-index:1; border:1px solid rgba(245,158,11,0.4); box-shadow:0 0 15px rgba(245,158,11,0.2); transition:all 0.3s ease;">🏆</div>
             <div style="z-index:1;">
-              <div style="font-size:2.2rem; font-weight:800; background:linear-gradient(to right, #fff, #fbbf24); -webkit-background-clip:text; -webkit-text-fill-color:transparent; line-height:1;" id="stat-certificates">8</div>
+              <div style="font-size:2.2rem; font-weight:800; background:linear-gradient(to right, #fff, #fbbf24); -webkit-background-clip:text; -webkit-text-fill-color:transparent; line-height:1;" id="stat-certificates"><span class="skeleton-shimmer">00</span></div>
               <div style="font-size:0.9rem; color:rgba(255,255,255,0.6); margin-top:8px; font-weight:500;">Certificates Earned</div>
             </div>
           </div>
@@ -224,7 +224,7 @@
           <div style="display:flex; gap:18px; align-items:flex-start;">
             <div class="icon-wrap" style="width:50px; height:50px; border-radius:16px; background:linear-gradient(135deg, rgba(239,68,68,0.2), rgba(248,113,113,0.1)); display:flex; align-items:center; justify-content:center; font-size:1.6rem; z-index:1; border:1px solid rgba(239,68,68,0.4); box-shadow:0 0 15px rgba(239,68,68,0.2); transition:all 0.3s ease;">🔥</div>
             <div style="z-index:1;">
-              <div style="font-size:2.2rem; font-weight:800; background:linear-gradient(to right, #fff, #f87171); -webkit-background-clip:text; -webkit-text-fill-color:transparent; line-height:1;" id="stat-streak">5</div>
+              <div style="font-size:2.2rem; font-weight:800; background:linear-gradient(to right, #fff, #f87171); -webkit-background-clip:text; -webkit-text-fill-color:transparent; line-height:1;" id="stat-streak"><span class="skeleton-shimmer">00</span></div>
               <div style="font-size:0.9rem; color:rgba(255,255,255,0.6); margin-top:8px; font-weight:500;">Weekly Streak</div>
             </div>
           </div>
@@ -631,6 +631,16 @@
           <div class="form-group" style="margin:0"><label style="color: rgba(255,255,255,0.8);">Email</label><input id="profile-email-input" type="email" placeholder="your@email.com" readonly style="background: rgba(255,255,255,0.02); border-color: rgba(255,255,255,0.05); color: var(--muted); border-radius: 8px; cursor: not-allowed;"/></div>
           <div id="profile-save-msg" style="font-size:0.85rem;display:none; padding: 8px 12px; border-radius: 8px; background: rgba(16, 185, 129, 0.1); color: #10b981;"></div>
           <button class="btn btn-primary" style="align-self:flex-start; border-radius: 8px; background: linear-gradient(135deg, #6c47ff, #b251ff); border: none; font-weight: 600;" onclick="saveProfile()">Save Changes</button>
+
+          <!-- Change Password Section -->
+          <div style="margin-top:24px; padding-top:20px; border-top:1px solid rgba(255,255,255,0.08);">
+            <h4 style="color:#fff; font-weight:700; margin-bottom:14px; font-size:0.95rem;">Change Password</h4>
+            <div class="form-group" style="margin:0 0 10px 0"><input id="pwd-current" type="password" placeholder="Current password" style="background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); color:#fff; border-radius:8px; padding:10px 14px; width:100%; font-size:0.9rem;"/></div>
+            <div class="form-group" style="margin:0 0 10px 0"><input id="pwd-new" type="password" placeholder="New password (min 8 characters)" style="background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); color:#fff; border-radius:8px; padding:10px 14px; width:100%; font-size:0.9rem;"/></div>
+            <div class="form-group" style="margin:0 0 10px 0"><input id="pwd-confirm" type="password" placeholder="Confirm new password" style="background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); color:#fff; border-radius:8px; padding:10px 14px; width:100%; font-size:0.9rem;"/></div>
+            <div id="pwd-change-msg" style="font-size:0.82rem; display:none; padding:8px 12px; border-radius:8px; margin-bottom:10px;"></div>
+            <button class="btn btn-primary" style="border-radius:8px; background:linear-gradient(135deg,#6c47ff,#4c1d95); border:none; font-weight:600; padding:10px 20px;" onclick="changePassword()">Change Password</button>
+          </div>
         </div>
       </div>
 

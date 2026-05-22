@@ -552,10 +552,10 @@
 
     // Handle forgot password
     function handleForgotPassword() {
-      if (window.electron && window.electron.shell) {
-        window.electron.shell.openExternal('https://www.codingkida.com/forgot-password');
+      if (window.electron && window.electron.ipcRenderer) {
+        window.electron.ipcRenderer.invoke('open-external', 'https://www.codingkida.com/login');
       } else {
-        alert('Please visit: https://www.codingkida.com/forgot-password');
+        window.open('https://www.codingkida.com/login', '_blank');
       }
     }
 
