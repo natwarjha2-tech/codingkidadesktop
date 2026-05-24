@@ -1941,7 +1941,7 @@ function saveToDownloads() {
     _updateSaveBtn(true);
     return;
   }
-  downloads.push({ lessonId, title, courseTitle, moduleTitle, videoUrl, savedAt: new Date().toISOString() });
+  downloads.push({ lessonId, title, courseTitle, moduleTitle, videoUrl: videoUrl.split('?')[0], savedAt: new Date().toISOString() });
   localStorage.setItem(storageKey, JSON.stringify(downloads));
   _updateSaveBtn(true);
   _showWatchlistToast('\u2705 Saved to Watchlist: ' + (courseTitle || '') + (moduleTitle ? ' · ' + moduleTitle : '') + ' · ' + title, false);
@@ -2021,8 +2021,21 @@ async function playDownloadedVideo(index) {
   try {
     document.getElementById('video-title').textContent = d.title || '';
     document.getElementById('video-meta').textContent = (d.courseTitle || '') + (d.moduleTitle ? ' · ' + d.moduleTitle : '');
-    await loadVideo(d.videoUrl || '');
-    _currentVideoData = d;
+    // Get fresh signed URL before playing — stored URL may be expired
+    let playUrl = d.videoUrl || '';
+    if (playUrl && playUrl.includes('amazonaws.com')) {
+      const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+      try {
+        const res = await fetch(BASE_URL + '/api/media/signed-url', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
+          body: JSON.stringify({ url: playUrl }),
+        });
+        if (res.ok) { const data = await res.json(); if (data.signedUrl) playUrl = data.signedUrl; }
+      } catch {}
+    }
+    await loadVideo(playUrl);
+    _currentVideoData = { ...d, videoUrl: playUrl };
     _updateSaveBtn(true);
     const notesEl = document.getElementById('vp-notes');
     if (notesEl) renderNotesTab('', []);
