@@ -1466,6 +1466,12 @@ async function openVideoFromBackend(courseId, moduleId, lessonId) {
       const lastLesson = { courseId: course.id, courseTitle: course.title, moduleId: mod.id, moduleTitle: mod.title, lessonId: lesson.id, lessonTitle: lesson.title, videoUrl: lesson.videoUrl };
       localStorage.setItem('ck_last_lesson', JSON.stringify(lastLesson));
     }
+    // Sync save-to-watchlist button state for this lesson
+    const userId2 = getCurrentUserId();
+    const wlKey = userId2 ? 'ck_downloads_' + userId2 : 'ck_downloads';
+    const wlSaved = JSON.parse(localStorage.getItem(wlKey) || '[]').find(d => d.lessonId === lesson.id);
+    _updateSaveBtn(!!wlSaved);
+
     // Reset download button state for this lesson — check if already downloaded
     const dlBtn = document.getElementById('offline-download-btn');
     if (dlBtn) {
@@ -1577,6 +1583,24 @@ async function openVideoFromBackend(courseId, moduleId, lessonId) {
     document.querySelectorAll('.vp-tab-panel').forEach((p, i) => p.classList.toggle('active', i === 0));
 
     navigate('video');
+
+    // Prefetch quiz + exercise in background after video is visible
+    // so when user clicks the tab, data is already rendered
+    const _prefetchToken = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+    const _prefetchLessonId = lesson.id;
+    setTimeout(() => {
+      if (_currentLessonForTabs && _currentLessonForTabs.lessonId === _prefetchLessonId) {
+        if (!_tabDataLoaded.quiz) {
+          _tabDataLoaded.quiz = true;
+          _lazyLoadQuiz(_prefetchLessonId, _prefetchToken);
+        }
+        if (!_tabDataLoaded.exercise) {
+          _tabDataLoaded.exercise = true;
+          _lazyLoadExercise(_prefetchLessonId, _prefetchToken);
+        }
+      }
+    }, 1500);
+
   } catch {}
 }
 
@@ -1627,14 +1651,10 @@ function openVideo(courseId, moduleId, videoId) {
   loadVideo('https://www.youtube.com/embed/' + video.youtubeId);
 
   _currentVideoData = { lessonId: String(video.id), title: video.title, courseTitle: course.title || '', moduleTitle: mod.title, videoUrl: 'https://www.youtube.com/embed/' + video.youtubeId };
-  const saveBtn = document.getElementById('save-download-btn');
-  if (saveBtn) {
-    const _uid = getCurrentUserId();
-    const _sk = _uid ? 'ck_downloads_' + _uid : 'ck_downloads';
-    const saved = JSON.parse(localStorage.getItem(_sk) || '[]').find(d => d.lessonId === String(video.id));
-    saveBtn.innerHTML = saved ? '<i class="fas fa-check"></i> Saved!' : '<i class="fas fa-bookmark"></i> Save to Watchlist';
-    saveBtn.disabled = !!saved;
-  }
+  const _uid = getCurrentUserId();
+  const _sk = _uid ? 'ck_downloads_' + _uid : 'ck_downloads';
+  const _saved = JSON.parse(localStorage.getItem(_sk) || '[]').find(d => d.lessonId === String(video.id));
+  _updateSaveBtn(!!_saved);
 
   // Use new data-driven renderers with mock data
   renderNotesTab('', video.notes || []);
@@ -1875,11 +1895,41 @@ async function loadWeeklyStreakCount() {
 
 let _currentVideoData = null;
 
+function _showWatchlistToast(message, isError) {
+  let toast = document.getElementById('watchlist-toast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'watchlist-toast';
+    toast.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);padding:12px 20px;border-radius:12px;font-size:0.85rem;font-weight:600;z-index:9999;transition:opacity 0.3s;pointer-events:none;';
+    document.body.appendChild(toast);
+  }
+  toast.textContent = message;
+  toast.style.background = isError ? 'rgba(239,68,68,0.95)' : 'rgba(34,197,94,0.95)';
+  toast.style.color = '#fff';
+  toast.style.opacity = '1';
+  clearTimeout(toast._hideTimer);
+  toast._hideTimer = setTimeout(() => { toast.style.opacity = '0'; }, 3000);
+}
+
+function _updateSaveBtn(isSaved) {
+  const btn = document.getElementById('save-download-btn');
+  if (!btn) return;
+  if (isSaved) {
+    btn.innerHTML = '<i class="fas fa-check"></i> Already Saved!';
+    btn.disabled = true;
+    btn.style.opacity = '0.7';
+  } else {
+    btn.innerHTML = '<i class="fas fa-bookmark"></i> Save to Watchlist';
+    btn.disabled = false;
+    btn.style.opacity = '1';
+  }
+}
+
 function saveToDownloads() {
   if (!_currentVideoData) return;
   const { lessonId, title, courseTitle, moduleTitle, videoUrl } = _currentVideoData;
   if (!videoUrl) {
-    alert('No video available for this lesson.');
+    _showWatchlistToast('No video available for this lesson.', true);
     return;
   }
   const userId = getCurrentUserId();
@@ -1887,13 +1937,14 @@ function saveToDownloads() {
   const downloads = JSON.parse(localStorage.getItem(storageKey) || '[]');
   const exists = downloads.find(d => d.lessonId === lessonId);
   if (exists) {
-    alert('Already saved to Watchlist!');
+    _showWatchlistToast('\u2139\ufe0f This video is already saved in your Watchlist!', false);
+    _updateSaveBtn(true);
     return;
   }
   downloads.push({ lessonId, title, courseTitle, moduleTitle, videoUrl, savedAt: new Date().toISOString() });
   localStorage.setItem(storageKey, JSON.stringify(downloads));
-  const btn = document.getElementById('save-download-btn');
-  if (btn) { btn.innerHTML = '<i class="fas fa-check"></i> Saved!'; btn.disabled = true; }
+  _updateSaveBtn(true);
+  _showWatchlistToast('\u2705 Saved to Watchlist: ' + (courseTitle || '') + (moduleTitle ? ' · ' + moduleTitle : '') + ' · ' + title, false);
 }
 
 function renderDownloads() {
@@ -1911,19 +1962,54 @@ function renderDownloads() {
       '</div>';
     return;
   }
-  container.innerHTML = downloads.map((d, i) =>
-    '<div class="download-item">' +
-    '<div class="download-icon" style="color:var(--primary)"><i class="fas fa-file-video"></i></div>' +
-    '<div class="download-info">' +
-    '<h4>' + sanitize(d.title) + '</h4>' +
-    '<p style="font-size:0.78rem;color:var(--muted);margin-top:4px">' + sanitize(d.courseTitle || '') + (d.moduleTitle ? ' · ' + sanitize(d.moduleTitle) : '') + '</p>' +
-    '</div>' +
-    '<div style="display:flex;gap:8px">' +
-    '<button class="btn btn-primary btn-sm" onclick="playDownloadedVideo(' + i + ')"><i class="fas fa-play"></i> Watch</button>' +
-    '<button class="btn btn-outline btn-sm" onclick="removeDownload(' + i + ')"><i class="fas fa-trash"></i></button>' +
-    '</div>' +
-    '</div>'
-  ).join('');
+
+  // Group by courseTitle → moduleTitle → videos
+  const grouped = {};
+  downloads.forEach((d, i) => {
+    const course = d.courseTitle || 'Uncategorized';
+    const module = d.moduleTitle || 'General';
+    if (!grouped[course]) grouped[course] = {};
+    if (!grouped[course][module]) grouped[course][module] = [];
+    grouped[course][module].push({ ...d, _index: i });
+  });
+
+  let html = '';
+  Object.keys(grouped).forEach(course => {
+    html += '<div style="margin-bottom:20px">';
+    // Course folder header
+    html += '<div style="display:flex;align-items:center;gap:8px;padding:10px 14px;background:rgba(108,71,255,0.1);border:1px solid rgba(108,71,255,0.25);border-radius:12px;margin-bottom:8px">' +
+      '<i class="fas fa-folder" style="color:#a78bfa;font-size:1rem"></i>' +
+      '<span style="font-weight:700;color:#fff;font-size:0.9rem">' + sanitize(course) + '</span>' +
+      '</div>';
+
+    Object.keys(grouped[course]).forEach(module => {
+      // Module sub-folder
+      html += '<div style="margin-left:16px;margin-bottom:8px">';
+      html += '<div style="display:flex;align-items:center;gap:8px;padding:7px 12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:10px;margin-bottom:6px">' +
+        '<i class="fas fa-folder-open" style="color:#6c47ff;font-size:0.85rem"></i>' +
+        '<span style="font-weight:600;color:var(--muted);font-size:0.82rem">' + sanitize(module) + '</span>' +
+        '</div>';
+
+      grouped[course][module].forEach(d => {
+        html += '<div class="download-item" style="margin-left:16px;margin-bottom:6px">' +
+          '<div class="download-icon" style="color:var(--primary)"><i class="fas fa-file-video"></i></div>' +
+          '<div class="download-info">' +
+          '<h4>' + sanitize(d.title) + '</h4>' +
+          '</div>' +
+          '<div style="display:flex;gap:8px">' +
+          '<button class="btn btn-primary btn-sm" onclick="playDownloadedVideo(' + d._index + ')"><i class="fas fa-play"></i> Watch</button>' +
+          '<button class="btn btn-outline btn-sm" onclick="removeDownload(' + d._index + ')"><i class="fas fa-trash"></i></button>' +
+          '</div>' +
+          '</div>';
+      });
+
+      html += '</div>';
+    });
+
+    html += '</div>';
+  });
+
+  container.innerHTML = html;
 }
 
 async function playDownloadedVideo(index) {
@@ -1937,8 +2023,7 @@ async function playDownloadedVideo(index) {
     document.getElementById('video-meta').textContent = (d.courseTitle || '') + (d.moduleTitle ? ' · ' + d.moduleTitle : '');
     await loadVideo(d.videoUrl || '');
     _currentVideoData = d;
-    const btn = document.getElementById('save-download-btn');
-    if (btn) { btn.innerHTML = '<i class="fas fa-check"></i> Saved!'; btn.disabled = true; }
+    _updateSaveBtn(true);
     const notesEl = document.getElementById('vp-notes');
     if (notesEl) renderNotesTab('', []);
     const quizEl = document.getElementById('vp-quiz');
@@ -2117,42 +2202,43 @@ async function downloadOffline() {
 
   const { lessonId, title, courseTitle, moduleTitle, videoUrl } = _currentVideoData;
   const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
-  let downloadedAny = false;
 
+  // Get signed URL immediately before passing to main process — minimises TTL gap
   async function getSignedUrl(url) {
     if (!url || !url.includes('amazonaws.com')) return url;
     try {
       const res = await fetch(BASE_URL + '/api/media/signed-url', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
-        body: JSON.stringify({ url }),
+        body: JSON.stringify({ url, forDownload: true }),
       });
       if (res.ok) { const d = await res.json(); if (d.signedUrl) return d.signedUrl; }
     } catch {}
     return url;
   }
 
-  // Download video only (PDF is downloaded separately via downloadPdfOffline)
-  if (videoUrl) {
-    try {
-      const dlUrl = await getSignedUrl(videoUrl);
-      const result = await window.electron.downloadContent({ url: dlUrl, lessonId, title, type: 'video', userId, courseTitle, moduleTitle });
-      if (result.success) downloadedAny = true;
-    } catch {}
+  if (!videoUrl) {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-download"></i> Download Lesson'; btn.style.background = 'linear-gradient(135deg,#6c47ff,#ec4899)'; }
+    alert('No video available for this lesson.');
+    return;
   }
 
-  if (btn) {
-    btn.disabled = false;
-    btn.innerHTML = downloadedAny
-      ? '<i class="fas fa-check"></i> Downloaded!'
-      : '<i class="fas fa-download"></i> Download Lesson';
-    btn.style.background = downloadedAny ? 'var(--success)' : 'linear-gradient(135deg,#6c47ff,#ec4899)';
-    // Reset back after 3 seconds
-    if (downloadedAny) {
-      setTimeout(() => {
-        if (btn) { btn.innerHTML = '<i class="fas fa-download"></i> Download Lesson'; btn.style.background = 'linear-gradient(135deg,#6c47ff,#ec4899)'; }
-      }, 3000);
+  try {
+    const dlUrl = await getSignedUrl(videoUrl);
+    const result = await window.electron.downloadContent({ url: dlUrl, lessonId, title, type: 'video', userId, courseTitle, moduleTitle });
+    if (btn) {
+      btn.disabled = result.success;
+      btn.innerHTML = result.success
+        ? '<i class="fas fa-check"></i> Downloaded!'
+        : '<i class="fas fa-download"></i> Download Lesson';
+      btn.style.background = result.success ? 'var(--success)' : 'linear-gradient(135deg,#6c47ff,#ec4899)';
     }
+    if (!result.success && result.message !== 'Already downloaded.') {
+      alert('Download failed: ' + result.message);
+    }
+  } catch (err) {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-download"></i> Download Lesson'; btn.style.background = 'linear-gradient(135deg,#6c47ff,#ec4899)'; }
+    alert('Download failed: ' + (err.message || 'Please try again.'));
   }
 }
 
@@ -2169,21 +2255,22 @@ async function downloadPdfOffline(notesUrl) {
 
   const { lessonId, title, courseTitle, moduleTitle } = _currentVideoData;
   const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+  const pdfBtn = document.getElementById('pdf-download-btn');
+  if (pdfBtn) { pdfBtn.disabled = true; pdfBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Downloading...'; }
 
   try {
+    // Get signed URL immediately before passing to main process
     let dlUrl = notesUrl;
     if (notesUrl.includes('amazonaws.com')) {
       const res = await fetch(BASE_URL + '/api/media/signed-url', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
-        body: JSON.stringify({ url: notesUrl }),
+        body: JSON.stringify({ url: notesUrl, forDownload: true }),
       });
       if (res.ok) { const d = await res.json(); if (d.signedUrl) dlUrl = d.signedUrl; }
     }
     const result = await window.electron.downloadContent({ url: dlUrl, lessonId, title: title + ' (PDF)', type: 'pdf', userId, courseTitle, moduleTitle });
     if (result.success) {
-      // Update button to show "Downloaded"
-      const pdfBtn = document.getElementById('pdf-download-btn');
       if (pdfBtn) {
         pdfBtn.innerHTML = '<i class="fas fa-check"></i> Downloaded';
         pdfBtn.style.borderColor = 'rgba(34,197,94,0.6)';
@@ -2192,10 +2279,12 @@ async function downloadPdfOffline(notesUrl) {
         pdfBtn.style.opacity = '0.8';
       }
     } else {
-      alert(result.message || 'PDF download failed.');
+      if (pdfBtn) { pdfBtn.disabled = false; pdfBtn.innerHTML = '<i class="fas fa-download"></i> Download PDF'; }
+      if (result.message !== 'Already downloaded.') alert('PDF download failed: ' + result.message);
     }
   } catch (err) {
-    alert('PDF download failed. Please try again.');
+    if (pdfBtn) { pdfBtn.disabled = false; pdfBtn.innerHTML = '<i class="fas fa-download"></i> Download PDF'; }
+    alert('PDF download failed: ' + (err.message || 'Please try again.'));
   }
 }
 
@@ -2227,23 +2316,58 @@ async function renderOfflineDownloads() {
     return;
   }
 
-  container.innerHTML = result.downloads.map((d, i) => {
-    const icon = d.type === 'pdf' ? 'fa-file-pdf' : 'fa-file-video';
-    const iconColor = d.type === 'pdf' ? '#ef4444' : 'var(--primary)';
-    return '<div class="download-item">' +
-      '<div class="download-icon" style="color:' + iconColor + '"><i class="fas ' + icon + '"></i></div>' +
-      '<div class="download-info">' +
-      '<h4>' + sanitize(d.title) + '</h4>' +
-      '<p style="font-size:0.78rem;color:var(--muted);margin-top:2px">' + sanitize(d.courseTitle || '') + (d.moduleTitle ? ' · ' + sanitize(d.moduleTitle) : '') + '</p>' +
-      '<p style="font-size:0.72rem;color:#f59e0b;margin-top:2px">Expires in ' + d.daysLeft + ' day' + (d.daysLeft !== 1 ? 's' : '') + '</p>' +
-      '</div>' +
-      '<div style="display:flex;gap:8px">' +
-      '<button class="btn btn-primary btn-sm" onclick="playOfflineContent(\'' + d.lessonId + '\',\'' + d.type + '\')">' +
-      '<i class="fas ' + (d.type === 'pdf' ? 'fa-eye' : 'fa-play') + '"></i> ' + (d.type === 'pdf' ? 'View' : 'Watch') + '</button>' +
-      '<button class="btn btn-outline btn-sm" onclick="deleteOfflineContent(\'' + d.lessonId + '\',\'' + d.type + '\')"><i class="fas fa-trash"></i></button>' +
-      '</div>' +
+  // Group by courseTitle → moduleTitle → items
+  const grouped = {};
+  result.downloads.forEach(d => {
+    const course = d.courseTitle || 'Uncategorized';
+    const module = d.moduleTitle || 'General';
+    if (!grouped[course]) grouped[course] = {};
+    if (!grouped[course][module]) grouped[course][module] = [];
+    grouped[course][module].push(d);
+  });
+
+  let html = '';
+  Object.keys(grouped).forEach(course => {
+    html += '<div style="margin-bottom:20px">';
+    // Course folder
+    html += '<div style="display:flex;align-items:center;gap:8px;padding:10px 14px;background:rgba(108,71,255,0.1);border:1px solid rgba(108,71,255,0.25);border-radius:12px;margin-bottom:8px">' +
+      '<i class="fas fa-folder" style="color:#a78bfa;font-size:1rem"></i>' +
+      '<span style="font-weight:700;color:#fff;font-size:0.9rem">' + sanitize(course) + '</span>' +
       '</div>';
-  }).join('');
+
+    Object.keys(grouped[course]).forEach(module => {
+      // Module sub-folder
+      html += '<div style="margin-left:16px;margin-bottom:8px">';
+      html += '<div style="display:flex;align-items:center;gap:8px;padding:7px 12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:10px;margin-bottom:6px">' +
+        '<i class="fas fa-folder-open" style="color:#6c47ff;font-size:0.85rem"></i>' +
+        '<span style="font-weight:600;color:var(--muted);font-size:0.82rem">' + sanitize(module) + '</span>' +
+        '</div>';
+
+      grouped[course][module].forEach(d => {
+        const isPdf = d.type === 'pdf';
+        const icon = isPdf ? 'fa-file-pdf' : 'fa-file-video';
+        const iconColor = isPdf ? '#ef4444' : 'var(--primary)';
+        html += '<div class="download-item" style="margin-left:16px;margin-bottom:6px">' +
+          '<div class="download-icon" style="color:' + iconColor + '"><i class="fas ' + icon + '"></i></div>' +
+          '<div class="download-info">' +
+          '<h4>' + sanitize(d.title) + '</h4>' +
+          '<p style="font-size:0.72rem;color:#f59e0b;margin-top:2px">Expires in ' + d.daysLeft + ' day' + (d.daysLeft !== 1 ? 's' : '') + '</p>' +
+          '</div>' +
+          '<div style="display:flex;gap:8px">' +
+          '<button class="btn btn-primary btn-sm" onclick="playOfflineContent(\'' + d.lessonId + '\',\'' + d.type + '\')">' +
+          '<i class="fas ' + (isPdf ? 'fa-eye' : 'fa-play') + '"></i> ' + (isPdf ? 'View' : 'Watch') + '</button>' +
+          '<button class="btn btn-outline btn-sm" onclick="deleteOfflineContent(\'' + d.lessonId + '\',\'' + d.type + '\')"><i class="fas fa-trash"></i></button>' +
+          '</div>' +
+          '</div>';
+      });
+
+      html += '</div>';
+    });
+
+    html += '</div>';
+  });
+
+  container.innerHTML = html;
 }
 
 async function playOfflineContent(lessonId, type) {

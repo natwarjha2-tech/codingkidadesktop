@@ -179,16 +179,29 @@ function writeMeta(meta) {
 function fetchBuffer(url) {
   return new Promise((resolve, reject) => {
     const client = url.startsWith('https') ? followHttps : followHttp;
-    client.get(url, { maxRedirects: 10 }, (res) => {
+    const req = client.get(url, { maxRedirects: 10, timeout: 60000 }, (res) => {
       if (res.statusCode < 200 || res.statusCode >= 300) {
-        reject(new Error('HTTP ' + res.statusCode));
+        res.resume(); // drain response
+        reject(new Error('Server returned HTTP ' + res.statusCode + '. The download link may have expired — please try again.'));
         return;
       }
       const chunks = [];
       res.on('data', c => chunks.push(c));
-      res.on('end', () => resolve(Buffer.concat(chunks)));
+      res.on('end', () => {
+        const buf = Buffer.concat(chunks);
+        if (buf.length === 0) {
+          reject(new Error('Downloaded file is empty. Please try again.'));
+          return;
+        }
+        resolve(buf);
+      });
       res.on('error', reject);
-    }).on('error', reject);
+    });
+    req.on('error', reject);
+    req.setTimeout(60000, () => {
+      req.destroy();
+      reject(new Error('Download timed out after 60 seconds. Check your connection.'));
+    });
   });
 }
 
