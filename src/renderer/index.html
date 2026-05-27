@@ -206,7 +206,7 @@
         </div>
         
         <!-- Card 3 -->
-        <div style="background:rgba(255,255,255,0.03); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px); border:1px solid rgba(255,255,255,0.05); border-radius:24px; padding:24px; position:relative; overflow:hidden; display:flex; flex-direction:column; justify-content:space-between; height:150px; box-shadow:0 10px 30px rgba(0,0,0,0.2); transition:all 0.3s cubic-bezier(0.4, 0, 0.2, 1); cursor:pointer;" onmouseover="this.style.transform='translateY(-8px)'; this.style.boxShadow='0 20px 40px rgba(245,158,11,0.15)'; this.style.borderColor='rgba(245,158,11,0.3)'; this.querySelector('.icon-wrap').style.transform='scale(1.1) rotate(5deg)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 10px 30px rgba(0,0,0,0.2)'; this.style.borderColor='rgba(255,255,255,0.05)'; this.querySelector('.icon-wrap').style.transform='scale(1) rotate(0deg)';">
+        <div onclick="showAchievements()" style="background:rgba(255,255,255,0.03); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px); border:1px solid rgba(255,255,255,0.05); border-radius:24px; padding:24px; position:relative; overflow:hidden; display:flex; flex-direction:column; justify-content:space-between; height:150px; box-shadow:0 10px 30px rgba(0,0,0,0.2); transition:all 0.3s cubic-bezier(0.4, 0, 0.2, 1); cursor:pointer;" onmouseover="this.style.transform='translateY(-8px)'; this.style.boxShadow='0 20px 40px rgba(245,158,11,0.15)'; this.style.borderColor='rgba(245,158,11,0.3)'; this.querySelector('.icon-wrap').style.transform='scale(1.1) rotate(5deg)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 10px 30px rgba(0,0,0,0.2)'; this.style.borderColor='rgba(255,255,255,0.05)'; this.querySelector('.icon-wrap').style.transform='scale(1) rotate(0deg)';">
           <div style="position:absolute; top:-30px; left:-30px; width:120px; height:120px; background:radial-gradient(circle, rgba(245,158,11,0.25), transparent 70%); border-radius:50%; transition:all 0.3s ease;"></div>
           <div style="display:flex; gap:18px; align-items:flex-start;">
             <div class="icon-wrap" style="width:50px; height:50px; border-radius:16px; background:linear-gradient(135deg, rgba(245,158,11,0.2), rgba(251,191,36,0.1)); display:flex; align-items:center; justify-content:center; font-size:1.6rem; z-index:1; border:1px solid rgba(245,158,11,0.4); box-shadow:0 0 15px rgba(245,158,11,0.2); transition:all 0.3s ease;">🏆</div>
@@ -396,6 +396,26 @@
           <button id="offline-download-btn" class="btn btn-sm" onclick="downloadOffline()" style="padding:6px 14px;background:linear-gradient(135deg,#6c47ff,#ec4899);color:#fff;border:none;border-radius:8px;font-weight:700;">
             <i class="fas fa-download"></i> Download Lesson
           </button>
+          <!-- Coins Widget -->
+          <div id="coins-widget" style="display:flex;align-items:center;gap:6px;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.3);border-radius:20px;padding:5px 12px;cursor:pointer;margin-left:6px;" onclick="toggleCoinsPopup()">
+            <span style="font-size:0.9rem;">🪙</span>
+            <span id="coins-count" style="font-size:0.8rem;font-weight:700;color:#fbbf24;">0</span>
+          </div>
+          <!-- Profile Widget with Dropdown -->
+          <div style="position:relative;margin-left:4px;z-index:1001;">
+            <div id="topbar-profile-btn" onclick="toggleTopbarDropdown()" style="width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#a855f7,#ec4899);display:flex;align-items:center;justify-content:center;font-size:0.75rem;font-weight:800;color:#fff;cursor:pointer;border:2px solid rgba(255,255,255,0.2);overflow:hidden;position:relative;">
+              <span id="topbar-avatar-text">?</span>
+              <img id="topbar-avatar-img" src="" style="display:none;width:100%;height:100%;object-fit:cover;position:absolute;top:0;left:0;border-radius:50%;" />
+            </div>
+            <!-- Dropdown -->
+            <div id="topbar-dropdown" style="display:none;position:absolute;top:40px;right:0;background:#1a1a2e;border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:8px 0;min-width:180px;z-index:1002;box-shadow:0 12px 40px rgba(0,0,0,0.5);">
+              <div onclick="navigate('profile');hideTopbarDropdown()" style="padding:10px 16px;font-size:0.85rem;color:#fff;cursor:pointer;display:flex;align-items:center;gap:10px;transition:background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'"><i class="fas fa-user" style="width:16px;color:#a78bfa;"></i> My Profile</div>
+              <div onclick="toggleCoinsPopup();hideTopbarDropdown()" style="padding:10px 16px;font-size:0.85rem;color:#fff;cursor:pointer;display:flex;align-items:center;gap:10px;transition:background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'"><i class="fas fa-coins" style="width:16px;color:#fbbf24;"></i> My Coins</div>
+              <div onclick="showLeaderboardModal();hideTopbarDropdown()" style="padding:10px 16px;font-size:0.85rem;color:#fff;cursor:pointer;display:flex;align-items:center;gap:10px;transition:background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'"><i class="fas fa-trophy" style="width:16px;color:#f59e0b;"></i> Leaderboard</div>
+              <div style="height:1px;background:rgba(255,255,255,0.08);margin:4px 0;"></div>
+              <div onclick="logout()" style="padding:10px 16px;font-size:0.85rem;color:#ef4444;cursor:pointer;display:flex;align-items:center;gap:10px;transition:background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'"><i class="fas fa-sign-out-alt" style="width:16px;"></i> Logout</div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -420,6 +440,7 @@
             <div class="vp-tab active" onclick="switchVpTab(this,'vp-notes')"><i class="fas fa-file-alt"></i> Notes</div>
             <div class="vp-tab" onclick="switchVpTab(this,'vp-quiz')"><i class="fas fa-tasks"></i> Quiz</div>
             <div class="vp-tab" onclick="switchVpTab(this,'vp-exercise')"><i class="fas fa-code"></i> Exercise</div>
+            <div class="vp-tab" onclick="switchVpTab(this,'vp-homework')"><i class="fas fa-pencil-alt"></i> Homework</div>
             <div class="vp-tab" onclick="switchVpTab(this,'vp-chat')"><i class="fas fa-robot"></i> AI Mentor</div>
           </div>
 
@@ -428,6 +449,7 @@
             <div id="vp-notes" class="vp-tab-panel active"></div>
             <div id="vp-quiz" class="vp-tab-panel"></div>
             <div id="vp-exercise" class="vp-tab-panel"></div>
+            <div id="vp-homework" class="vp-tab-panel"></div>
             <div id="vp-chat" class="vp-tab-panel">
               <div class="vp-ai-messages" id="vp-ai-messages" style="padding:0;gap:12px;display:flex;flex-direction:column;margin-bottom:12px;">
                 <div style="display:flex;gap:10px;align-items:flex-start;">
@@ -680,6 +702,17 @@
       </div>
     </div>
 
+    <!-- Achievements Page -->
+    <div id="page-achievements" class="page" style="padding:30px">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:24px">
+        <button onclick="navigate('dashboard')" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:10px;width:36px;height:36px;display:flex;align-items:center;justify-content:center;color:#fff;cursor:pointer;transition:all 0.2s" onmouseover="this.style.background='rgba(245,158,11,0.2)'" onmouseout="this.style.background='rgba(255,255,255,0.05)'"><i class="fas fa-arrow-left"></i></button>
+        <h2 style="font-size:1.5rem;font-weight:800;color:#fff;margin:0">🏆 My Achievements</h2>
+      </div>
+      <div id="achievements-list" style="display:flex;flex-direction:column;gap:16px">
+        <p style="color:var(--muted)">Loading...</p>
+      </div>
+    </div>
+
   </main>
 </div>
 
@@ -699,6 +732,36 @@
     </div>
     <div id="pdf-canvas-container" style="flex:1;overflow:auto;display:flex;justify-content:center;align-items:flex-start;padding:20px;background:#0f0f1a" oncontextmenu="return false;">
       <canvas id="pdf-canvas" style="box-shadow:0 4px 20px rgba(0,0,0,0.5);border-radius:4px"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- Coins Popup -->
+<div id="coins-popup" style="display:none;position:fixed;top:60px;right:80px;width:300px;background:#1a1a2e;border:1px solid rgba(245,158,11,0.3);border-radius:16px;padding:20px;z-index:10000;box-shadow:0 16px 50px rgba(0,0,0,0.6);">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+    <div style="font-size:1rem;font-weight:700;color:#fff;display:flex;align-items:center;gap:8px;">🪙 My Coins</div>
+    <div onclick="hideCoinsPopup()" style="width:24px;height:24px;border-radius:50%;background:rgba(255,255,255,0.1);display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--muted);font-size:0.7rem;"><i class="fas fa-times"></i></div>
+  </div>
+  <div style="text-align:center;padding:12px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);border-radius:12px;margin-bottom:14px;">
+    <div style="font-size:2rem;font-weight:800;color:#fbbf24;" id="coins-popup-total">0</div>
+    <div style="font-size:0.75rem;color:var(--muted);margin-top:4px;">Total Coins Earned</div>
+  </div>
+  <div style="font-size:0.8rem;font-weight:600;color:rgba(255,255,255,0.7);margin-bottom:8px;">Recent Rewards</div>
+  <div id="coins-popup-transactions" style="max-height:150px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;">
+    <div style="color:var(--muted);font-size:0.8rem;text-align:center;padding:12px;">No rewards yet</div>
+  </div>
+  <div style="margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.06);font-size:0.72rem;color:var(--muted);text-align:center;">100+ coins = ₹ discount on next course</div>
+</div>
+
+<!-- Leaderboard Modal -->
+<div id="leaderboard-modal" style="display:none;position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.8);z-index:10000;display:none;align-items:center;justify-content:center;">
+  <div style="width:500px;max-height:80vh;background:#1a1a2e;border:1px solid rgba(108,71,255,0.3);border-radius:20px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.7);">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:20px 24px;border-bottom:1px solid rgba(255,255,255,0.08);">
+      <div style="font-size:1.1rem;font-weight:700;color:#fff;display:flex;align-items:center;gap:10px;"><i class="fas fa-trophy" style="color:#f59e0b;"></i> Leaderboard</div>
+      <div onclick="hideLeaderboardModal()" style="width:28px;height:28px;border-radius:50%;background:rgba(255,255,255,0.1);display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--muted);font-size:0.8rem;"><i class="fas fa-times"></i></div>
+    </div>
+    <div id="leaderboard-modal-content" style="padding:16px 24px;max-height:60vh;overflow-y:auto;">
+      <div style="text-align:center;padding:30px;color:var(--muted);">Loading...</div>
     </div>
   </div>
 </div>

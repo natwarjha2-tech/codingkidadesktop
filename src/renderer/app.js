@@ -89,6 +89,9 @@ async function loadStudentData() {
     if (sidebarName) sidebarName.textContent = name;
     if (sidebarAvatar) sidebarAvatar.textContent = initial;
 
+    const topbarAvatarText = document.getElementById('topbar-avatar-text');
+    if (topbarAvatarText) topbarAvatarText.textContent = initial;
+
     const dashWelcome = document.getElementById('dashboard-welcome-name');
     if (dashWelcome) dashWelcome.textContent = name;
 
@@ -130,6 +133,10 @@ async function loadStudentData() {
             const sidebarText = document.getElementById('sidebar-avatar-text');
             if (sidebarImg) { sidebarImg.src = avatarData.avatarUrl; sidebarImg.style.display = 'block'; }
             if (sidebarText) sidebarText.style.display = 'none';
+            const topbarImg = document.getElementById('topbar-avatar-img');
+            const topbarText = document.getElementById('topbar-avatar-text');
+            if (topbarImg) { topbarImg.src = avatarData.avatarUrl; topbarImg.style.display = 'block'; }
+            if (topbarText) topbarText.style.display = 'none';
           }
         }
       } catch {}
@@ -379,6 +386,10 @@ function handleProfilePhoto(input) {
     const sidebarText = document.getElementById('sidebar-avatar-text');
     if (sidebarImg) { sidebarImg.src = e.target.result; sidebarImg.style.display = 'block'; }
     if (sidebarText) sidebarText.style.display = 'none';
+    const topbarImg = document.getElementById('topbar-avatar-img');
+    const topbarText = document.getElementById('topbar-avatar-text');
+    if (topbarImg) { topbarImg.src = e.target.result; topbarImg.style.display = 'block'; }
+    if (topbarText) topbarText.style.display = 'none';
   };
   reader.readAsDataURL(file);
 
@@ -402,9 +413,9 @@ function openEditProfile() {
 
 // Navigation
 
-const appPages = ['dashboard','courses','course-detail','video','chat','ai','live','downloads','offline-downloads','profile','enrolled-detail','completed-videos','streak-history'];
+const appPages = ['dashboard','courses','course-detail','video','chat','ai','live','downloads','offline-downloads','profile','enrolled-detail','completed-videos','streak-history','achievements'];
 const authPages = ['login','signup'];
-const sidebarMap = { dashboard:'nav-dashboard', courses:'nav-courses', 'course-detail':'nav-courses', video:'nav-courses', chat:'nav-chat', ai:'nav-ai', live:'nav-live', downloads:'nav-downloads', 'offline-downloads':'nav-offline-downloads', profile:'nav-profile', 'enrolled-detail':'nav-dashboard', 'completed-videos':'nav-dashboard', 'streak-history':'nav-dashboard' };
+const sidebarMap = { dashboard:'nav-dashboard', courses:'nav-courses', 'course-detail':'nav-courses', video:'nav-courses', chat:'nav-chat', ai:'nav-ai', live:'nav-live', downloads:'nav-downloads', 'offline-downloads':'nav-offline-downloads', profile:'nav-profile', 'enrolled-detail':'nav-dashboard', 'completed-videos':'nav-dashboard', 'streak-history':'nav-dashboard', 'achievements':'nav-dashboard' };
 
 function navigate(page) {
   authPages.forEach(p => {
@@ -454,7 +465,7 @@ function navigate(page) {
 
 // Lazy load state for lesson tabs
 var _currentLessonForTabs = null;
-var _tabDataLoaded = { quiz: false, exercise: false, streak: false };
+var _tabDataLoaded = { quiz: false, exercise: false, streak: false, homework: false };
 
 function switchVpTab(el, panelId) {
   el.closest('.vp-tabs').querySelectorAll('.vp-tab').forEach(t => t.classList.remove('active'));
@@ -473,6 +484,9 @@ function switchVpTab(el, panelId) {
     } else if (panelId === 'vp-exercise' && !_tabDataLoaded.exercise) {
       _tabDataLoaded.exercise = true;
       _lazyLoadExercise(lessonId, token);
+    } else if (panelId === 'vp-homework' && !_tabDataLoaded.homework) {
+      _tabDataLoaded.homework = true;
+      _lazyLoadHomework(lessonId, token);
     }
   }
 }
@@ -680,68 +694,37 @@ function submitQuiz(qIndex) {
   const btn = card.querySelector('.quiz-submit-btn');
   if (btn) btn.style.display = 'none';
 
-  // Save attempt to server for leaderboard
+  // Calculate time taken (seconds since quiz tab was opened)
+  const timeTaken = _quizStartTime ? Math.round((Date.now() - _quizStartTime) / 1000) : null;
+
+  // Save attempt to server for leaderboard + coins
   const quizId = card.dataset.quizid || '';
   const courseId = _currentLessonContext ? _currentLessonContext.courseId : '';
+  const lessonId = _currentLessonForTabs ? _currentLessonForTabs.lessonId : '';
   const _token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
   if (quizId && courseId && _token) {
     fetch(BASE_URL + '/api/quiz', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + _token },
-      body: JSON.stringify({ quizId, selected: selectedIndex, courseId }),
-    }).then(() => fetchAndShowQuizRank()).catch(() => fetchAndShowQuizRank());
-  } else {
-    fetchAndShowQuizRank();
+      body: JSON.stringify({ quizId, selected: selectedIndex, courseId, lessonId, timeTaken }),
+    }).then(r => r.json()).then(data => {
+      if (data.coinsAwarded && data.coinsAwarded > 0) {
+        _showCoinRewardToast(data.coinsAwarded, data.badge, data.rank);
+      }
+      loadUserCoins(); // Refresh coins widget
+    }).catch(() => {});
   }
 }
 
 /**
- * Fetch and display quiz rank in the quiz tab
+ * fetchAndShowQuizRank — DEPRECATED
+ * Rank now shows in leaderboard modal (profile dropdown), not in quiz tab.
+ * Kept as no-op to prevent errors if called from elsewhere.
  */
 async function fetchAndShowQuizRank() {
-  // Get courseId from current context
-  const courseId = _currentLessonContext ? _currentLessonContext.courseId : null;
-  if (!courseId) return;
-
-  const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
-  if (!token) return;
-
-  // Check if rank section already exists
-  let rankSection = document.getElementById('quiz-rank-section');
-  if (!rankSection) {
-    const quizEl = document.getElementById('vp-quiz');
-    if (!quizEl) return;
-    rankSection = document.createElement('div');
-    rankSection.id = 'quiz-rank-section';
-    rankSection.style.cssText = 'margin-top:20px; padding:16px; background:rgba(108,71,255,0.08); border:1px solid rgba(108,71,255,0.2); border-radius:12px;';
-    quizEl.appendChild(rankSection);
-  }
-
-  rankSection.innerHTML = '<p style="color:var(--muted);font-size:0.8rem;text-align:center"><i class="fas fa-spinner fa-spin"></i> Loading rank...</p>';
-
-  try {
-    const res = await fetch(BASE_URL + '/api/leaderboard?courseId=' + courseId, {
-      headers: { Authorization: 'Bearer ' + token },
-    });
-    const data = await res.json();
-    if (data.success && data.currentUserRank) {
-      const r = data.currentUserRank;
-      rankSection.innerHTML =
-        '<div style="text-align:center">' +
-        '<div style="font-size:1.5rem;margin-bottom:4px">🏆</div>' +
-        '<div style="font-size:0.9rem;font-weight:700;color:#fff">Your Quiz Rank</div>' +
-        '<div style="font-size:1.8rem;font-weight:800;color:#a78bfa;margin:6px 0">#' + r.rank + '</div>' +
-        '<div style="font-size:0.8rem;color:var(--muted)">out of ' + r.totalStudents + ' students · Score: ' + r.score + '%</div>' +
-        '</div>';
-    } else {
-      rankSection.innerHTML =
-        '<div style="text-align:center">' +
-        '<div style="font-size:0.85rem;color:var(--muted)">Complete more quizzes to see your rank!</div>' +
-        '</div>';
-    }
-  } catch {
-    rankSection.innerHTML = '';
-  }
+  // Remove rank section if it exists (cleanup from old behavior)
+  const rankSection = document.getElementById('quiz-rank-section');
+  if (rankSection) rankSection.remove();
 }
 
 /**
@@ -1026,10 +1009,15 @@ let _aiMentorHistory = [];
 async function sendVpAI() {
   const input = document.getElementById('vp-ai-input');
   const messages = document.getElementById('vp-ai-messages');
+  const sendBtn = input ? input.nextElementSibling || input.parentElement.querySelector('button') : null;
   if (!input || !messages) return;
   const text = input.value.trim();
   if (!text) return;
   input.value = '';
+
+  // Disable input and button during fetch
+  input.disabled = true;
+  if (sendBtn) { sendBtn.disabled = true; sendBtn.style.opacity = '0.5'; }
 
   const userMsg = document.createElement('div');
   userMsg.style.cssText = 'display:flex;gap:10px;align-items:flex-start;flex-direction:row-reverse;';
@@ -1076,6 +1064,10 @@ async function sendVpAI() {
   } catch {
     aiMsg.querySelector('div:last-child').innerHTML = '<span style="color:#f59e0b">\u23f3 AI is busy. Please wait a few seconds and try again.</span>';
   }
+  // Re-enable input and button
+  input.disabled = false;
+  if (sendBtn) { sendBtn.disabled = false; sendBtn.style.opacity = '1'; }
+  input.focus();
   const vpCenterEnd = messages.closest('.vp-center');
   if (vpCenterEnd) vpCenterEnd.scrollTop = vpCenterEnd.scrollHeight;
 }
@@ -1148,6 +1140,11 @@ async function sendAI() {
   const msg = input.value.trim();
   if (!msg) return;
   const container = document.getElementById('aiMessages');
+  const sendBtn = input ? input.closest('.chat-input-bar')?.querySelector('button') : null;
+
+  // Disable input and button during fetch
+  input.disabled = true;
+  if (sendBtn) { sendBtn.disabled = true; sendBtn.style.opacity = '0.5'; }
 
   const userDiv = document.createElement('div');
   userDiv.className = 'ai-msg user';
@@ -1205,6 +1202,10 @@ async function sendAI() {
     container.appendChild(errDiv);
   }
 
+  // Re-enable input and button
+  input.disabled = false;
+  if (sendBtn) { sendBtn.disabled = false; sendBtn.style.opacity = '1'; }
+  input.focus();
   container.scrollTop = container.scrollHeight;
 }
 
@@ -1525,7 +1526,7 @@ async function openVideoFromBackend(courseId, moduleId, lessonId) {
     // Lazy load: quiz and exercise are fetched only when user clicks the tab
     // Store lesson context for lazy fetch
     _currentLessonForTabs = { lessonId: lesson.id, courseId: courseId };
-    _tabDataLoaded = { quiz: false, exercise: false, streak: false };
+    _tabDataLoaded = { quiz: false, exercise: false, streak: false, homework: false };
 
     // Show placeholder in tabs (will be replaced on tab click)
     renderQuizTab(null);
@@ -2628,3 +2629,322 @@ document.addEventListener('keydown', (e) => {
 })();
 
 
+
+// ─── Coins & Leaderboard System ──────────────────────────────────────────────
+
+var _quizStartTime = null;
+var _userCoinsCache = 0;
+
+// Load user coins from server and update widget
+async function loadUserCoins() {
+  const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+  if (!token) return;
+  try {
+    const res = await fetch(BASE_URL + '/api/coins', {
+      headers: { Authorization: 'Bearer ' + token },
+    });
+    const data = await res.json();
+    if (data.success) {
+      _userCoinsCache = data.totalCoins || 0;
+      const el = document.getElementById('coins-count');
+      if (el) el.textContent = String(_userCoinsCache);
+    }
+  } catch {}
+}
+
+// Toggle coins popup
+function toggleCoinsPopup() {
+  const popup = document.getElementById('coins-popup');
+  if (!popup) return;
+  if (popup.style.display === 'none' || !popup.style.display) {
+    popup.style.display = 'block';
+    _loadCoinsPopupData();
+  } else {
+    popup.style.display = 'none';
+  }
+}
+
+function hideCoinsPopup() {
+  const popup = document.getElementById('coins-popup');
+  if (popup) popup.style.display = 'none';
+}
+
+async function _loadCoinsPopupData() {
+  const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+  if (!token) return;
+  try {
+    const res = await fetch(BASE_URL + '/api/coins', {
+      headers: { Authorization: 'Bearer ' + token },
+    });
+    const data = await res.json();
+    if (data.success) {
+      const totalEl = document.getElementById('coins-popup-total');
+      if (totalEl) totalEl.textContent = String(data.totalCoins || 0);
+
+      const txEl = document.getElementById('coins-popup-transactions');
+      if (txEl) {
+        if (data.transactions && data.transactions.length > 0) {
+          txEl.innerHTML = data.transactions.slice(0, 8).map(function(tx) {
+            const isEarned = tx.type === 'EARNED';
+            return '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;background:rgba(255,255,255,0.02);border-radius:8px;">' +
+              '<span style="font-size:0.78rem;color:rgba(255,255,255,0.7);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + sanitize(tx.reason) + '</span>' +
+              '<span style="font-size:0.78rem;font-weight:700;color:' + (isEarned ? '#22c55e' : '#ef4444') + ';margin-left:8px;">' + (isEarned ? '+' : '-') + tx.coins + '</span>' +
+              '</div>';
+          }).join('');
+        } else {
+          txEl.innerHTML = '<div style="color:var(--muted);font-size:0.8rem;text-align:center;padding:12px;">Complete quizzes to earn coins!</div>';
+        }
+      }
+    }
+  } catch {}
+}
+
+// Topbar profile dropdown
+function toggleTopbarDropdown() {
+  const dd = document.getElementById('topbar-dropdown');
+  if (!dd) return;
+  dd.style.display = dd.style.display === 'none' || !dd.style.display ? 'block' : 'none';
+}
+
+function hideTopbarDropdown() {
+  const dd = document.getElementById('topbar-dropdown');
+  if (dd) dd.style.display = 'none';
+}
+
+// Leaderboard modal
+function showLeaderboardModal() {
+  const modal = document.getElementById('leaderboard-modal');
+  if (!modal) return;
+  modal.style.display = 'flex';
+  _loadLeaderboardModalData();
+}
+
+function hideLeaderboardModal() {
+  const modal = document.getElementById('leaderboard-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+async function _loadLeaderboardModalData() {
+  const content = document.getElementById('leaderboard-modal-content');
+  if (!content) return;
+  content.innerHTML = '<div style="text-align:center;padding:30px;color:var(--muted);"><i class="fas fa-spinner fa-spin"></i> Loading leaderboard...</div>';
+
+  const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+  const lessonId = _currentLessonForTabs ? _currentLessonForTabs.lessonId : '';
+  const courseId = _currentLessonContext ? _currentLessonContext.courseId : '';
+
+  if (!lessonId && !courseId) {
+    content.innerHTML = '<div style="text-align:center;padding:30px;color:var(--muted);">Open a lesson to see leaderboard.</div>';
+    return;
+  }
+
+  try {
+    // Lesson-specific leaderboard — always include courseId for backward compatibility
+    const courseIdParam = courseId ? 'courseId=' + courseId : '';
+    const lessonIdParam = lessonId ? 'lessonId=' + lessonId : '';
+    const params = [courseIdParam, lessonIdParam].filter(Boolean).join('&');
+    let url = BASE_URL + '/api/leaderboard?' + params;
+    const res = await fetch(url, {
+      headers: token ? { Authorization: 'Bearer ' + token } : {},
+    });
+    const data = await res.json();
+    if (data.success && data.leaderboard && data.leaderboard.length > 0) {
+      let html = '';
+      data.leaderboard.forEach(function(entry) {
+        const rankIcon = entry.rank === 1 ? '🥇' : entry.rank === 2 ? '🥈' : entry.rank === 3 ? '🥉' : '#' + entry.rank;
+        const badge = entry.rank === 1 ? 'Super Master' : entry.rank === 2 ? 'Master' : entry.rank <= 10 ? 'Pro' : '';
+        const isMe = entry.isCurrentUser;
+        html += '<div style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:12px;margin-bottom:6px;background:' + (isMe ? 'rgba(108,71,255,0.12)' : 'rgba(255,255,255,0.02)') + ';border:1px solid ' + (isMe ? 'rgba(108,71,255,0.3)' : 'rgba(255,255,255,0.05)') + ';">' +
+          '<div style="width:32px;text-align:center;font-size:' + (entry.rank <= 3 ? '1.2rem' : '0.85rem') + ';font-weight:700;color:' + (entry.rank <= 3 ? '#fbbf24' : 'var(--muted)') + ';">' + rankIcon + '</div>' +
+          '<div style="flex:1;">' +
+          '<div style="font-size:0.88rem;font-weight:' + (isMe ? '700' : '500') + ';color:#fff;">' + sanitize(entry.name) + (isMe ? ' (You)' : '') + '</div>' +
+          (badge ? '<div style="font-size:0.7rem;color:#a78bfa;font-weight:600;">' + badge + '</div>' : '') +
+          '</div>' +
+          '<div style="font-size:0.85rem;font-weight:700;color:#4ade80;">' + entry.score + '%</div>' +
+          '</div>';
+      });
+
+      if (data.currentUserRank && data.currentUserRank.rank > 20) {
+        html += '<div style="text-align:center;padding:12px;margin-top:8px;background:rgba(108,71,255,0.08);border-radius:10px;border:1px solid rgba(108,71,255,0.2);">' +
+          '<div style="font-size:0.85rem;color:#fff;font-weight:600;">Your Rank: #' + data.currentUserRank.rank + '</div>' +
+          '<div style="font-size:0.75rem;color:var(--muted);">Score: ' + data.currentUserRank.score + '% · ' + data.totalStudents + ' students</div>' +
+          '</div>';
+      }
+      content.innerHTML = html;
+    } else {
+      content.innerHTML = '<div style="text-align:center;padding:30px;"><i class="fas fa-trophy" style="font-size:2rem;color:var(--muted);margin-bottom:12px;display:block;"></i><p style="color:var(--muted);font-size:0.9rem;">No quiz attempts yet. Be the first!</p></div>';
+    }
+  } catch {
+    content.innerHTML = '<div style="text-align:center;padding:30px;color:var(--danger);">Failed to load leaderboard.</div>';
+  }
+}
+
+// Show coin reward toast after quiz submission
+function _showCoinRewardToast(coins, badge, rank) {
+  const badgeLabel = badge === 'super-master' ? '🏆 Super Master' : badge === 'master' ? '🥈 Master' : '⭐ Pro';
+  const toast = document.createElement('div');
+  toast.style.cssText = 'position:fixed;top:80px;right:20px;background:linear-gradient(135deg,#1a1a2e,#2e1065);border:1px solid rgba(245,158,11,0.4);border-radius:14px;padding:16px 20px;z-index:10001;box-shadow:0 12px 40px rgba(0,0,0,0.5);animation:slideUp 0.3s ease;display:flex;align-items:center;gap:12px;';
+  toast.innerHTML = '<div style="font-size:1.5rem;">🪙</div><div><div style="font-size:0.9rem;font-weight:700;color:#fbbf24;">+' + coins + ' Coins Earned!</div><div style="font-size:0.78rem;color:rgba(255,255,255,0.7);margin-top:2px;">Rank #' + rank + ' · ' + badgeLabel + '</div></div>';
+  document.body.appendChild(toast);
+  setTimeout(function() { toast.style.opacity = '0'; toast.style.transition = 'opacity 0.3s'; }, 3000);
+  setTimeout(function() { toast.remove(); }, 3500);
+}
+
+// Update topbar avatar text when user data loads
+function _updateTopbarAvatar() {
+  const cached = JSON.parse(localStorage.getItem('ck_user') || '{}');
+  const name = cached.name || '';
+  const initial = name ? name.charAt(0).toUpperCase() : '?';
+  const el = document.getElementById('topbar-avatar-text');
+  if (el) el.textContent = initial;
+}
+
+// Close dropdowns/popups when clicking outside
+document.addEventListener('click', function(e) {
+  const dropdown = document.getElementById('topbar-dropdown');
+  const profileBtn = document.getElementById('topbar-profile-btn');
+  const coinsWidget = document.getElementById('coins-widget');
+  const coinsPopup = document.getElementById('coins-popup');
+  const leaderboardModal = document.getElementById('leaderboard-modal');
+
+  // Close profile dropdown if clicking outside
+  if (dropdown && dropdown.style.display === 'block') {
+    if (!dropdown.contains(e.target) && !profileBtn.contains(e.target)) {
+      dropdown.style.display = 'none';
+    }
+  }
+  // Close coins popup if clicking outside
+  if (coinsPopup && coinsPopup.style.display === 'block') {
+    if (!coinsPopup.contains(e.target) && !coinsWidget.contains(e.target)) {
+      coinsPopup.style.display = 'none';
+    }
+  }
+  // Close leaderboard modal if clicking backdrop
+  if (leaderboardModal && leaderboardModal.style.display === 'flex') {
+    if (e.target === leaderboardModal) {
+      leaderboardModal.style.display = 'none';
+    }
+  }
+});
+
+// Track quiz start time when quiz tab is opened
+var _origSwitchVpTab = switchVpTab;
+switchVpTab = function(el, panelId) {
+  if (panelId === 'vp-quiz') _quizStartTime = Date.now();
+  _origSwitchVpTab(el, panelId);
+};
+
+// Load coins on app init (after token check)
+(function() {
+  var _initInterval = setInterval(function() {
+    var token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token');
+    if (token) {
+      clearInterval(_initInterval);
+      loadUserCoins();
+      _updateTopbarAvatar();
+    }
+  }, 1000);
+  // Stop checking after 10s
+  setTimeout(function() { clearInterval(_initInterval); }, 10000);
+})();
+
+
+// ─── Homework Tab (Lazy Load) ────────────────────────────────────────────────
+
+async function _lazyLoadHomework(lessonId, token) {
+  const el = document.getElementById('vp-homework');
+  if (!el) return;
+  el.innerHTML = '<div class="tab-card" style="text-align:center;padding:30px;"><div class="skeleton-shimmer" style="width:60%;height:16px;margin:0 auto 12px;"></div><div class="skeleton-shimmer" style="width:80%;height:12px;margin:0 auto 8px;"></div></div>';
+  try {
+    const res = await fetch(BASE_URL + '/api/homework?lessonId=' + lessonId, {
+      headers: token ? { Authorization: 'Bearer ' + token } : {},
+    });
+    const data = await res.json();
+    if (data.success && data.homeworks && data.homeworks.length > 0) {
+      renderHomeworkTab(data.homeworks);
+    } else {
+      renderHomeworkTab(null);
+    }
+  } catch { renderHomeworkTab(null); }
+}
+
+function renderHomeworkTab(homeworks) {
+  const el = document.getElementById('vp-homework');
+  if (!el) return;
+  let html = '<div class="tab-card">';
+  html += '<div class="tab-card-title"><i class="fas fa-pencil-alt"></i> Homework (Practice)</div>';
+
+  if (!homeworks || homeworks.length === 0) {
+    html += '<div style="text-align:center;padding:30px 20px;">';
+    html += '<i class="fas fa-book-reader" style="font-size:2.5rem;color:rgba(255,255,255,0.15);margin-bottom:12px;display:block;"></i>';
+    html += '<p style="color:var(--muted);font-size:0.9rem;">No homework for this lesson yet.</p>';
+    html += '</div>';
+    html += '</div>';
+    el.innerHTML = html;
+    return;
+  }
+
+  homeworks.forEach(function(hw, i) {
+    const diffColor = hw.difficulty === 'easy' ? '#22c55e' : hw.difficulty === 'hard' ? '#ef4444' : '#f59e0b';
+    html += '<div style="margin-bottom:16px;padding:16px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.08);border-radius:12px;">';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">';
+    html += '<span style="font-size:0.85rem;font-weight:700;color:#fff;">Q' + (i + 1) + '. ' + sanitize(hw.title) + '</span>';
+    html += '<span style="font-size:0.7rem;font-weight:600;color:' + diffColor + ';background:' + diffColor + '15;padding:3px 8px;border-radius:6px;text-transform:capitalize;">' + hw.difficulty + '</span>';
+    html += '</div>';
+    html += '<p style="color:rgba(255,255,255,0.75);font-size:0.88rem;line-height:1.7;">' + sanitize(hw.description) + '</p>';
+    html += '</div>';
+  });
+
+  html += '<p style="color:var(--muted);font-size:0.75rem;text-align:center;margin-top:12px;"><i class="fas fa-info-circle"></i> Practice problems — no submission required</p>';
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+// ─── Achievements Page ───────────────────────────────────────────────────────
+
+async function showAchievements() {
+  navigate('achievements');
+  const container = document.getElementById('achievements-list');
+  if (!container) return;
+  container.innerHTML = '<p style="color:var(--muted)">Loading achievements...</p>';
+
+  const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+  if (!token) {
+    container.innerHTML = '<p style="color:var(--muted)">Please log in to view achievements.</p>';
+    return;
+  }
+
+  try {
+    const res = await fetch(BASE_URL + '/api/achievements', {
+      headers: { Authorization: 'Bearer ' + token },
+    });
+    const data = await res.json();
+    if (data.success && data.achievements && data.achievements.length > 0) {
+      container.innerHTML = data.achievements.map(function(a) {
+        const badgeIcon = a.badgeType === 'super-master' ? '🏆' : a.badgeType === 'master' ? '🥈' : '⭐';
+        const badgeColor = a.badgeType === 'super-master' ? '#fbbf24' : a.badgeType === 'master' ? '#a78bfa' : '#22c55e';
+        const date = new Date(a.earnedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+        return '<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:16px;padding:24px;position:relative;overflow:hidden;">' +
+          '<div style="position:absolute;top:0;right:0;width:100px;height:100px;background:radial-gradient(circle,' + badgeColor + '20,transparent);border-radius:50%;filter:blur(20px);"></div>' +
+          '<div style="display:flex;align-items:flex-start;gap:16px;">' +
+          '<div style="width:50px;height:50px;border-radius:14px;background:' + badgeColor + '20;border:1px solid ' + badgeColor + '40;display:flex;align-items:center;justify-content:center;font-size:1.5rem;flex-shrink:0;">' + badgeIcon + '</div>' +
+          '<div style="flex:1;">' +
+          '<div style="font-size:1rem;font-weight:700;color:#fff;margin-bottom:4px;">' + sanitize(a.title) + ' Certificate</div>' +
+          '<div style="font-size:0.82rem;color:var(--muted);margin-bottom:8px;">' + sanitize(a.lessonTitle) + ' · ' + sanitize(a.courseTitle) + '</div>' +
+          '<div style="font-size:0.8rem;color:rgba(255,255,255,0.6);line-height:1.6;">' +
+          'Score: <strong style="color:#4ade80;">' + a.score + '%</strong> · Rank: <strong style="color:' + badgeColor + ';">#' + a.rank + '</strong><br/>' +
+          'Awarded to: <strong style="color:#fff;">' + sanitize(a.studentName) + '</strong><br/>' +
+          'Instructor: ' + sanitize(a.instructor) + '<br/>' +
+          'Issued by: CodingKida Team · ' + date +
+          '</div>' +
+          '</div>' +
+          '</div>' +
+          '</div>';
+      }).join('');
+    } else {
+      container.innerHTML = '<div style="text-align:center;padding:40px;"><i class="fas fa-trophy" style="font-size:2.5rem;color:var(--muted);margin-bottom:12px;display:block;"></i><p style="color:var(--muted);font-size:0.9rem;">No achievements yet. Complete quizzes and rank in top 10 to earn certificates!</p></div>';
+    }
+  } catch {
+    container.innerHTML = '<p style="color:var(--danger)">Failed to load achievements.</p>';
+  }
+}

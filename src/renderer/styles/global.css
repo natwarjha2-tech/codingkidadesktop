@@ -433,6 +433,9 @@ body {
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
   gap: 16px;
+  position: relative;
+  z-index: 100;
+  overflow: visible;
 }
 .vp-topbar-left { display: flex; align-items: center; gap: 12px; }
 .vp-topbar-title { font-size: 0.95rem; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 400px; }
