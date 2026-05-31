@@ -165,7 +165,20 @@ function decryptBuffer(buffer, userId) {
 function readMeta() {
   try {
     if (fs.existsSync(DOWNLOADS_META)) {
-      return JSON.parse(fs.readFileSync(DOWNLOADS_META, 'utf8'));
+      const raw = JSON.parse(fs.readFileSync(DOWNLOADS_META, 'utf8'));
+      // Migrate old keys (lessonId_type) to new keys (userId_lessonId_type)
+      let migrated = false;
+      for (const key of Object.keys(raw)) {
+        const item = raw[key];
+        if (item.userId && !key.startsWith(item.userId + '_')) {
+          const newKey = item.userId + '_' + key;
+          raw[newKey] = item;
+          delete raw[key];
+          migrated = true;
+        }
+      }
+      if (migrated) fs.writeFileSync(DOWNLOADS_META, JSON.stringify(raw), 'utf8');
+      return raw;
     }
   } catch {}
   return {};
@@ -238,16 +251,17 @@ ipcMain.handle('download-content', async (event, { url, lessonId, title, type, u
   try {
     if (!fs.existsSync(DOWNLOADS_DIR)) fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });
     const meta = readMeta();
-    if (meta[lessonId + '_' + type]) {
-      return { success: false, message: 'Already downloaded.' };
+    const metaKey = userId + '_' + lessonId + '_' + type;
+    if (meta[metaKey]) {
+      return { success: true, message: 'Already downloaded.' };
     }
     const buffer = await fetchBuffer(url);
     const encrypted = encryptBuffer(buffer, userId);
-    const fileName = lessonId + '_' + type + '.ckd';
+    const fileName = userId + '_' + lessonId + '_' + type + '.ckd';
     const filePath = path.join(DOWNLOADS_DIR, fileName);
     fs.writeFileSync(filePath, encrypted);
     const expiresAt = Date.now() + EXPIRY_DAYS * 24 * 60 * 60 * 1000;
-    meta[lessonId + '_' + type] = {
+    meta[metaKey] = {
       lessonId, title, type, userId, courseTitle, moduleTitle,
       fileName, expiresAt, downloadedAt: Date.now(),
       mimeType: type === 'pdf' ? 'application/pdf' : 'video/mp4',
@@ -289,9 +303,9 @@ ipcMain.handle('get-downloads', async (event, { userId }) => {
 ipcMain.handle('play-download', async (event, { lessonId, type, userId }) => {
   try {
     const meta = readMeta();
-    const item = meta[lessonId + '_' + type];
-    if (!item || item.userId !== userId) return { success: false, message: 'Not found.' };
-    if (Date.now() > item.expiresAt) return { success: false, message: 'Expired.' };
+    const item = meta[userId + '_' + lessonId + '_' + type];
+    if (!item) return { success: false, message: 'Not found.' };
+    if (Date.now() > item.expiresAt) return { success: false, message: 'Expired. Please re-download.' };
     const filePath = path.join(DOWNLOADS_DIR, item.fileName);
     const encrypted = fs.readFileSync(filePath);
     const decrypted = decryptBuffer(encrypted, userId);
@@ -308,9 +322,9 @@ ipcMain.handle('play-download', async (event, { lessonId, type, userId }) => {
 ipcMain.handle('delete-download', async (event, { lessonId, type, userId }) => {
   try {
     const meta = readMeta();
-    const key = lessonId + '_' + type;
+    const key = userId + '_' + lessonId + '_' + type;
     const item = meta[key];
-    if (!item || item.userId !== userId) return { success: false };
+    if (!item) return { success: false };
     const filePath = path.join(DOWNLOADS_DIR, item.fileName);
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
     delete meta[key];
