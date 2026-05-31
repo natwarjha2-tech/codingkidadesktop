@@ -1634,6 +1634,9 @@ function markLessonComplete(lessonId) {
   apiRequest('/api/lessons/' + lessonId + '/progress', {
     method: 'POST',
     body: JSON.stringify({ completed: true }),
+  }).then(() => {
+    // Refresh dashboard cache so completed videos count stays accurate
+    StudentAPI.getDashboard().then(data => _applyDashboardData(data, false)).catch(() => {});
   }).catch(() => {});
 }
 
@@ -2113,87 +2116,104 @@ async function showEnrolledDetail() {
   navigate('enrolled-detail');
   const container = document.getElementById('enrolled-detail-list');
   if (!container) return;
-  container.innerHTML = '<p style="color:var(--muted)">Loading...</p>';
 
+  // Use cached dashboard data first — no API call needed
+  const userId = getCurrentUserId();
+  const cacheKey = 'ck_dashboard_cache_' + userId;
+  const cached = localStorage.getItem(cacheKey);
+  if (cached) {
+    try {
+      const data = JSON.parse(cached);
+      if (data.success && data.enrolledCourses && data.enrolledCourses.length > 0) {
+        _renderEnrolledList(container, data.enrolledCourses);
+        return;
+      }
+    } catch {}
+  }
+
+  // Fallback: fetch if no cache
+  container.innerHTML = '<p style="color:var(--muted)">Loading...</p>';
   try {
     const data = await StudentAPI.getDashboard();
     if (!data.success || !data.enrolledCourses || data.enrolledCourses.length === 0) {
       container.innerHTML = '<div style="text-align:center;padding:40px"><i class="fas fa-book-open" style="font-size:2rem;color:var(--muted);margin-bottom:12px;display:block"></i><p style="color:var(--muted)">No enrolled courses yet.</p></div>';
       return;
     }
-    container.innerHTML = data.enrolledCourses.map(c =>
-      '<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:16px;padding:20px;display:flex;align-items:center;gap:16px;transition:all 0.2s;cursor:pointer" onmouseover="this.style.borderColor=\'rgba(108,71,255,0.3)\';this.style.background=\'rgba(108,71,255,0.05)\'" onmouseout="this.style.borderColor=\'rgba(255,255,255,0.06)\';this.style.background=\'rgba(255,255,255,0.03)\'" onclick="openCourseDetail(\'' + c.id + '\')">' +
-      '<div style="width:50px;height:50px;border-radius:14px;background:linear-gradient(135deg,rgba(108,71,255,0.3),rgba(236,72,153,0.2));display:flex;align-items:center;justify-content:center;font-size:1.5rem;flex-shrink:0">📚</div>' +
-      '<div style="flex:1">' +
-      '<h4 style="color:#fff;font-weight:700;font-size:0.95rem;margin:0 0 4px">' + sanitize(c.title) + '</h4>' +
-      '<p style="color:var(--muted);font-size:0.8rem;margin:0">' + c.completedLessons + '/' + c.totalLessons + ' lessons completed</p>' +
-      '</div>' +
-      '<div style="text-align:right;min-width:60px">' +
-      '<div style="font-size:1.1rem;font-weight:800;color:' + (c.progressPercent === 100 ? '#22c55e' : '#a78bfa') + '">' + c.progressPercent + '%</div>' +
-      '<div style="width:60px;height:5px;background:rgba(255,255,255,0.1);border-radius:10px;margin-top:6px;overflow:hidden"><div style="width:' + c.progressPercent + '%;height:100%;background:linear-gradient(to right,#6c47ff,#ec4899);border-radius:10px"></div></div>' +
-      '</div>' +
-      '</div>'
-    ).join('');
+    _renderEnrolledList(container, data.enrolledCourses);
   } catch {
     container.innerHTML = '<p style="color:var(--danger)">Failed to load courses.</p>';
   }
+}
+
+function _renderEnrolledList(container, enrolledCourses) {
+  container.innerHTML = enrolledCourses.map(c =>
+    '<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:16px;padding:20px;display:flex;align-items:center;gap:16px;transition:all 0.2s;cursor:pointer" onmouseover="this.style.borderColor=\'rgba(108,71,255,0.3)\';this.style.background=\'rgba(108,71,255,0.05)\'" onmouseout="this.style.borderColor=\'rgba(255,255,255,0.06)\';this.style.background=\'rgba(255,255,255,0.03)\'" onclick="openCourseDetail(\'' + c.id + '\')">' +
+    '<div style="width:50px;height:50px;border-radius:14px;background:linear-gradient(135deg,rgba(108,71,255,0.3),rgba(236,72,153,0.2));display:flex;align-items:center;justify-content:center;font-size:1.5rem;flex-shrink:0">📚</div>' +
+    '<div style="flex:1">' +
+    '<h4 style="color:#fff;font-weight:700;font-size:0.95rem;margin:0 0 4px">' + sanitize(c.title) + '</h4>' +
+    '<p style="color:var(--muted);font-size:0.8rem;margin:0">' + c.completedLessons + '/' + c.totalLessons + ' lessons completed</p>' +
+    '</div>' +
+    '<div style="text-align:right;min-width:60px">' +
+    '<div style="font-size:1.1rem;font-weight:800;color:' + (c.progressPercent === 100 ? '#22c55e' : '#a78bfa') + '">' + c.progressPercent + '%</div>' +
+    '<div style="width:60px;height:5px;background:rgba(255,255,255,0.1);border-radius:10px;margin-top:6px;overflow:hidden"><div style="width:' + c.progressPercent + '%;height:100%;background:linear-gradient(to right,#6c47ff,#ec4899);border-radius:10px"></div></div>' +
+    '</div>' +
+    '</div>'
+  ).join('');
 }
 
 async function showCompletedVideos() {
   navigate('completed-videos');
   const container = document.getElementById('completed-videos-list');
   if (!container) return;
-  container.innerHTML = '<p style="color:var(--muted)">Loading...</p>';
 
+  // Use cached dashboard data first — no API call needed
+  const userId = getCurrentUserId();
+  const cacheKey = 'ck_dashboard_cache_' + userId;
+  const cached = localStorage.getItem(cacheKey);
+  if (cached) {
+    try {
+      const data = JSON.parse(cached);
+      if (data.success) {
+        const enrolledCourses = data.enrolledCourses || [];
+        const totalCompleted = enrolledCourses.reduce((sum, c) => sum + (c.completedLessons || 0), 0);
+        if (totalCompleted === 0) {
+          container.innerHTML = '<div style="text-align:center;padding:40px"><i class="fas fa-check-circle" style="font-size:2rem;color:var(--muted);margin-bottom:12px;display:block"></i><p style="color:var(--muted)">No completed videos yet. Start learning!</p></div>';
+          return;
+        }
+        container.innerHTML = enrolledCourses.filter(c => c.completedLessons > 0).map(c =>
+          '<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:14px 18px;display:flex;align-items:center;gap:14px">' +
+          '<div style="width:36px;height:36px;border-radius:10px;background:rgba(34,197,94,0.15);display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="fas fa-check" style="color:#22c55e;font-size:0.8rem"></i></div>' +
+          '<div style="flex:1">' +
+          '<p style="color:#fff;font-weight:600;font-size:0.88rem;margin:0">' + sanitize(c.title) + '</p>' +
+          '<p style="color:var(--muted);font-size:0.75rem;margin:2px 0 0">' + c.completedLessons + ' of ' + c.totalLessons + ' lessons completed</p>' +
+          '</div>' +
+          '<span style="color:#22c55e;font-size:0.85rem;font-weight:700">' + c.progressPercent + '%</span>' +
+          '</div>'
+        ).join('');
+        return;
+      }
+    } catch {}
+  }
+
+  // Fallback: fetch if no cache
+  container.innerHTML = '<p style="color:var(--muted)">Loading...</p>';
   try {
     const data = await StudentAPI.getDashboard();
-    if (!data.success) {
-      container.innerHTML = '<p style="color:var(--danger)">Failed to load data.</p>';
-      return;
-    }
-
+    if (!data.success) { container.innerHTML = '<p style="color:var(--danger)">Failed to load data.</p>'; return; }
     const enrolledCourses = data.enrolledCourses || [];
-    if (enrolledCourses.length === 0 || data.completedVideos === 0) {
+    const totalCompleted = enrolledCourses.reduce((sum, c) => sum + (c.completedLessons || 0), 0);
+    if (totalCompleted === 0) {
       container.innerHTML = '<div style="text-align:center;padding:40px"><i class="fas fa-check-circle" style="font-size:2rem;color:var(--muted);margin-bottom:12px;display:block"></i><p style="color:var(--muted)">No completed videos yet. Start learning!</p></div>';
       return;
     }
-
-    // Fetch full course data for each enrolled course to get completed lesson details
-    let allCompleted = [];
-    for (const course of enrolledCourses) {
-      if (course.completedLessons === 0) continue;
-      try {
-        const courseData = await CoursesAPI.getByIdSigned(course.id);
-        if (courseData.success && courseData.course) {
-          const completedLessonIds = courseData.course.completedLessons || [];
-          (courseData.course.modules || []).forEach(mod => {
-            (mod.lessons || []).forEach(lesson => {
-              if (completedLessonIds.includes(lesson.id)) {
-                allCompleted.push({ title: lesson.title, courseTitle: course.title, moduleTitle: mod.title, duration: lesson.duration });
-              }
-            });
-          });
-        }
-      } catch {}
-    }
-
-    // Update the card count to match actual detail
-    const completedEl = document.getElementById('stat-completed');
-    if (completedEl) completedEl.textContent = allCompleted.length;
-
-    if (allCompleted.length === 0) {
-      container.innerHTML = '<div style="text-align:center;padding:40px"><i class="fas fa-check-circle" style="font-size:2rem;color:var(--muted);margin-bottom:12px;display:block"></i><p style="color:var(--muted)">No completed videos found.</p></div>';
-      return;
-    }
-
-    container.innerHTML = allCompleted.map(v =>
+    container.innerHTML = enrolledCourses.filter(c => c.completedLessons > 0).map(c =>
       '<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:14px 18px;display:flex;align-items:center;gap:14px">' +
       '<div style="width:36px;height:36px;border-radius:10px;background:rgba(34,197,94,0.15);display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="fas fa-check" style="color:#22c55e;font-size:0.8rem"></i></div>' +
       '<div style="flex:1">' +
-      '<p style="color:#fff;font-weight:600;font-size:0.88rem;margin:0">' + sanitize(v.title) + '</p>' +
-      '<p style="color:var(--muted);font-size:0.75rem;margin:2px 0 0">' + sanitize(v.courseTitle) + ' · ' + sanitize(v.moduleTitle) + '</p>' +
+      '<p style="color:#fff;font-weight:600;font-size:0.88rem;margin:0">' + sanitize(c.title) + '</p>' +
+      '<p style="color:var(--muted);font-size:0.75rem;margin:2px 0 0">' + c.completedLessons + ' of ' + c.totalLessons + ' lessons completed</p>' +
       '</div>' +
-      '<span style="color:var(--muted);font-size:0.75rem;flex-shrink:0">' + (v.duration || '') + '</span>' +
+      '<span style="color:#22c55e;font-size:0.85rem;font-weight:700">' + c.progressPercent + '%</span>' +
       '</div>'
     ).join('');
   } catch {
@@ -2608,24 +2628,8 @@ document.addEventListener('keydown', (e) => {
     });
   }
 
-  // Polling fallback — har 5s mein enrollment check karo
-  let _lastEnrolledCount = -1;
-  setInterval(() => {
-    if (!document.hasFocus()) return;
-    const t = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token');
-    if (!t) return;
-    StudentAPI.getDashboard().then(data => {
-      if (!data.success) return;
-      if (_lastEnrolledCount === -1) {
-        _lastEnrolledCount = data.enrolledCount;
-        return;
-      }
-      if (data.enrolledCount !== _lastEnrolledCount) {
-        _lastEnrolledCount = data.enrolledCount;
-        _applyDashboardData(data, false);
-      }
-    }).catch(() => {});
-  }, 5000);
+  // Enrollment detected via deep link (codingkida://enroll) and window focus refresh
+  // No polling needed
 })();
 
 
