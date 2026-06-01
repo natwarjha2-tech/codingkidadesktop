@@ -101,3 +101,8 @@ const SurveyAPI = {
   submit: (data) =>
     apiRequest('/api/survey/submit', { method: 'POST', body: JSON.stringify(data) }),
 };
+
+// Parent Report API
+const ParentReportAPI = {
+  get: () => apiRequest('/api/parent-report'),
+};

@@ -39,6 +39,7 @@ async function login() {
     localStorage.setItem('ck_token', data.token);
     localStorage.setItem('ck_user', JSON.stringify(data.user || {}));
     await loadStudentData();
+    _attendanceRecordLogin();
     navigate('dashboard');
   } catch (err) {
     showAuthError('login', err.message || 'Login failed. Try again.');
@@ -68,6 +69,7 @@ async function signup() {
     localStorage.setItem('ck_token', data.token);
     localStorage.setItem('ck_user', JSON.stringify(data.user || {}));
     await loadStudentData();
+    _attendanceRecordLogin();
     navigate('dashboard');
   } catch (err) {
     showAuthError('signup', err.message || 'Signup failed. Try again.');
@@ -282,7 +284,10 @@ async function _applyDashboardData(data, isFromCache) {
 
 function logout() {
   const userId = getCurrentUserId();
-  if (userId) localStorage.removeItem('ck_dashboard_cache_' + userId);
+  if (userId) {
+    _attendanceRecordLogout(userId);
+    localStorage.removeItem('ck_dashboard_cache_' + userId);
+  }
   localStorage.removeItem('ck_token');
   localStorage.removeItem('ck_user');
   window.location.href = 'login.html';
@@ -413,9 +418,9 @@ function openEditProfile() {
 
 // Navigation
 
-const appPages = ['dashboard','courses','course-detail','video','chat','ai','live','downloads','offline-downloads','profile','enrolled-detail','completed-videos','streak-history','achievements'];
+const appPages = ['dashboard','courses','course-detail','video','chat','ai','live','downloads','offline-downloads','profile','enrolled-detail','completed-videos','streak-history','achievements','parent-report'];
 const authPages = ['login','signup'];
-const sidebarMap = { dashboard:'nav-dashboard', courses:'nav-courses', 'course-detail':'nav-courses', video:'nav-courses', chat:'nav-chat', ai:'nav-ai', live:'nav-live', downloads:'nav-downloads', 'offline-downloads':'nav-offline-downloads', profile:'nav-profile', 'enrolled-detail':'nav-dashboard', 'completed-videos':'nav-dashboard', 'streak-history':'nav-dashboard', 'achievements':'nav-dashboard' };
+const sidebarMap = { dashboard:'nav-dashboard', courses:'nav-courses', 'course-detail':'nav-courses', video:'nav-courses', chat:'nav-chat', ai:'nav-ai', live:'nav-live', downloads:'nav-downloads', 'offline-downloads':'nav-offline-downloads', profile:'nav-profile', 'enrolled-detail':'nav-dashboard', 'completed-videos':'nav-dashboard', 'streak-history':'nav-dashboard', 'achievements':'nav-dashboard', 'parent-report':'nav-parent-report' };
 
 function navigate(page) {
   authPages.forEach(p => {
@@ -444,6 +449,7 @@ function navigate(page) {
 
   if (page === 'downloads') renderDownloads();
   if (page === 'offline-downloads') renderOfflineDownloads();
+  if (page === 'parent-report') loadParentReport();
 
   // Refresh dashboard data when navigating to profile
   if (page === 'profile' || page === 'dashboard') {
@@ -2530,6 +2536,379 @@ async function openPdfInApp(url) {
   } catch { alert('Could not open PDF.'); }
 }
 
+// ─── Attendance Tracking (localStorage only — no backend needed) ─────────────
+// Stores per-user session log: { date, loginTime, logoutTime, durationMins }
+// Key: ck_attendance_<userId>  →  array of last 60 session records
+
+function _attendanceKey(userId) {
+  return 'ck_attendance_' + (userId || getCurrentUserId());
+}
+
+function _attendanceRecordLogin() {
+  try {
+    const userId = getCurrentUserId();
+    if (!userId) return;
+    const key = _attendanceKey(userId);
+    const sessions = JSON.parse(localStorage.getItem(key) || '[]');
+    const now = Date.now();
+    const dateStr = new Date(now).toISOString().split('T')[0];
+    // If already have an open session today (no logoutTime), close it first
+    sessions.forEach(function(s) { if (!s.logoutTime) s.logoutTime = now; });
+    sessions.push({ date: dateStr, loginTime: now, logoutTime: null });
+    // Keep last 60 sessions only
+    if (sessions.length > 60) sessions.splice(0, sessions.length - 60);
+    localStorage.setItem(key, JSON.stringify(sessions));
+  } catch {}
+}
+
+function _attendanceRecordLogout(userId) {
+  try {
+    const key = _attendanceKey(userId);
+    const sessions = JSON.parse(localStorage.getItem(key) || '[]');
+    const now = Date.now();
+    // Close the most recent open session
+    for (var i = sessions.length - 1; i >= 0; i--) {
+      if (!sessions[i].logoutTime) {
+        sessions[i].logoutTime = now;
+        sessions[i].durationMins = Math.round((now - sessions[i].loginTime) / 60000);
+        break;
+      }
+    }
+    localStorage.setItem(key, JSON.stringify(sessions));
+  } catch {}
+}
+
+// Returns attendance summary for the report
+function _attendanceGetSummary() {
+  try {
+    const userId = getCurrentUserId();
+    if (!userId) return { todayMins: 0, weekMins: 0, calendar: [], activeDays: 0 };
+    const key = _attendanceKey(userId);
+    const sessions = JSON.parse(localStorage.getItem(key) || '[]');
+    const now = Date.now();
+    const todayStr = new Date(now).toISOString().split('T')[0];
+    const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
+
+    // Build per-day totals — always compute live from loginTime/logoutTime
+    var dayMap = {};
+    sessions.forEach(function(s) {
+      var logout = s.logoutTime || now; // open session = still active
+      var mins = Math.round((logout - s.loginTime) / 60000);
+      if (mins < 0) mins = 0;
+      if (mins > 1440) mins = 1440; // cap at 24h
+      dayMap[s.date] = (dayMap[s.date] || 0) + mins;
+    });
+
+    var todayMins = dayMap[todayStr] || 0;
+    var weekMins = 0;
+    Object.keys(dayMap).forEach(function(d) {
+      if (new Date(d).getTime() >= weekAgo) weekMins += dayMap[d];
+    });
+
+    // 30-day calendar
+    var calendar = [];
+    for (var i = 29; i >= 0; i--) {
+      var d = new Date(now - i * 24 * 60 * 60 * 1000);
+      var dStr = d.toISOString().split('T')[0];
+      var m = dayMap[dStr] || 0;
+      calendar.push({ date: dStr, day: d.getDate(), mins: m, active: m > 0 });
+    }
+
+    var activeDays = calendar.filter(function(c) { return c.active; }).length;
+    return { todayMins: todayMins, weekMins: weekMins, calendar: calendar, activeDays: activeDays };
+  } catch { return { todayMins: 0, weekMins: 0, calendar: [], activeDays: 0 }; }
+}
+
+function _fmtMins(mins) {
+  if (!mins || mins <= 0) return '0 min';
+  if (mins < 60) return mins + ' min';
+  var h = Math.floor(mins / 60);
+  var m = mins % 60;
+  return h + 'h' + (m > 0 ? ' ' + m + 'm' : '');
+}
+
+// ─── Parent Report / My Report ──────────────────────────────────────────────
+// Uses only data already fetched by existing APIs — no new backend calls needed.
+
+async function loadParentReport() {
+  const loading = document.getElementById('parent-report-loading');
+  const content = document.getElementById('parent-report-content');
+  if (!loading || !content) return;
+
+  const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+  if (!token) {
+    loading.innerHTML = '<p style="color:var(--muted)">Please log in to view your report.</p>';
+    loading.style.display = 'block';
+    content.style.display = 'none';
+    return;
+  }
+
+  const userId = getCurrentUserId();
+  const cacheKey = 'ck_dashboard_cache_' + userId;
+
+  // ── Step 1: Render from cache instantly (no loading spinner) ──
+  let dashData = null;
+  try { const c = localStorage.getItem(cacheKey); if (c) dashData = JSON.parse(c); } catch {}
+
+  if (dashData && dashData.success) {
+    loading.style.display = 'none';
+    content.style.display = 'block';
+    _renderParentReport(dashData, [], _userCoinsCache || 0);
+  } else {
+    loading.style.display = 'block';
+    content.style.display = 'none';
+  }
+
+  // ── Step 2: Fetch fresh data in parallel, update silently ──
+  try {
+    const [freshDash, coinsRes, achRes] = await Promise.all([
+      StudentAPI.getDashboard().catch(function() { return null; }),
+      fetch(BASE_URL + '/api/coins', { headers: { Authorization: 'Bearer ' + token } }).then(function(r) { return r.json(); }).catch(function() { return {}; }),
+      fetch(BASE_URL + '/api/achievements', { headers: { Authorization: 'Bearer ' + token } }).then(function(r) { return r.json(); }).catch(function() { return {}; }),
+    ]);
+
+    if (freshDash && freshDash.success) dashData = freshDash;
+    if (!dashData || !dashData.success) throw new Error('Could not load your data. Please try again.');
+
+    const totalCoins = (coinsRes.success ? coinsRes.totalCoins : 0) || _userCoinsCache || 0;
+    const achievements = (achRes.success ? achRes.achievements : []) || [];
+
+    loading.style.display = 'none';
+    content.style.display = 'block';
+    _renderParentReport(dashData, achievements, totalCoins);
+
+  } catch (err) {
+    if (content.style.display !== 'block') {
+      loading.style.display = 'block';
+      content.style.display = 'none';
+      loading.innerHTML = '<div style="text-align:center;padding:40px;">' +
+        '<i class="fas fa-exclamation-circle" style="font-size:2rem;color:var(--danger);margin-bottom:12px;display:block;"></i>' +
+        '<p style="color:var(--muted)">Failed to load: ' + sanitize(err.message || 'Please try again.') + '</p>' +
+        '<button class="btn btn-outline btn-sm" onclick="loadParentReport()" style="margin-top:12px;">Retry</button>' +
+        '</div>';
+    }
+  }
+}
+
+function _renderParentReport(dashData, achievements, totalCoins) {
+  const enrolledCourses = dashData.enrolledCourses || [];
+  const totalEnrolled = dashData.enrolledCount || enrolledCourses.length;
+  const totalCompleted = enrolledCourses.reduce(function(s, c) { return s + (c.completedLessons || 0); }, 0);
+  const certCount = enrolledCourses.filter(function(c) { return c.progressPercent === 100; }).length;
+  const superMasterCount = achievements.filter(function(a) { return a.badgeType === 'super-master'; }).length;
+  const masterCount = achievements.filter(function(a) { return a.badgeType === 'master'; }).length;
+  const proCount = achievements.filter(function(a) { return a.badgeType === 'pro'; }).length;
+  const streakCount = parseInt(document.getElementById('stat-streak')?.textContent || '0') || 0;
+  const studentName = document.getElementById('sidebar-user-name')?.textContent || 'Student';
+  const att = _attendanceGetSummary();
+
+  // Summary cards
+  const summaryCards = [
+    { icon: 'fa-book-open',     color: '#6c47ff', label: 'Courses Enrolled',  value: totalEnrolled,           sub: 'total' },
+    { icon: 'fa-check-circle',  color: '#22c55e', label: 'Lessons Completed', value: totalCompleted,          sub: 'all time' },
+    { icon: 'fa-clock',         color: '#f59e0b', label: 'Today',             value: _fmtMins(att.todayMins), sub: 'learning time' },
+    { icon: 'fa-calendar-week', color: '#ec4899', label: 'This Week',         value: _fmtMins(att.weekMins),  sub: att.activeDays + ' active days / 30' },
+  ];
+  document.getElementById('pr-summary-cards').innerHTML = summaryCards.map(function(c) {
+    return '<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:16px;padding:20px;">' +
+      '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">' +
+      '<div style="width:36px;height:36px;border-radius:10px;background:' + c.color + '20;display:flex;align-items:center;justify-content:center;">' +
+      '<i class="fas ' + c.icon + '" style="color:' + c.color + ';font-size:0.9rem;"></i></div>' +
+      '<span style="font-size:0.78rem;color:var(--muted);font-weight:600;">' + c.label + '</span></div>' +
+      '<div style="font-size:1.6rem;font-weight:800;color:#fff;">' + c.value + '</div>' +
+      '<div style="font-size:0.72rem;color:var(--muted);margin-top:2px;">' + c.sub + '</div>' +
+      '</div>';
+  }).join('');
+
+  // Attendance calendar
+  var attMeta = document.getElementById('pr-attendance-meta');
+  var attCal = document.getElementById('pr-attendance-calendar');
+  if (attMeta) attMeta.textContent = att.activeDays + ' active days out of 30 · Today: ' + _fmtMins(att.todayMins) + ' · This week: ' + _fmtMins(att.weekMins);
+  if (attCal) {
+    attCal.innerHTML = att.calendar.map(function(day) {
+      var intensity = day.mins === 0 ? 0 : day.mins < 15 ? 0.3 : day.mins < 30 ? 0.6 : 1;
+      var bg = day.active ? 'linear-gradient(135deg,rgba(108,71,255,' + intensity + '),rgba(236,72,153,' + intensity + '))' : 'rgba(255,255,255,0.05)';
+      return '<div title="' + day.date + (day.mins > 0 ? ' · ' + _fmtMins(day.mins) : ' · No activity') + '" style="width:100%;aspect-ratio:1;border-radius:4px;background:' + bg + ';display:flex;align-items:center;justify-content:center;font-size:0.6rem;color:' + (day.active ? '#fff' : 'rgba(255,255,255,0.2)') + ';font-weight:600;">' + day.day + '</div>';
+    }).join('');
+  }
+
+  // Course progress
+  document.getElementById('pr-course-progress').innerHTML = enrolledCourses.length > 0
+    ? enrolledCourses.map(function(c) {
+        var pct = c.progressPercent || 0;
+        return '<div>' +
+          '<div style="display:flex;justify-content:space-between;margin-bottom:6px;">' +
+          '<span style="font-size:0.85rem;color:#fff;font-weight:600;">' + sanitize(c.title) + '</span>' +
+          '<span style="font-size:0.82rem;font-weight:700;color:' + (pct === 100 ? '#22c55e' : '#a78bfa') + ';">' + pct + '%</span>' +
+          '</div>' +
+          '<div style="height:6px;background:rgba(255,255,255,0.08);border-radius:50px;overflow:hidden;">' +
+          '<div style="width:' + pct + '%;height:100%;background:linear-gradient(90deg,#6c47ff,#ec4899);border-radius:50px;"></div>' +
+          '</div>' +
+          '<div style="font-size:0.72rem;color:var(--muted);margin-top:4px;">' + (c.completedLessons || 0) + ' lessons completed</div>' +
+          '</div>';
+      }).join('')
+    : '<p style="color:var(--muted);font-size:0.85rem;">No courses enrolled yet.</p>';
+
+  // Stats row
+  document.getElementById('pr-stats-row').innerHTML = [
+    { icon: 'fa-fire',   color: '#ef4444', label: 'Weekly Streak', value: streakCount,         sub: 'lessons this week' },
+    { icon: 'fa-trophy', color: '#f59e0b', label: 'Certificates',  value: certCount,           sub: 'courses finished' },
+    { icon: 'fa-coins',  color: '#ec4899', label: 'Coins Earned',  value: totalCoins,          sub: 'total' },
+    { icon: 'fa-medal',  color: '#a78bfa', label: 'Achievements',  value: achievements.length, sub: 'badges earned' },
+  ].map(function(c) {
+    return '<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:14px;padding:16px;">' +
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">' +
+      '<i class="fas ' + c.icon + '" style="color:' + c.color + ';font-size:0.85rem;"></i>' +
+      '<span style="font-size:0.75rem;color:var(--muted);font-weight:600;">' + c.label + '</span></div>' +
+      '<div style="font-size:1.4rem;font-weight:800;color:#fff;">' + c.value + '</div>' +
+      '<div style="font-size:0.7rem;color:var(--muted);margin-top:2px;">' + c.sub + '</div>' +
+      '</div>';
+  }).join('');
+
+  // Achievements badges
+  const earnedBadges = [
+    { icon: '🏆', color: '#fbbf24', label: 'Super Master', count: superMasterCount },
+    { icon: '🥈', color: '#a78bfa', label: 'Master',       count: masterCount },
+    { icon: '⭐', color: '#22c55e', label: 'Pro',          count: proCount },
+  ].filter(function(b) { return b.count > 0; });
+  document.getElementById('pr-achievements').innerHTML = earnedBadges.length === 0
+    ? '<p style="color:var(--muted);font-size:0.85rem;">No achievements yet. Complete quizzes to earn badges!</p>'
+    : earnedBadges.map(function(b) {
+        return '<div style="display:flex;align-items:center;gap:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:12px 16px;">' +
+          '<span style="font-size:1.5rem;">' + b.icon + '</span>' +
+          '<div><div style="font-size:0.88rem;font-weight:700;color:#fff;">' + b.label + '</div>' +
+          '<div style="font-size:0.75rem;color:' + b.color + ';font-weight:600;">' + b.count + ' earned</div></div>' +
+          '</div>';
+      }).join('');
+
+  // Recent achievements
+  const recentEl = document.getElementById('pr-recent-achievements');
+  if (recentEl) {
+    recentEl.innerHTML = achievements.length === 0
+      ? '<p style="color:var(--muted);font-size:0.82rem;">No achievements yet.</p>'
+      : achievements.slice(0, 5).map(function(a) {
+          var icon = a.badgeType === 'super-master' ? '🏆' : a.badgeType === 'master' ? '🥈' : '⭐';
+          var date = new Date(a.earnedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+          return '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.04);">' +
+            '<span style="font-size:1.2rem;">' + icon + '</span>' +
+            '<div style="flex:1;"><div style="font-size:0.82rem;font-weight:600;color:#fff;">' + sanitize(a.title) + '</div>' +
+            '<div style="font-size:0.72rem;color:var(--muted);">' + sanitize(a.lessonTitle || '') + '</div></div>' +
+            '<div style="font-size:0.72rem;color:var(--muted);">' + date + '</div></div>';
+        }).join('');
+  }
+
+  // Store for share
+  window._prReportData = { studentName, totalEnrolled, totalCompleted, certCount, totalCoins, streakCount, superMasterCount, masterCount, proCount, enrolledCourses, achievements, att };
+}
+
+// ── Share report ─────────────────────────────────────────────────────────────
+
+function _buildReportText() {
+  const d = window._prReportData;
+  if (!d) return null;
+  const date = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
+  const courseLines = (d.enrolledCourses || []).map(function(c) {
+    return '  • ' + c.title + ' — ' + (c.progressPercent || 0) + '% (' + (c.completedLessons || 0) + ' lessons done)';
+  }).join('\n') || '  No courses yet';
+  const badgeLines = [
+    d.superMasterCount > 0 ? '  🏆 Super Master x' + d.superMasterCount : '',
+    d.masterCount > 0      ? '  🥈 Master x' + d.masterCount : '',
+    d.proCount > 0         ? '  ⭐ Pro x' + d.proCount : '',
+  ].filter(Boolean).join('\n') || '  None yet';
+  const att = d.att || {};
+
+  return '📊 CodingKida Learning Report\n' +
+    'Student: ' + d.studentName + '\n' +
+    'Date: ' + date + '\n\n' +
+    '⏱ Attendance\n' +
+    '  Today: ' + _fmtMins(att.todayMins || 0) + '\n' +
+    '  This Week: ' + _fmtMins(att.weekMins || 0) + '\n' +
+    '  Active Days (30d): ' + (att.activeDays || 0) + '/30\n\n' +
+    '📚 Courses Enrolled: ' + d.totalEnrolled + '\n' +
+    '✅ Lessons Completed: ' + d.totalCompleted + '\n' +
+    '🎓 Certificates: ' + d.certCount + '\n' +
+    '🔥 Weekly Streak: ' + d.streakCount + '\n' +
+    '🪙 Coins Earned: ' + d.totalCoins + '\n\n' +
+    '📈 Course Progress:\n' + courseLines + '\n\n' +
+    '🏆 Achievements:\n' + badgeLines + '\n\n' +
+    'Powered by CodingKida — codingkida.com';
+}
+
+function shareReportWhatsApp() {
+  const text = _buildReportText();
+  if (!text) { alert('Please wait for the report to load first.'); return; }
+  // window.open works in Electron — opens WhatsApp Web in a new window
+  const url = 'https://wa.me/?text=' + encodeURIComponent(text);
+  window.open(url, '_blank');
+}
+
+function shareReportEmail() {
+  const text = _buildReportText();
+  if (!text) { alert('Please wait for the report to load first.'); return; }
+  // Show share modal with text ready to copy — mailto doesn't work in WSL Electron
+  _showShareModal(text);
+}
+
+function _showShareModal(text) {
+  var existing = document.getElementById('pr-share-modal');
+  if (existing) existing.remove();
+
+  var modal = document.createElement('div');
+  modal.id = 'pr-share-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px;';
+  modal.innerHTML =
+    '<div style="background:#1a1a2e;border:1px solid rgba(108,71,255,0.3);border-radius:20px;padding:28px;width:100%;max-width:520px;max-height:80vh;display:flex;flex-direction:column;gap:16px;">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;">' +
+    '<div style="font-size:1rem;font-weight:700;color:#fff;">📊 Share Learning Report</div>' +
+    '<button onclick="document.getElementById(\'pr-share-modal\').remove()" style="background:none;border:none;color:rgba(255,255,255,0.5);font-size:1.2rem;cursor:pointer;">✕</button>' +
+    '</div>' +
+    '<p style="font-size:0.82rem;color:var(--muted);margin:0;">Copy the report below and paste it in WhatsApp, Gmail, or any app.</p>' +
+    '<textarea id="pr-share-text" readonly style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:10px;padding:12px;color:rgba(255,255,255,0.85);font-size:0.78rem;line-height:1.6;resize:none;height:220px;font-family:monospace;outline:none;">' + text.replace(/</g,'&lt;') + '</textarea>' +
+    '<button onclick="_copyShareText()" id="pr-copy-btn" style="background:linear-gradient(135deg,#6c47ff,#ec4899);border:none;border-radius:10px;padding:12px;color:#fff;font-size:0.9rem;font-weight:700;cursor:pointer;">📋 Copy Report</button>' +
+    '</div>';
+  document.body.appendChild(modal);
+  modal.addEventListener('click', function(e) { if (e.target === modal) modal.remove(); });
+}
+
+function _copyShareText() {
+  var ta = document.getElementById('pr-share-text');
+  if (!ta) return;
+  ta.select();
+  try {
+    document.execCommand('copy');
+    var btn = document.getElementById('pr-copy-btn');
+    if (btn) { btn.textContent = '✅ Copied! Paste in WhatsApp or Gmail'; btn.style.background = 'linear-gradient(135deg,#10b981,#059669)'; }
+    setTimeout(function() {
+      var b = document.getElementById('pr-copy-btn');
+      if (b) { b.textContent = '📋 Copy Report'; b.style.background = 'linear-gradient(135deg,#6c47ff,#ec4899)'; }
+    }, 3000);
+  } catch {}
+}
+
+// Open URL — uses the same pattern as the rest of the app
+function _openUrl(url) {
+  if (window.electron && window.electron.ipcRenderer) {
+    window.electron.ipcRenderer.invoke('open-external', url).catch(function() {
+      window.open(url, '_blank');
+    });
+  } else {
+    window.open(url, '_blank');
+  }
+}
+
+function _showShareToast(msg) {
+  var toast = document.getElementById('pr-share-toast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'pr-share-toast';
+    toast.style.cssText = 'position:fixed;bottom:30px;left:50%;transform:translateX(-50%);background:#1e1e2e;border:1px solid rgba(108,71,255,0.4);color:#fff;padding:12px 24px;border-radius:12px;font-size:0.88rem;font-weight:600;z-index:9999;box-shadow:0 8px 30px rgba(0,0,0,0.4);transition:opacity 0.3s;';
+    document.body.appendChild(toast);
+  }
+  toast.textContent = msg;
+  toast.style.opacity = '1';
+  setTimeout(function() { toast.style.opacity = '0'; }, 3000);
+}
+
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
     if (document.activeElement.id === 'chatInput') sendChat();
@@ -2598,6 +2977,7 @@ document.addEventListener('keydown', (e) => {
       if (dashWelcome) dashWelcome.textContent = cached.name;
     }
     navigate('dashboard');
+    _attendanceRecordLogin();
   } else {
     navigate('login');
   }
