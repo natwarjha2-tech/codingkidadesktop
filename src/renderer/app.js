@@ -107,6 +107,17 @@ async function loadStudentData() {
     const profileAvatar = document.getElementById('profile-avatar');
     const profileNameInput = document.getElementById('profile-name-input');
     const profileEmailInput = document.getElementById('profile-email-input');
+    
+    // New profile fields
+    const studentNameInput = document.getElementById('student-name-input');
+    const studentDobInput = document.getElementById('student-dob-input');
+    const studentGradeInput = document.getElementById('student-grade-input');
+    const studentGenderInput = document.getElementById('student-gender-input');
+    const studentSchoolInput = document.getElementById('student-school-input');
+    const parentNameInput = document.getElementById('parent-name-input');
+    const parentEmailInput = document.getElementById('parent-email-input');
+    const parentContactInput = document.getElementById('parent-contact-input');
+    
     if (profileName) profileName.textContent = name;
     if (profileEmail) profileEmail.textContent = email;
     if (profileAvatar) {
@@ -115,6 +126,16 @@ async function loadStudentData() {
     }
     if (profileNameInput) profileNameInput.value = name;
     if (profileEmailInput) profileEmailInput.value = email;
+    
+    // Populate new profile fields from student data
+    if (studentNameInput) studentNameInput.value = student.studentName || '';
+    if (studentDobInput) studentDobInput.value = student.studentDob || '';
+    if (studentGradeInput) studentGradeInput.value = student.studentGrade || '';
+    if (studentGenderInput) studentGenderInput.value = student.studentGender || '';
+    if (studentSchoolInput) studentSchoolInput.value = student.studentSchool || '';
+    if (parentNameInput) parentNameInput.value = student.parentName || '';
+    if (parentEmailInput) parentEmailInput.value = student.parentEmail || '';
+    if (parentContactInput) parentContactInput.value = student.parentContact || '';
 
     // Restore avatar photo from server API
     const userId = getCurrentUserId();
@@ -156,6 +177,17 @@ async function loadStudentData() {
       const profileAvatar = document.getElementById('profile-avatar');
       const profileNameInput = document.getElementById('profile-name-input');
       const profileEmailInput = document.getElementById('profile-email-input');
+      
+      // New profile fields
+      const studentNameInput = document.getElementById('student-name-input');
+      const studentDobInput = document.getElementById('student-dob-input');
+      const studentGradeInput = document.getElementById('student-grade-input');
+      const studentGenderInput = document.getElementById('student-gender-input');
+      const studentSchoolInput = document.getElementById('student-school-input');
+      const parentNameInput = document.getElementById('parent-name-input');
+      const parentEmailInput = document.getElementById('parent-email-input');
+      const parentContactInput = document.getElementById('parent-contact-input');
+      
       if (sidebarName) sidebarName.textContent = name;
       if (sidebarAvatar) sidebarAvatar.textContent = initial;
       if (dashWelcome) dashWelcome.textContent = name;
@@ -164,6 +196,16 @@ async function loadStudentData() {
       if (profileAvatar) profileAvatar.textContent = initial;
       if (profileNameInput) profileNameInput.value = name;
       if (profileEmailInput) profileEmailInput.value = cached.email || '';
+      
+      // Populate cached profile fields
+      if (studentNameInput) studentNameInput.value = cached.studentName || '';
+      if (studentDobInput) studentDobInput.value = cached.studentDob || '';
+      if (studentGradeInput) studentGradeInput.value = cached.studentGrade || '';
+      if (studentGenderInput) studentGenderInput.value = cached.studentGender || '';
+      if (studentSchoolInput) studentSchoolInput.value = cached.studentSchool || '';
+      if (parentNameInput) parentNameInput.value = cached.parentName || '';
+      if (parentEmailInput) parentEmailInput.value = cached.parentEmail || '';
+      if (parentContactInput) parentContactInput.value = cached.parentContact || '';
     }
   }
 
@@ -300,21 +342,47 @@ function toggleSidebarMenu() {
 
 async function saveProfile() {
   const name = document.getElementById('profile-name-input')?.value.trim();
-  if (!name) return;
+  const studentName = document.getElementById('student-name-input')?.value.trim();
+  const studentDob = document.getElementById('student-dob-input')?.value;
+  const studentGrade = document.getElementById('student-grade-input')?.value;
+  const studentGender = document.getElementById('student-gender-input')?.value;
+  const studentSchool = document.getElementById('student-school-input')?.value.trim();
+  const parentName = document.getElementById('parent-name-input')?.value.trim();
+  const parentEmail = document.getElementById('parent-email-input')?.value.trim();
+  const parentContact = document.getElementById('parent-contact-input')?.value.trim();
+
+  if (!name) {
+    const msgEl = document.getElementById('profile-save-msg');
+    if (msgEl) { msgEl.style.display = 'block'; msgEl.style.color = 'var(--danger)'; msgEl.textContent = 'Account name is required.'; }
+    return;
+  }
 
   const msgEl = document.getElementById('profile-save-msg');
   if (msgEl) { msgEl.style.display = 'block'; msgEl.style.color = 'var(--muted)'; msgEl.textContent = 'Saving...'; }
 
   try {
-    const data = await StudentAPI.updateProfile({ name });
+    const profileData = {
+      name,
+      studentName,
+      studentDob,
+      studentGrade,
+      studentGender,
+      studentSchool,
+      parentName,
+      parentEmail,
+      parentContact
+    };
+
+    const data = await StudentAPI.updateProfile(profileData);
     if (!data.success) throw new Error(data.message);
 
-    // Update localStorage
+    // Update localStorage with all profile data
     const cached = JSON.parse(localStorage.getItem('ck_user') || sessionStorage.getItem('ck_user') || '{}');
-    cached.name = name;
+    Object.assign(cached, profileData);
     if (localStorage.getItem('ck_user')) localStorage.setItem('ck_user', JSON.stringify(cached));
     else sessionStorage.setItem('ck_user', JSON.stringify(cached));
 
+    // Update UI elements that show the display name
     const initial = name.charAt(0).toUpperCase();
     const profileName = document.getElementById('profile-name');
     const profileAvatarText = document.getElementById('profile-avatar-text');
@@ -418,9 +486,9 @@ function openEditProfile() {
 
 // Navigation
 
-const appPages = ['dashboard','courses','course-detail','video','chat','ai','live','downloads','offline-downloads','profile','enrolled-detail','completed-videos','streak-history','achievements','parent-report'];
+const appPages = ['dashboard','courses','course-detail','video','chat','ai','live','downloads','offline-downloads','profile','enrolled-detail','completed-videos','streak-history','achievements','parent-report','help','referral'];
 const authPages = ['login','signup'];
-const sidebarMap = { dashboard:'nav-dashboard', courses:'nav-courses', 'course-detail':'nav-courses', video:'nav-courses', chat:'nav-chat', ai:'nav-ai', live:'nav-live', downloads:'nav-downloads', 'offline-downloads':'nav-offline-downloads', profile:'nav-profile', 'enrolled-detail':'nav-dashboard', 'completed-videos':'nav-dashboard', 'streak-history':'nav-dashboard', 'achievements':'nav-dashboard', 'parent-report':'nav-parent-report' };
+const sidebarMap = { dashboard:'nav-dashboard', courses:'nav-courses', 'course-detail':'nav-courses', video:'nav-courses', chat:'nav-chat', ai:'nav-ai', live:'nav-live', downloads:'nav-downloads', 'offline-downloads':'nav-offline-downloads', profile:'nav-profile', 'enrolled-detail':'nav-dashboard', 'completed-videos':'nav-dashboard', 'streak-history':'nav-dashboard', 'achievements':'nav-dashboard', 'parent-report':'nav-parent-report', 'help':'nav-help', 'referral':'nav-referral' };
 
 function navigate(page) {
   authPages.forEach(p => {
@@ -450,6 +518,8 @@ function navigate(page) {
   if (page === 'downloads') renderDownloads();
   if (page === 'offline-downloads') renderOfflineDownloads();
   if (page === 'parent-report') loadParentReport();
+  if (page === 'help') loadHelpPage();
+  if (page === 'referral') loadReferralPage();
 
   // Refresh dashboard data when navigating to profile
   if (page === 'profile' || page === 'dashboard') {
@@ -2799,6 +2869,119 @@ function _renderParentReport(dashData, achievements, totalCoins) {
 
   // Store for share
   window._prReportData = { studentName, totalEnrolled, totalCompleted, certCount, totalCoins, streakCount, superMasterCount, masterCount, proCount, enrolledCourses, achievements, att };
+}
+
+// ─── Help & Support ───────────────────────────────────────────────────────────
+
+var _helpFaqs = [
+  { q: 'How do I enroll in a course?', a: 'Go to Courses, click on any course and tap "Enroll Now".' },
+  { q: 'How do I earn coins?', a: 'Complete quizzes and rank in the top 10 to earn coins automatically.' },
+  { q: 'Can I download lessons for offline use?', a: 'Yes! Open any lesson and tap the Download button. Find them in Downloads.' },
+  { q: 'How do I track my progress?', a: 'Visit My Report in the sidebar to see your full learning progress.' },
+  { q: 'What are achievements?', a: 'Complete quizzes and rank #1–10 to earn Super Master, Master, or Pro badges.' },
+];
+
+function loadHelpPage() {
+  var faqEl = document.getElementById('help-faq-list');
+  if (!faqEl) return;
+  faqEl.innerHTML = _helpFaqs.map(function(f, i) {
+    return '<div style="border:1px solid rgba(255,255,255,0.06);border-radius:10px;overflow:hidden;">' +
+      '<div onclick="helpToggleFaq(' + i + ')" style="padding:12px 14px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;background:rgba(255,255,255,0.02);" id="help-faq-q-' + i + '">' +
+      '<span style="font-size:0.85rem;font-weight:600;color:#fff;">' + sanitize(f.q) + '</span>' +
+      '<i class="fas fa-chevron-down" style="color:var(--muted);font-size:0.75rem;transition:transform 0.2s;" id="help-faq-icon-' + i + '"></i>' +
+      '</div>' +
+      '<div id="help-faq-a-' + i + '" style="display:none;padding:10px 14px;font-size:0.82rem;color:rgba(255,255,255,0.7);line-height:1.6;background:rgba(255,255,255,0.01);border-top:1px solid rgba(255,255,255,0.04);">' + sanitize(f.a) + '</div>' +
+      '</div>';
+  }).join('');
+}
+
+function helpToggleFaq(i) {
+  var ans = document.getElementById('help-faq-a-' + i);
+  var icon = document.getElementById('help-faq-icon-' + i);
+  if (!ans) return;
+  var open = ans.style.display === 'block';
+  ans.style.display = open ? 'none' : 'block';
+  if (icon) icon.style.transform = open ? 'rotate(0deg)' : 'rotate(180deg)';
+}
+
+function helpOpenWhatsApp() {
+  var msg = 'Hi CodingKida Support! I need help with the app.';
+  var url = 'https://wa.me/919999999999?text=' + encodeURIComponent(msg);
+  window.open(url, '_blank');
+}
+
+function helpOpenEmail() {
+  _showShareModal('To: support@codingkida.com\nSubject: Help Request\n\nHi CodingKida Support,\n\nI need help with:\n\n[Describe your issue here]\n\nThank you');
+}
+
+// ─── Refer & Earn ─────────────────────────────────────────────────────────────
+// Referral code = first 6 chars of userId uppercased + "CK"
+// Stored in localStorage: ck_referral_<userId> = { code, referredCount, coinsEarned }
+
+function _getReferralData() {
+  var userId = getCurrentUserId();
+  if (!userId) return null;
+  var key = 'ck_referral_' + userId;
+  var stored = localStorage.getItem(key);
+  if (stored) return JSON.parse(stored);
+  // Generate code from userId
+  var code = (userId.replace(/[^a-zA-Z0-9]/g, '').substring(0, 4).toUpperCase() || 'USER') + 'CK';
+  var data = { code: code, referredCount: 0, coinsEarned: 0 };
+  localStorage.setItem(key, JSON.stringify(data));
+  return data;
+}
+
+function loadReferralPage() {
+  var data = _getReferralData();
+  if (!data) return;
+  var codeEl = document.getElementById('referral-code-display');
+  var countEl = document.getElementById('referral-count');
+  var coinsEl = document.getElementById('referral-coins-earned');
+  if (codeEl) codeEl.textContent = data.code;
+  if (countEl) countEl.textContent = data.referredCount;
+  if (coinsEl) coinsEl.textContent = data.coinsEarned;
+}
+
+function referralCopyCode() {
+  var data = _getReferralData();
+  if (!data) return;
+  var ta = document.createElement('textarea');
+  ta.value = data.code;
+  ta.style.cssText = 'position:fixed;opacity:0;';
+  document.body.appendChild(ta);
+  ta.select();
+  try {
+    document.execCommand('copy');
+    _showReferralToast('✅ Code ' + data.code + ' copied!');
+  } catch {}
+  document.body.removeChild(ta);
+}
+
+function referralShareWhatsApp() {
+  var data = _getReferralData();
+  if (!data) return;
+  var studentName = document.getElementById('sidebar-user-name')?.textContent || 'My friend';
+  var msg = '🎓 Hey! ' + studentName + ' invited you to join CodingKida — India\'s best coding platform for kids!\n\n' +
+    '✅ Learn Java, Python, Web Dev & more\n' +
+    '🏆 Earn badges & certificates\n' +
+    '🤖 24/7 AI mentor\n\n' +
+    '👉 Use my referral code: *' + data.code + '*\n' +
+    'Download: https://codingkida.com';
+  var url = 'https://wa.me/?text=' + encodeURIComponent(msg);
+  window.open(url, '_blank');
+}
+
+function _showReferralToast(msg) {
+  var toast = document.getElementById('referral-toast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'referral-toast';
+    toast.style.cssText = 'position:fixed;bottom:30px;left:50%;transform:translateX(-50%);background:#1e1e2e;border:1px solid rgba(245,158,11,0.4);color:#fbbf24;padding:12px 24px;border-radius:12px;font-size:0.88rem;font-weight:600;z-index:9999;box-shadow:0 8px 30px rgba(0,0,0,0.4);transition:opacity 0.3s;';
+    document.body.appendChild(toast);
+  }
+  toast.textContent = msg;
+  toast.style.opacity = '1';
+  setTimeout(function() { toast.style.opacity = '0'; }, 3000);
 }
 
 // ── Share report ─────────────────────────────────────────────────────────────

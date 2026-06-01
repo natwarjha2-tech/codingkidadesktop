@@ -95,11 +95,17 @@
         <i class="fas fa-bookmark"></i> Watchlist
       </div>
 
-      <div class="nav-item" onclick="navigate('profile')" id="nav-profile">
-        <i class="fas fa-user"></i> Profile
-      </div>
       <div class="nav-item" onclick="navigate('parent-report')" id="nav-parent-report">
         <i class="fas fa-chart-line"></i> My Report
+      </div>
+      <div class="nav-item" onclick="navigate('referral')" id="nav-referral">
+        <i class="fas fa-gift"></i> Refer & Earn
+      </div>
+      <div class="nav-item" onclick="navigate('help')" id="nav-help">
+        <i class="fas fa-heart"></i> Help & Support
+      </div>
+      <div class="nav-item" onclick="navigate('profile')" id="nav-profile">
+        <i class="fas fa-user"></i> Profile
       </div>
 
     </nav>
@@ -678,6 +684,156 @@
       </div>
     </div>
 
+    <!-- HELP & SUPPORT PAGE -->
+    <div id="page-help" class="page">
+      <div class="page-header" style="background:linear-gradient(to right,rgba(236,72,153,0.2),rgba(239,68,68,0.2));border-radius:16px;padding:28px 32px;margin-bottom:24px;border:1px solid rgba(255,255,255,0.05);display:flex;align-items:center;gap:16px;">
+        <div style="width:52px;height:52px;border-radius:16px;background:linear-gradient(135deg,#ec4899,#ef4444);display:flex;align-items:center;justify-content:center;font-size:1.6rem;flex-shrink:0;">❤️</div>
+        <div>
+          <h1 style="font-size:1.8rem;font-weight:800;color:#fff;margin-bottom:4px;">24/7 Help & Support</h1>
+          <p style="color:var(--muted);font-size:0.9rem;">We're always here for you — anytime, anywhere</p>
+        </div>
+      </div>
+
+      <!-- Support options -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px;">
+
+        <!-- Chat with Support -->
+        <div class="card" style="display:flex;flex-direction:column;gap:16px;">
+          <div style="display:flex;align-items:center;gap:14px;">
+            <div style="width:48px;height:48px;border-radius:14px;background:rgba(108,71,255,0.15);border:1px solid rgba(108,71,255,0.3);display:flex;align-items:center;justify-content:center;font-size:1.4rem;">💬</div>
+            <div>
+              <div style="font-size:1rem;font-weight:700;color:#fff;">Chat with Support Team</div>
+              <div style="font-size:0.8rem;color:var(--muted);">Get help from our experts</div>
+            </div>
+          </div>
+          <p style="font-size:0.85rem;color:rgba(255,255,255,0.7);line-height:1.6;margin:0;">Connect directly with our support team for any issues with courses, payments, or technical problems. Average response time: under 5 minutes.</p>
+          <button disabled style="background:linear-gradient(135deg,#6c47ff,#b251ff);border:none;border-radius:12px;padding:14px;color:#fff;font-size:0.9rem;font-weight:700;cursor:not-allowed;opacity:0.6;display:flex;align-items:center;justify-content:center;gap:8px;">
+            <i class="fas fa-comments"></i> Chat with Us
+            <span style="font-size:0.72rem;background:rgba(255,255,255,0.2);padding:2px 8px;border-radius:20px;margin-left:4px;">Coming Soon</span>
+          </button>
+        </div>
+
+        <!-- FAQ -->
+        <div class="card" style="display:flex;flex-direction:column;gap:16px;">
+          <div style="display:flex;align-items:center;gap:14px;">
+            <div style="width:48px;height:48px;border-radius:14px;background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.3);display:flex;align-items:center;justify-content:center;font-size:1.4rem;">❓</div>
+            <div>
+              <div style="font-size:1rem;font-weight:700;color:#fff;">Frequently Asked Questions</div>
+              <div style="font-size:0.8rem;color:var(--muted);">Quick answers to common questions</div>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:10px;" id="help-faq-list">
+            <!-- Rendered by JS -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Contact options -->
+      <div class="card">
+        <div style="font-weight:700;font-size:1rem;color:#fff;margin-bottom:16px;display:flex;align-items:center;gap:8px;">
+          <i class="fas fa-headset" style="color:#ec4899;"></i> Other Ways to Reach Us
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;">
+          <div onclick="helpOpenWhatsApp()" style="background:rgba(37,211,102,0.08);border:1px solid rgba(37,211,102,0.2);border-radius:14px;padding:20px;text-align:center;cursor:pointer;transition:all 0.2s;" onmouseover="this.style.background='rgba(37,211,102,0.15)'" onmouseout="this.style.background='rgba(37,211,102,0.08)'">
+            <div style="font-size:2rem;margin-bottom:8px;">📱</div>
+            <div style="font-weight:700;color:#25d366;font-size:0.9rem;">WhatsApp</div>
+            <div style="font-size:0.75rem;color:var(--muted);margin-top:4px;">Chat on WhatsApp</div>
+          </div>
+          <div onclick="helpOpenEmail()" style="background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.2);border-radius:14px;padding:20px;text-align:center;cursor:pointer;transition:all 0.2s;" onmouseover="this.style.background='rgba(59,130,246,0.15)'" onmouseout="this.style.background='rgba(59,130,246,0.08)'">
+            <div style="font-size:2rem;margin-bottom:8px;">📧</div>
+            <div style="font-weight:700;color:#60a5fa;font-size:0.9rem;">Email Us</div>
+            <div style="font-size:0.75rem;color:var(--muted);margin-top:4px;">support@codingkida.com</div>
+          </div>
+          <div style="background:rgba(168,85,247,0.08);border:1px solid rgba(168,85,247,0.2);border-radius:14px;padding:20px;text-align:center;">
+            <div style="font-size:2rem;margin-bottom:8px;">⏰</div>
+            <div style="font-weight:700;color:#a855f7;font-size:0.9rem;">Available 24/7</div>
+            <div style="font-size:0.75rem;color:var(--muted);margin-top:4px;">Mon–Sun, all day</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- REFER & EARN PAGE -->
+    <div id="page-referral" class="page">
+      <div class="page-header" style="background:linear-gradient(to right,rgba(245,158,11,0.2),rgba(251,191,36,0.1));border-radius:16px;padding:28px 32px;margin-bottom:24px;border:1px solid rgba(255,255,255,0.05);display:flex;align-items:center;gap:16px;">
+        <div style="width:52px;height:52px;border-radius:16px;background:linear-gradient(135deg,#f59e0b,#fbbf24);display:flex;align-items:center;justify-content:center;font-size:1.6rem;flex-shrink:0;">🎁</div>
+        <div>
+          <h1 style="font-size:1.8rem;font-weight:800;color:#fff;margin-bottom:4px;">Refer & Earn</h1>
+          <p style="color:var(--muted);font-size:0.9rem;">Invite friends and earn <span style="color:#fbbf24;font-weight:700;">50 coins</span> for every successful referral</p>
+        </div>
+      </div>
+
+      <!-- Referral code card -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px;">
+
+        <div class="card" style="display:flex;flex-direction:column;gap:20px;">
+          <div style="font-weight:700;font-size:1rem;color:#fff;display:flex;align-items:center;gap:8px;">
+            <i class="fas fa-tag" style="color:#f59e0b;"></i> Your Referral Code
+          </div>
+          <div style="background:rgba(245,158,11,0.08);border:2px dashed rgba(245,158,11,0.4);border-radius:14px;padding:24px;text-align:center;">
+            <div id="referral-code-display" style="font-size:2rem;font-weight:800;color:#fbbf24;letter-spacing:6px;font-family:monospace;">------</div>
+            <div style="font-size:0.78rem;color:var(--muted);margin-top:8px;">Share this code with friends</div>
+          </div>
+          <div style="display:flex;gap:10px;">
+            <button onclick="referralCopyCode()" style="flex:1;background:linear-gradient(135deg,#f59e0b,#fbbf24);border:none;border-radius:10px;padding:12px;color:#000;font-size:0.88rem;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;">
+              <i class="fas fa-copy"></i> Copy Code
+            </button>
+            <button onclick="referralShareWhatsApp()" style="flex:1;background:rgba(37,211,102,0.15);border:1px solid rgba(37,211,102,0.4);border-radius:10px;padding:12px;color:#25d366;font-size:0.88rem;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;">
+              <i class="fab fa-whatsapp"></i> Share
+            </button>
+          </div>
+        </div>
+
+        <!-- Stats -->
+        <div class="card" style="display:flex;flex-direction:column;gap:16px;">
+          <div style="font-weight:700;font-size:1rem;color:#fff;display:flex;align-items:center;gap:8px;">
+            <i class="fas fa-chart-bar" style="color:#a78bfa;"></i> Your Referral Stats
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+            <div style="background:rgba(108,71,255,0.1);border:1px solid rgba(108,71,255,0.2);border-radius:12px;padding:16px;text-align:center;">
+              <div id="referral-count" style="font-size:2rem;font-weight:800;color:#a78bfa;">0</div>
+              <div style="font-size:0.75rem;color:var(--muted);margin-top:4px;">Friends Referred</div>
+            </div>
+            <div style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.2);border-radius:12px;padding:16px;text-align:center;">
+              <div id="referral-coins-earned" style="font-size:2rem;font-weight:800;color:#fbbf24;">0</div>
+              <div style="font-size:0.75rem;color:var(--muted);margin-top:4px;">Coins Earned</div>
+            </div>
+          </div>
+          <div style="background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.2);border-radius:12px;padding:14px;display:flex;align-items:center;gap:10px;">
+            <span style="font-size:1.4rem;">🪙</span>
+            <div>
+              <div style="font-size:0.85rem;font-weight:700;color:#22c55e;">50 coins per referral</div>
+              <div style="font-size:0.75rem;color:var(--muted);">When your friend signs up & enrolls</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- How it works -->
+      <div class="card">
+        <div style="font-weight:700;font-size:1rem;color:#fff;margin-bottom:20px;display:flex;align-items:center;gap:8px;">
+          <i class="fas fa-info-circle" style="color:#6c47ff;"></i> How It Works
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;">
+          <div style="text-align:center;padding:16px;">
+            <div style="width:48px;height:48px;border-radius:50%;background:linear-gradient(135deg,#6c47ff,#b251ff);display:flex;align-items:center;justify-content:center;font-size:1.2rem;margin:0 auto 12px;">1</div>
+            <div style="font-weight:700;color:#fff;font-size:0.9rem;margin-bottom:6px;">Share Your Code</div>
+            <div style="font-size:0.78rem;color:var(--muted);line-height:1.5;">Send your unique referral code to friends via WhatsApp or any app</div>
+          </div>
+          <div style="text-align:center;padding:16px;">
+            <div style="width:48px;height:48px;border-radius:50%;background:linear-gradient(135deg,#f59e0b,#fbbf24);display:flex;align-items:center;justify-content:center;font-size:1.2rem;margin:0 auto 12px;">2</div>
+            <div style="font-weight:700;color:#fff;font-size:0.9rem;margin-bottom:6px;">Friend Signs Up</div>
+            <div style="font-size:0.78rem;color:var(--muted);line-height:1.5;">Your friend downloads the app and signs up using your referral code</div>
+          </div>
+          <div style="text-align:center;padding:16px;">
+            <div style="width:48px;height:48px;border-radius:50%;background:linear-gradient(135deg,#22c55e,#10b981);display:flex;align-items:center;justify-content:center;font-size:1.2rem;margin:0 auto 12px;">3</div>
+            <div style="font-weight:700;color:#fff;font-size:0.9rem;margin-bottom:6px;">You Earn 50 Coins</div>
+            <div style="font-size:0.78rem;color:var(--muted);line-height:1.5;">Get 50 coins instantly added to your account when they enroll</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- PROFILE PAGE -->
     <div id="page-profile" class="page">
       <div class="page-header" style="background:linear-gradient(to right, rgba(239, 68, 68, 0.2), rgba(245, 158, 11, 0.2)); border-radius:16px; padding:32px 40px; margin-bottom: 24px; border: 1px solid rgba(255,255,255,0.05);">
@@ -729,13 +885,88 @@
         </div>
       </div>
 
+      <!-- Student Information Card -->
       <div class="card" style="margin-bottom:24px; border-radius: 16px; border: 1px solid var(--border); background: var(--card-bg);">
-        <div class="section-title" style="margin-bottom:20px; font-size: 1.1rem;">Account Settings</div>
+        <div class="section-title" style="margin-bottom:20px; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">
+          <i class="fas fa-user-graduate" style="color: #6c47ff;"></i> Student Information
+        </div>
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px; max-width: 600px;">
+          <div class="form-group" style="margin:0">
+            <label style="color: rgba(255,255,255,0.8);">Student Name</label>
+            <input id="student-name-input" type="text" placeholder="Student's full name" style="background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1); color: #fff; border-radius: 8px;"/>
+          </div>
+          <div class="form-group" style="margin:0">
+            <label style="color: rgba(255,255,255,0.8);">Date of Birth</label>
+            <input id="student-dob-input" type="date" style="background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1); color: #fff; border-radius: 8px;"/>
+          </div>
+          <div class="form-group" style="margin:0">
+            <label style="color: rgba(255,255,255,0.8);">Grade/Class</label>
+            <select id="student-grade-input" style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #fff; border-radius: 8px; padding: 10px 14px; width: 100%;">
+              <option value="" style="background: #1a1a2e; color: #fff;">Select Grade</option>
+              <option value="1" style="background: #1a1a2e; color: #fff;">Grade 1</option>
+              <option value="2" style="background: #1a1a2e; color: #fff;">Grade 2</option>
+              <option value="3" style="background: #1a1a2e; color: #fff;">Grade 3</option>
+              <option value="4" style="background: #1a1a2e; color: #fff;">Grade 4</option>
+              <option value="5" style="background: #1a1a2e; color: #fff;">Grade 5</option>
+              <option value="6" style="background: #1a1a2e; color: #fff;">Grade 6</option>
+              <option value="7" style="background: #1a1a2e; color: #fff;">Grade 7</option>
+              <option value="8" style="background: #1a1a2e; color: #fff;">Grade 8</option>
+              <option value="9" style="background: #1a1a2e; color: #fff;">Grade 9</option>
+              <option value="10" style="background: #1a1a2e; color: #fff;">Grade 10</option>
+              <option value="11" style="background: #1a1a2e; color: #fff;">Grade 11</option>
+              <option value="12" style="background: #1a1a2e; color: #fff;">Grade 12</option>
+              <option value="college" style="background: #1a1a2e; color: #fff;">College</option>
+              <option value="other" style="background: #1a1a2e; color: #fff;">Other</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin:0">
+            <label style="color: rgba(255,255,255,0.8);">Gender</label>
+            <select id="student-gender-input" style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #fff; border-radius: 8px; padding: 10px 14px; width: 100%;">
+              <option value="" style="background: #1a1a2e; color: #fff;">Select Gender</option>
+              <option value="male" style="background: #1a1a2e; color: #fff;">Male</option>
+              <option value="female" style="background: #1a1a2e; color: #fff;">Female</option>
+              <option value="other" style="background: #1a1a2e; color: #fff;">Other</option>
+              <option value="prefer-not-to-say" style="background: #1a1a2e; color: #fff;">Prefer not to say</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin:0; grid-column: 1 / -1;">
+            <label style="color: rgba(255,255,255,0.8);">School Name</label>
+            <input id="student-school-input" type="text" placeholder="School/Institution name" style="background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1); color: #fff; border-radius: 8px;"/>
+          </div>
+        </div>
+      </div>
+
+      <!-- Parent Information Card -->
+      <div class="card" style="margin-bottom:24px; border-radius: 16px; border: 1px solid var(--border); background: var(--card-bg);">
+        <div class="section-title" style="margin-bottom:20px; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">
+          <i class="fas fa-users" style="color: #ec4899;"></i> Parent/Guardian Information
+        </div>
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px; max-width: 600px;">
+          <div class="form-group" style="margin:0">
+            <label style="color: rgba(255,255,255,0.8);">Parent Name</label>
+            <input id="parent-name-input" type="text" placeholder="Parent/Guardian full name" style="background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1); color: #fff; border-radius: 8px;"/>
+          </div>
+          <div class="form-group" style="margin:0">
+            <label style="color: rgba(255,255,255,0.8);">Parent Email</label>
+            <input id="parent-email-input" type="email" placeholder="parent@example.com" style="background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1); color: #fff; border-radius: 8px;"/>
+          </div>
+          <div class="form-group" style="margin:0; grid-column: 1 / -1;">
+            <label style="color: rgba(255,255,255,0.8);">Parent Contact Number</label>
+            <input id="parent-contact-input" type="tel" placeholder="+91 9876543210" style="background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1); color: #fff; border-radius: 8px;"/>
+          </div>
+        </div>
+      </div>
+
+      <!-- Account Settings Card -->
+      <div class="card" style="margin-bottom:24px; border-radius: 16px; border: 1px solid var(--border); background: var(--card-bg);">
+        <div class="section-title" style="margin-bottom:20px; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">
+          <i class="fas fa-cog" style="color: #f59e0b;"></i> Account Settings
+        </div>
         <div style="display:flex;flex-direction:column;gap:16px; max-width: 500px;">
-          <div class="form-group" style="margin:0"><label style="color: rgba(255,255,255,0.8);">Full Name</label><input id="profile-name-input" type="text" placeholder="Your name" style="background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1); color: #fff; border-radius: 8px;"/></div>
-          <div class="form-group" style="margin:0"><label style="color: rgba(255,255,255,0.8);">Email</label><input id="profile-email-input" type="email" placeholder="your@email.com" readonly style="background: rgba(255,255,255,0.02); border-color: rgba(255,255,255,0.05); color: var(--muted); border-radius: 8px; cursor: not-allowed;"/></div>
+          <div class="form-group" style="margin:0"><label style="color: rgba(255,255,255,0.8);">Account Name (Display Name)</label><input id="profile-name-input" type="text" placeholder="Your display name" style="background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1); color: #fff; border-radius: 8px;"/></div>
+          <div class="form-group" style="margin:0"><label style="color: rgba(255,255,255,0.8);">Account Email</label><input id="profile-email-input" type="email" placeholder="your@email.com" readonly style="background: rgba(255,255,255,0.02); border-color: rgba(255,255,255,0.05); color: var(--muted); border-radius: 8px; cursor: not-allowed;"/></div>
           <div id="profile-save-msg" style="font-size:0.85rem;display:none; padding: 8px 12px; border-radius: 8px; background: rgba(16, 185, 129, 0.1); color: #10b981;"></div>
-          <button class="btn btn-primary" style="align-self:flex-start; border-radius: 8px; background: linear-gradient(135deg, #6c47ff, #b251ff); border: none; font-weight: 600;" onclick="saveProfile()">Save Changes</button>
+          <button class="btn btn-primary" style="align-self:flex-start; border-radius: 8px; background: linear-gradient(135deg, #6c47ff, #b251ff); border: none; font-weight: 600;" onclick="saveProfile()">Save All Changes</button>
 
           <!-- Change Password Section -->
           <div style="margin-top:24px; padding-top:20px; border-top:1px solid rgba(255,255,255,0.08);">
