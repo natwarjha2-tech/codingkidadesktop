@@ -1,9 +1,19 @@
-const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const http = require('http');
 require('dotenv').config();
+
+// Auto-updater — checks GitHub Releases for new versions
+let autoUpdater = null;
+try {
+  autoUpdater = require('electron-updater').autoUpdater;
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+} catch {
+  // electron-updater not available in dev mode, skip
+}
 
 const PROTOCOL = 'codingkida';
 const BASE_URL = process.env.API_BASE_URL || 'https://www.codingkida.com';
@@ -125,7 +135,27 @@ ipcMain.handle('login', async (event, { email, password, remember }) => {
   }
 });
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  createWindow();
+
+  // Check for updates after window loads (non-blocking)
+  if (autoUpdater) {
+    setTimeout(() => {
+      autoUpdater.checkForUpdatesAndNotify().catch(() => {});
+    }, 5000);
+
+    autoUpdater.on('update-downloaded', () => {
+      dialog.showMessageBox({
+        type: 'info',
+        title: 'Update Ready',
+        message: 'A new version of CodingKida is ready. It will be installed when you restart the app.',
+        buttons: ['Restart Now', 'Later']
+      }).then(({ response }) => {
+        if (response === 0) autoUpdater.quitAndInstall();
+      });
+    });
+  }
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();

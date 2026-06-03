@@ -486,11 +486,183 @@ function openEditProfile() {
 
 // Navigation
 
-const appPages = ['dashboard','courses','course-detail','video','chat','ai','live','downloads','offline-downloads','profile','enrolled-detail','completed-videos','streak-history','achievements','parent-report','help','referral'];
-const authPages = ['login','signup'];
-const sidebarMap = { dashboard:'nav-dashboard', courses:'nav-courses', 'course-detail':'nav-courses', video:'nav-courses', chat:'nav-chat', ai:'nav-ai', live:'nav-live', downloads:'nav-downloads', 'offline-downloads':'nav-offline-downloads', profile:'nav-profile', 'enrolled-detail':'nav-dashboard', 'completed-videos':'nav-dashboard', 'streak-history':'nav-dashboard', 'achievements':'nav-dashboard', 'parent-report':'nav-parent-report', 'help':'nav-help', 'referral':'nav-referral' };
+// ═══════════════════════════════════════════════════════════════
+// UNIVERSAL BACK NAVIGATION SYSTEM
+// Browser-style navigation history for entire app
+// ═══════════════════════════════════════════════════════════════
 
-function navigate(page) {
+const navigationHistory = [];
+let currentPageIndex = -1;
+const MAX_HISTORY = 50; // Memory-efficient limit
+
+function getCurrentPageContext() {
+  const currentPage = getCurrentActivePage();
+  const context = {
+    page: currentPage,
+    scrollY: window.scrollY || 0,
+    timestamp: Date.now()
+  };
+
+  // Capture video/lesson context
+  if (currentPage === 'video' && _currentLessonContext) {
+    context.lessonContext = {
+      courseId: _currentLessonContext.courseId,
+      moduleId: _currentLessonContext.moduleId,
+      lessonId: _currentLessonContext.lessonId,
+      courseTitle: _currentLessonContext.courseTitle,
+      moduleTitle: _currentLessonContext.moduleTitle,
+      lessonTitle: _currentLessonContext.lessonTitle
+    };
+    // Capture video time if available
+    const videoEl = document.getElementById('lesson-video');
+    if (videoEl && !videoEl.paused) {
+      context.videoTime = videoEl.currentTime;
+    }
+  }
+
+  // Capture course detail context
+  if (currentPage === 'course-detail') {
+    const courseTitle = document.getElementById('course-detail-title')?.textContent;
+    if (courseTitle) {
+      context.courseTitle = courseTitle;
+    }
+  }
+
+  return context;
+}
+
+function getCurrentActivePage() {
+  for (const page of appPages) {
+    const el = document.getElementById('page-' + page);
+    if (el && el.classList.contains('active')) {
+      return page;
+    }
+  }
+  return 'dashboard';
+}
+
+function restorePageContext(context) {
+  if (!context) return;
+
+  // Restore scroll position after a brief delay (let page render)
+  if (context.scrollY) {
+    setTimeout(() => {
+      window.scrollTo(0, context.scrollY);
+    }, 100);
+  }
+
+  // Restore video/lesson context
+  if (context.lessonContext) {
+    const lc = context.lessonContext;
+    setTimeout(() => {
+      openVideoFromBackend(lc.courseId, lc.moduleId, lc.lessonId);
+      // Restore video time if available
+      if (context.videoTime) {
+        setTimeout(() => {
+          const videoEl = document.getElementById('lesson-video');
+          if (videoEl) {
+            videoEl.currentTime = context.videoTime;
+          }
+        }, 500);
+      }
+    }, 50);
+  }
+}
+
+function goBack() {
+  if (currentPageIndex > 0) {
+    currentPageIndex--;
+    const previousPage = navigationHistory[currentPageIndex];
+    
+    // Navigate without adding to history
+    _navigateInternal(previousPage.page, false);
+    
+    // Restore context
+    restorePageContext(previousPage);
+    
+    // Update back button visibility
+    updateBackButtonVisibility();
+  }
+}
+
+function updateBackButtonVisibility() {
+  const currentPage = getCurrentActivePage();
+  const hasHistory = currentPageIndex > 0;
+  
+  // Remove all existing back buttons first
+  document.querySelectorAll('.universal-back-btn').forEach(btn => btn.remove());
+  
+  // Show back button if there's history and not on dashboard
+  if (hasHistory && currentPage !== 'dashboard') {
+    const pageEl = document.getElementById('page-' + currentPage);
+    if (!pageEl) return;
+    
+    // Special handling for video page - add to existing topbar
+    if (currentPage === 'video') {
+      const topbarLeft = pageEl.querySelector('.vp-topbar-left');
+      if (topbarLeft) {
+        // Create compact back button for video page
+        const backBtn = document.createElement('button');
+        backBtn.className = 'universal-back-btn btn btn-outline btn-sm';
+        backBtn.onclick = goBack;
+        backBtn.innerHTML = '<i class="fas fa-arrow-left"></i> Back';
+        backBtn.style.cssText = 'padding:6px 12px; flex-shrink:0; margin-right:12px;';
+        backBtn.title = 'Go back (Alt + ←)';
+        
+        // Insert as first child of topbar-left
+        topbarLeft.insertBefore(backBtn, topbarLeft.firstChild);
+        return;
+      }
+    }
+    
+    // For all other pages - add as first element
+    const backBtn = document.createElement('button');
+    backBtn.className = 'universal-back-btn';
+    backBtn.onclick = goBack;
+    backBtn.innerHTML = '<i class="fas fa-arrow-left" style="font-size:0.8rem;"></i><span>Back</span>';
+    backBtn.style.cssText = `
+      background: rgba(255,255,255,0.04);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 10px;
+      padding: 8px 16px;
+      color: rgba(255,255,255,0.65);
+      font-size: 0.875rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+      margin-bottom: 16px;
+    `;
+    backBtn.title = 'Go back (Alt + ←)';
+    
+    // Hover effects
+    backBtn.onmouseenter = function() {
+      this.style.background = 'rgba(108,71,255,0.12)';
+      this.style.borderColor = 'rgba(108,71,255,0.25)';
+      this.style.color = '#fff';
+      this.style.transform = 'translateX(-3px)';
+      this.style.boxShadow = '0 4px 16px rgba(108,71,255,0.25)';
+    };
+    backBtn.onmouseleave = function() {
+      this.style.background = 'rgba(255,255,255,0.04)';
+      this.style.borderColor = 'rgba(255,255,255,0.08)';
+      this.style.color = 'rgba(255,255,255,0.65)';
+      this.style.transform = 'translateX(0)';
+      this.style.boxShadow = '0 2px 8px rgba(0,0,0,0.2)';
+    };
+    
+    // Insert as first child of page
+    pageEl.insertBefore(backBtn, pageEl.firstChild);
+  }
+}
+
+function _navigateInternal(page, addToHistory) {
+  // Existing navigate logic (will be called from both navigate() and goBack())
   authPages.forEach(p => {
     const el = document.getElementById('page-' + p);
     if (el) el.style.display = 'none';
@@ -537,6 +709,38 @@ function navigate(page) {
     const navEl = document.getElementById(navId);
     if (navEl) navEl.classList.add('active');
   }
+
+  // Add to navigation history if requested
+  if (addToHistory) {
+    // Remove forward history (user took new path)
+    navigationHistory.splice(currentPageIndex + 1);
+    
+    // Capture current context before navigating
+    const context = getCurrentPageContext();
+    context.page = page; // Update to new page
+    
+    // Add to history
+    navigationHistory.push(context);
+    currentPageIndex = navigationHistory.length - 1;
+    
+    // Limit history size for memory efficiency
+    if (navigationHistory.length > MAX_HISTORY) {
+      navigationHistory.shift();
+      currentPageIndex--;
+    }
+    
+    // Update back button visibility
+    updateBackButtonVisibility();
+  }
+}
+
+const appPages = ['dashboard','courses','course-detail','video','chat','ai','live','downloads','offline-downloads','profile','enrolled-detail','completed-videos','streak-history','achievements','parent-report','help','referral'];
+const authPages = ['login','signup'];
+const sidebarMap = { dashboard:'nav-dashboard', courses:'nav-courses', 'course-detail':'nav-courses', video:'nav-courses', chat:'nav-chat', ai:'nav-ai', live:'nav-live', downloads:'nav-downloads', 'offline-downloads':'nav-offline-downloads', profile:'nav-profile', 'enrolled-detail':'nav-dashboard', 'completed-videos':'nav-dashboard', 'streak-history':'nav-dashboard', 'achievements':'nav-dashboard', 'parent-report':'nav-parent-report', 'help':'nav-help', 'referral':'nav-referral' };
+
+function navigate(page) {
+  // Public API - always adds to history
+  _navigateInternal(page, true);
 }
 
 // Lazy load state for lesson tabs
@@ -3093,6 +3297,13 @@ function _showShareToast(msg) {
 }
 
 document.addEventListener('keydown', (e) => {
+  // Universal back navigation - Alt + Left Arrow (browser standard)
+  if (e.altKey && e.key === 'ArrowLeft') {
+    e.preventDefault();
+    goBack();
+    return;
+  }
+
   if (e.key === 'Enter') {
     if (document.activeElement.id === 'chatInput') sendChat();
     if (document.activeElement.id === 'aiInput') sendAI();
@@ -3215,15 +3426,20 @@ async function loadUserCoins() {
       _userCoinsCache = data.totalCoins || 0;
       const el = document.getElementById('coins-count');
       if (el) el.textContent = String(_userCoinsCache);
+      const welcomeEl = document.getElementById('welcome-coins-count');
+      if (welcomeEl) welcomeEl.textContent = String(_userCoinsCache);
     }
   } catch {}
 }
 
-// Toggle coins popup
+// Toggle coins popup (from topbar coins widget)
 function toggleCoinsPopup() {
   const popup = document.getElementById('coins-popup');
   if (!popup) return;
   if (popup.style.display === 'none' || !popup.style.display) {
+    popup.style.top = '60px';
+    popup.style.right = '80px';
+    popup.style.left = 'auto';
     popup.style.display = 'block';
     _loadCoinsPopupData();
   } else {
@@ -3231,10 +3447,55 @@ function toggleCoinsPopup() {
   }
 }
 
+// Always open coins popup (used from dropdown after it closes, or from welcome card)
+function openCoinsPopup() {
+  const popup = document.getElementById('coins-popup');
+  if (!popup) return;
+  
+  // Check if we're opening from welcome card badge on dashboard
+  const dashboardPage = document.getElementById('page-dashboard');
+  const isDashboardActive = dashboardPage && dashboardPage.classList.contains('active');
+  const welcomeBadge = document.getElementById('welcome-coins-count');
+  
+  if (isDashboardActive && welcomeBadge && welcomeBadge.offsetParent !== null) {
+    // Welcome badge is visible on dashboard - position popup below it
+    const rect = welcomeBadge.getBoundingClientRect();
+    popup.style.top = (rect.bottom + 8) + 'px';
+    popup.style.right = (window.innerWidth - rect.right) + 'px';
+    popup.style.left = 'auto';
+  } else {
+    // Default position (topbar coins widget or other)
+    popup.style.top = '60px';
+    popup.style.right = '80px';
+    popup.style.left = 'auto';
+  }
+  
+  popup.style.display = 'block';
+  _loadCoinsPopupData();
+}
+
 function hideCoinsPopup() {
   const popup = document.getElementById('coins-popup');
   if (popup) popup.style.display = 'none';
 }
+
+// Initialize welcome coins badge click handler (backup to inline onclick)
+function _initWelcomeCoinsBadge() {
+  const badge = document.getElementById('welcome-coins-badge');
+  if (badge) {
+    badge.addEventListener('click', function(e) {
+      e.stopPropagation();
+      e.preventDefault();
+      console.log('Welcome coins badge clicked via event listener');
+      openCoinsPopup();
+    });
+    console.log('Welcome coins badge click handler initialized');
+  }
+}
+
+// Call initialization when navigate to dashboard
+document.addEventListener('DOMContentLoaded', _initWelcomeCoinsBadge);
+setTimeout(_initWelcomeCoinsBadge, 1000); // Fallback after 1s
 
 async function _loadCoinsPopupData() {
   const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
