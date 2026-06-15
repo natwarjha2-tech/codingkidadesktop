@@ -1734,9 +1734,9 @@ async function openVideoFromBackend(courseId, moduleId, lessonId) {
 
     document.getElementById('video-title').textContent = lesson.title || '';
     document.getElementById('video-meta').textContent = mod.title + ' - ' + (lesson.duration || '');
-    await loadVideo(lesson.videoUrl || '');
+    _currentVideoData = { lessonId: lesson.id, title: lesson.title, courseTitle: course.title || '', moduleTitle: mod.title, videoUrl: lesson.videoUrl, notesUrl: lesson.notes || '', qualityUrls: lesson.qualityUrls || null };
 
-    _currentVideoData = { lessonId: lesson.id, title: lesson.title, courseTitle: course.title || '', moduleTitle: mod.title, videoUrl: lesson.videoUrl, notesUrl: lesson.notes || '' };
+    await loadVideo(lesson.videoUrl || '', lesson.hlsMasterUrl || null, lesson.hlsQualities || []);
     // Video completion: mark complete only when 90%+ watched (handled by video player event)
     _pendingLessonComplete = lesson.id;
     // Reset AI mentor chat for new lesson
@@ -1982,10 +1982,134 @@ let _searchTimeout = null;
 
 // Old submitQuiz/submitExercise removed — replaced by data-driven versions above
 
-async function loadVideo(url) {
-  const iframe = document.getElementById('video-iframe');
-  const videoEl = document.getElementById('video-player');
+// ─── HLS / Video Player ───────────────────────────────────────────────────────
+var _hlsInstance = null; // not used anymore — kept for compatibility
+
+function _destroyHls() {
+  // No-op — we don't use hls.js anymore
+}
+
+function _setHlsStatus(msg) {
+  var el = document.getElementById('video-hls-status');
+  if (!el) return;
+  if (msg) { el.textContent = msg; el.style.display = 'block'; }
+  else { el.style.display = 'none'; el.textContent = ''; }
+}
+
+function _renderQualityControls(qualityUrls, directUrl) {
+  var container = document.getElementById('video-quality-controls');
+  if (!container) return;
+  container.innerHTML = '';
+
+  var qualities = qualityUrls ? Object.keys(qualityUrls) : [];
+  if (!qualities.length && !directUrl) { container.style.display = 'none'; return; }
+
+  container.style.display = 'block';
+  container.style.position = 'absolute';
+  container.style.top = '12px';
+  container.style.right = '12px';
+  container.style.zIndex = '20';
+
+  // Gear button
+  var gearBtn = document.createElement('button');
+  gearBtn.innerHTML = '<i class="fas fa-cog"></i>';
+  gearBtn.style.cssText = 'background:rgba(0,0,0,0.6);border:none;color:#fff;width:32px;height:32px;border-radius:50%;cursor:pointer;font-size:0.9rem;display:flex;align-items:center;justify-content:center;transition:all 0.2s;';
+  gearBtn.onmouseover = function() { gearBtn.style.background = 'rgba(255,255,255,0.2)'; };
+  gearBtn.onmouseout = function() { if (!dropdown._open) gearBtn.style.background = 'rgba(0,0,0,0.6)'; };
+
+  // Dropdown menu
+  var dropdown = document.createElement('div');
+  dropdown._open = false;
+  dropdown.style.cssText = 'display:none;position:absolute;top:38px;right:0;background:#1a1a2e;border:1px solid rgba(255,255,255,0.15);border-radius:10px;padding:6px 0;min-width:130px;box-shadow:0 8px 24px rgba(0,0,0,0.6);';
+
+  // Header
+  var header = document.createElement('div');
+  header.textContent = 'Quality';
+  header.style.cssText = 'font-size:0.68rem;color:rgba(255,255,255,0.4);padding:4px 14px 6px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;';
+  dropdown.appendChild(header);
+
+  var activeQuality = 'Original';
+
+  function makeItem(label, isActive, onclick) {
+    var item = document.createElement('div');
+    item.textContent = label;
+    item.style.cssText = 'padding:8px 14px;font-size:0.82rem;cursor:pointer;color:' + (isActive ? '#fff' : 'rgba(255,255,255,0.7)') + ';font-weight:' + (isActive ? '700' : '400') + ';display:flex;align-items:center;justify-content:space-between;';
+    if (isActive) item.innerHTML = label + ' <span style="color:#6c47ff;">●</span>';
+    item.onmouseover = function() { item.style.background = 'rgba(255,255,255,0.08)'; };
+    item.onmouseout = function() { item.style.background = 'none'; };
+    item.onclick = function() {
+      onclick();
+      dropdown.style.display = 'none';
+      dropdown._open = false;
+      gearBtn.style.background = 'rgba(0,0,0,0.6)';
+      activeQuality = label;
+      // Rebuild to update active indicator
+      _renderQualityControls(qualityUrls, directUrl);
+    };
+    return item;
+  }
+
+  // Original option
+  dropdown.appendChild(makeItem('Original', activeQuality === 'Original', function() {
+    var videoEl = document.getElementById('video-player');
+    if (!videoEl || !directUrl) return;
+    var t = videoEl.currentTime;
+    videoEl.src = directUrl;
+    videoEl.currentTime = t;
+    videoEl.muted = false;
+    videoEl.volume = 1;
+    videoEl.play().catch(function() {});
+  }));
+
+  // Quality options
+  qualities.forEach(function(q) {
+    dropdown.appendChild(makeItem(q, activeQuality === q, function() {
+      var videoEl = document.getElementById('video-player');
+      if (!videoEl) return;
+      var t = videoEl.currentTime;
+      videoEl.src = qualityUrls[q];
+      videoEl.currentTime = t;
+      videoEl.muted = false;
+      videoEl.volume = 1;
+      videoEl.play().catch(function() {});
+    }));
+  });
+
+  // Toggle dropdown on gear click
+  gearBtn.onclick = function(e) {
+    e.stopPropagation();
+    if (dropdown._open) {
+      dropdown.style.display = 'none';
+      dropdown._open = false;
+      gearBtn.style.background = 'rgba(0,0,0,0.6)';
+    } else {
+      dropdown.style.display = 'block';
+      dropdown._open = true;
+      gearBtn.style.background = 'rgba(255,255,255,0.2)';
+    }
+  };
+
+  // Close dropdown when clicking elsewhere
+  document.addEventListener('click', function closeQualityDropdown() {
+    if (dropdown._open) {
+      dropdown.style.display = 'none';
+      dropdown._open = false;
+      gearBtn.style.background = 'rgba(0,0,0,0.6)';
+    }
+  });
+
+  container.appendChild(dropdown);
+  container.appendChild(gearBtn);
+}
+
+async function loadVideo(url, hlsMasterUrl, hlsQualities) {
+  var iframe = document.getElementById('video-iframe');
+  var videoEl = document.getElementById('video-player');
   if (!iframe || !videoEl) return;
+
+  _setHlsStatus(null);
+  var qc = document.getElementById('video-quality-controls');
+  if (qc) { qc.innerHTML = ''; qc.style.display = 'none'; }
 
   if (!url) {
     iframe.src = ''; iframe.style.display = 'block';
@@ -1993,27 +2117,37 @@ async function loadVideo(url) {
     return;
   }
 
+  // YouTube — iframe only
   if (url.includes('youtube') || url.includes('youtu.be')) {
     iframe.src = url.includes('?') ? url + '&rel=0' : url + '?rel=0';
     iframe.style.display = 'block';
     videoEl.style.display = 'none';
     videoEl.src = '';
-  } else {
-    iframe.style.display = 'none';
-    iframe.src = '';
-    videoEl.style.display = 'block';
-    videoEl.src = url;
-
-    // Track video progress — mark complete at 90%
-    _lessonMarkedComplete = false;
-    videoEl.ontimeupdate = function() {
-      if (_lessonMarkedComplete || !_pendingLessonComplete) return;
-      if (videoEl.duration && videoEl.currentTime / videoEl.duration >= 0.9) {
-        _lessonMarkedComplete = true;
-        markLessonComplete(_pendingLessonComplete);
-      }
-    };
+    return;
   }
+
+  iframe.style.display = 'none';
+  iframe.src = '';
+  videoEl.style.display = 'block';
+
+  // Attach 90% completion tracker
+  _lessonMarkedComplete = false;
+  videoEl.ontimeupdate = function() {
+    if (_lessonMarkedComplete || !_pendingLessonComplete) return;
+    if (videoEl.duration && videoEl.currentTime / videoEl.duration >= 0.9) {
+      _lessonMarkedComplete = true;
+      markLessonComplete(_pendingLessonComplete);
+    }
+  };
+
+  // Play original directly — guaranteed perfect audio
+  videoEl.src = url;
+  videoEl.muted = false;
+  videoEl.volume = 1;
+
+  // Show quality gear — always visible
+  var qualityUrls = _currentVideoData ? _currentVideoData.qualityUrls : null;
+  _renderQualityControls(qualityUrls, url);
 }
 
 function openPaymentPage(courseId) {

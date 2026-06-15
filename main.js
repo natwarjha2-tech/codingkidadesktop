@@ -135,6 +135,8 @@ ipcMain.handle('login', async (event, { email, password, remember }) => {
   }
 });
 
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+
 app.whenReady().then(() => {
   createWindow();
 
