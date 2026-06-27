@@ -692,11 +692,23 @@ function _navigateInternal(page, addToHistory) {
   if (page === 'parent-report') loadParentReport();
   if (page === 'help') loadHelpPage();
   if (page === 'referral') loadReferralPage();
+  if (page === 'orders') loadOrdersPage();
+  if (page === 'mall') loadMallPage();
+  if (page === 'rate-us') loadRateUsPage();
 
   // Refresh dashboard data when navigating to profile
   if (page === 'profile' || page === 'dashboard') {
     const t = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token');
     if (t) StudentAPI.getDashboard().then(data => _applyDashboardData(data, false)).catch(() => {});
+    // Preload profile sub-pages data in background
+    if (page === 'profile' && t) {
+      loadOrdersPage();
+      loadMallPage();
+      loadRateUsPage();
+      loadParentReport();
+      loadReferralPage();
+      loadHelpPage();
+    }
     // Fetch weekly streak count once on dashboard load
     if (page === 'dashboard' && t) {
       loadWeeklyStreakCount();
@@ -734,9 +746,9 @@ function _navigateInternal(page, addToHistory) {
   }
 }
 
-const appPages = ['dashboard','courses','course-detail','video','chat','ai','live','downloads','offline-downloads','profile','enrolled-detail','completed-videos','streak-history','achievements','parent-report','help','referral'];
+const appPages = ['dashboard','courses','course-detail','video','chat','ai','live','downloads','offline-downloads','profile','enrolled-detail','completed-videos','streak-history','achievements','parent-report','help','referral','orders','mall','rate-us','about'];
 const authPages = ['login','signup'];
-const sidebarMap = { dashboard:'nav-dashboard', courses:'nav-courses', 'course-detail':'nav-courses', video:'nav-courses', chat:'nav-chat', ai:'nav-ai', live:'nav-live', downloads:'nav-downloads', 'offline-downloads':'nav-offline-downloads', profile:'nav-profile', 'enrolled-detail':'nav-dashboard', 'completed-videos':'nav-dashboard', 'streak-history':'nav-dashboard', 'achievements':'nav-dashboard', 'parent-report':'nav-parent-report', 'help':'nav-help', 'referral':'nav-referral' };
+const sidebarMap = { dashboard:'nav-dashboard', courses:'nav-courses', 'course-detail':'nav-courses', video:'nav-courses', chat:'nav-chat', ai:'nav-ai', live:'nav-live', downloads:'nav-downloads', 'offline-downloads':'nav-offline-downloads', profile:'nav-profile', 'enrolled-detail':'nav-dashboard', 'completed-videos':'nav-dashboard', 'streak-history':'nav-dashboard', 'achievements':'nav-dashboard', 'parent-report':'nav-profile', 'help':'nav-profile', 'referral':'nav-profile', 'orders':'nav-profile', 'mall':'nav-profile', 'rate-us':'nav-profile', 'about':'nav-profile' };
 
 function navigate(page) {
   // Public API - always adds to history
@@ -745,7 +757,7 @@ function navigate(page) {
 
 // Lazy load state for lesson tabs
 var _currentLessonForTabs = null;
-var _tabDataLoaded = { quiz: false, exercise: false, streak: false, homework: false };
+var _tabDataLoaded = { quiz: false, exercise: false, streak: false, homework: false, rate: false };
 
 function switchVpTab(el, panelId) {
   el.closest('.vp-tabs').querySelectorAll('.vp-tab').forEach(t => t.classList.remove('active'));
@@ -767,6 +779,8 @@ function switchVpTab(el, panelId) {
     } else if (panelId === 'vp-homework' && !_tabDataLoaded.homework) {
       _tabDataLoaded.homework = true;
       _lazyLoadHomework(lessonId, token);
+    } else if (panelId === 'vp-rate') {
+      _initLessonRateTab();
     }
   }
 }
@@ -1708,7 +1722,7 @@ function goToNextLesson() {
   const idx = lessons.findIndex(l => l.id === currentLessonId);
   if (idx === -1 || idx >= lessons.length - 1) return;
   const next = lessons[idx + 1];
-  if (next && next.isFree) {
+  if (next && (next.isFree || !!next.videoUrl)) {
     const floatBtn = document.getElementById('next-lesson-float');
     if (floatBtn) floatBtn.style.display = 'none';
     openVideoFromBackend(courseId, moduleId, next.id);
@@ -1741,6 +1755,8 @@ async function openVideoFromBackend(courseId, moduleId, lessonId) {
     _pendingLessonComplete = lesson.id;
     // Reset AI mentor chat for new lesson
     _aiMentorHistory = [];
+    // Auto-load rate tab reviews
+    _initLessonRateTab();
     // Track last opened lesson for continue learning
     const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
     if (token) {
@@ -1798,7 +1814,7 @@ async function openVideoFromBackend(courseId, moduleId, lessonId) {
     const idx = mod.lessons.findIndex(l => l.id === lessonId);
     const nextLesson = mod.lessons[idx + 1];
     const floatBtn = document.getElementById('next-lesson-float');
-    if (floatBtn) floatBtn.style.display = (nextLesson && nextLesson.isFree) ? 'flex' : 'none';
+    if (floatBtn) floatBtn.style.display = (nextLesson && (nextLesson.isFree || !!nextLesson.videoUrl)) ? 'flex' : 'none';
 
     const notesUrl = lesson.notes || '';
     renderNotesTab(notesUrl, []);
@@ -1845,11 +1861,12 @@ async function openVideoFromBackend(courseId, moduleId, lessonId) {
       (m.lessons || []).forEach(l => {
         const isActive = l.id === lessonId;
         const isCompleted = completedLessons.includes(l.id);
+        const canAccess = course.isEnrolled || l.isFree || !!l.videoUrl;
         const item = document.createElement('div');
-        item.className = 'playlist-item' + (isActive ? ' active' : '') + (l.isFree ? '' : ' locked');
-        if (l.isFree) item.onclick = () => openVideoFromBackend(courseId, m.id, l.id);
+        item.className = 'playlist-item' + (isActive ? ' active' : '') + (canAccess ? '' : ' locked');
+        if (canAccess) item.onclick = () => openVideoFromBackend(courseId, m.id, l.id);
         item.innerHTML =
-          '<i class="fas ' + (isCompleted ? 'fa-check-circle' : (l.isFree ? 'fa-play-circle' : 'fa-lock')) + '" style="color:' + (isCompleted ? 'var(--success)' : (l.isFree ? (isActive ? '#a78bfa' : 'var(--muted)') : 'var(--danger)')) + ';font-size:0.8rem;flex-shrink:0;"></i>' +
+          '<i class="fas ' + (isCompleted ? 'fa-check-circle' : (canAccess ? 'fa-play-circle' : 'fa-lock')) + '" style="color:' + (isCompleted ? 'var(--success)' : (canAccess ? (isActive ? '#a78bfa' : 'var(--muted)') : 'var(--danger)')) + ';font-size:0.8rem;flex-shrink:0;"></i>' +
           '<span class="item-title">' + sanitize(l.title) + '</span>' +
           '<span class="item-duration">' + (l.duration || '') + '</span>';
         playlist.appendChild(item);
@@ -3209,6 +3226,303 @@ function _renderParentReport(dashData, achievements, totalCoins) {
   window._prReportData = { studentName, totalEnrolled, totalCompleted, certCount, totalCoins, streakCount, superMasterCount, masterCount, proCount, enrolledCourses, achievements, att };
 }
 
+// ─── Network Diagnostics ──────────────────────────────────────────────────────
+
+async function runNetworkDiagnostics() {
+  var iconEl = document.getElementById('net-icon');
+  var statusEl = document.getElementById('net-status-text');
+  var subEl = document.getElementById('net-status-sub');
+  var internetEl = document.getElementById('net-internet');
+  var pingEl = document.getElementById('net-ping');
+  var qualityEl = document.getElementById('net-quality');
+  if (!statusEl) return;
+
+  statusEl.textContent = 'Running diagnostics...';
+  subEl.textContent = '';
+  if (iconEl) iconEl.textContent = '🔄';
+  if (internetEl) internetEl.textContent = '...';
+  if (pingEl) pingEl.textContent = '...';
+  if (qualityEl) qualityEl.textContent = '...';
+
+  // Check internet
+  var online = navigator.onLine;
+  if (internetEl) {
+    internetEl.textContent = online ? 'Connected' : 'Offline';
+    internetEl.style.color = online ? '#22c55e' : '#ef4444';
+  }
+
+  if (!online) {
+    statusEl.textContent = 'No Internet Connection';
+    subEl.textContent = 'Check your WiFi or mobile data';
+    if (iconEl) iconEl.textContent = '❌';
+    if (pingEl) { pingEl.textContent = '—'; pingEl.style.color = 'var(--muted)'; }
+    if (qualityEl) { qualityEl.textContent = '—'; qualityEl.style.color = 'var(--muted)'; }
+    return;
+  }
+
+  // Ping server
+  try {
+    var start = performance.now();
+    var res = await fetch(BASE_URL + '/api/health');
+    var end = performance.now();
+    var ping = Math.round(end - start);
+
+    if (res.ok) {
+      if (pingEl) { pingEl.textContent = ping + 'ms'; pingEl.style.color = ping < 200 ? '#22c55e' : ping < 500 ? '#f59e0b' : '#ef4444'; }
+
+      var quality = ping < 150 ? 'Excellent' : ping < 300 ? 'Good' : ping < 600 ? 'Fair' : 'Poor';
+      var qualColor = ping < 150 ? '#22c55e' : ping < 300 ? '#4ade80' : ping < 600 ? '#f59e0b' : '#ef4444';
+      if (qualityEl) { qualityEl.textContent = quality; qualityEl.style.color = qualColor; }
+
+      statusEl.textContent = 'Connection is ' + quality;
+      subEl.textContent = 'Server responded in ' + ping + 'ms';
+      if (iconEl) iconEl.textContent = ping < 300 ? '✅' : '⚠️';
+    } else {
+      throw new Error('Server error');
+    }
+  } catch (err) {
+    if (pingEl) { pingEl.textContent = 'Failed'; pingEl.style.color = '#ef4444'; }
+    if (qualityEl) { qualityEl.textContent = 'Error'; qualityEl.style.color = '#ef4444'; }
+    statusEl.textContent = 'Cannot reach CodingKida servers';
+    subEl.textContent = 'Server may be down or your network is blocking the connection';
+    if (iconEl) iconEl.textContent = '❌';
+  }
+}
+
+// ─── My Orders ─────────────────────────────────────────────────────────────────
+
+async function loadOrdersPage() {
+  var loading = document.getElementById('orders-loading');
+  var content = document.getElementById('orders-content');
+  if (!loading || !content) return;
+  loading.style.display = 'block'; content.style.display = 'none';
+
+  var token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+  try {
+    var res = await fetch(BASE_URL + '/api/student/orders', { headers: { Authorization: 'Bearer ' + token } });
+    var data = await res.json();
+    if (!data.success) throw new Error(data.message);
+
+    loading.style.display = 'none'; content.style.display = 'block';
+    var orders = data.orders || [];
+
+    if (orders.length === 0) {
+      content.innerHTML = '<div class="card" style="text-align:center;padding:40px;"><i class="fas fa-shopping-bag" style="font-size:2rem;color:var(--muted);margin-bottom:12px;display:block;"></i><p style="color:var(--muted);">No orders yet. Enroll in a course to get started!</p></div>';
+      return;
+    }
+
+    var html = '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:20px;">' +
+      '<div class="card" style="text-align:center;padding:16px;"><div style="font-size:1.6rem;font-weight:800;color:#6c47ff;">' + data.totalOrders + '</div><div style="font-size:0.75rem;color:var(--muted);">Total Orders</div></div>' +
+      '<div class="card" style="text-align:center;padding:16px;"><div style="font-size:1.6rem;font-weight:800;color:#22c55e;">₹' + data.totalSpent + '</div><div style="font-size:0.75rem;color:var(--muted);">Total Spent</div></div>' +
+      '<div class="card" style="text-align:center;padding:16px;"><div style="font-size:1.6rem;font-weight:800;color:#f59e0b;">' + orders.filter(function(o){return o.status==='success';}).length + '</div><div style="font-size:0.75rem;color:var(--muted);">Successful</div></div>' +
+      '</div>';
+
+    html += '<div style="display:flex;flex-direction:column;gap:12px;">';
+    orders.forEach(function(o) {
+      var statusColor = o.status === 'success' ? '#22c55e' : o.status === 'failed' ? '#ef4444' : '#f59e0b';
+      var date = new Date(o.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+      html += '<div class="card" style="display:flex;align-items:center;gap:16px;padding:16px;">' +
+        '<div style="width:42px;height:42px;border-radius:12px;background:rgba(108,71,255,0.15);display:flex;align-items:center;justify-content:center;font-size:1.2rem;">📚</div>' +
+        '<div style="flex:1;"><div style="font-size:0.9rem;font-weight:700;color:#fff;">' + sanitize(o.courseTitle) + '</div><div style="font-size:0.75rem;color:var(--muted);">' + date + '</div></div>' +
+        '<div style="text-align:right;"><div style="font-size:1rem;font-weight:800;color:#fff;">₹' + o.amount + '</div><div style="font-size:0.72rem;font-weight:600;color:' + statusColor + ';text-transform:capitalize;">' + o.status + '</div></div>' +
+        '</div>';
+    });
+    html += '</div>';
+    content.innerHTML = html;
+  } catch (err) {
+    loading.innerHTML = '<p style="color:var(--muted);">Failed to load orders.</p>';
+  }
+}
+
+// ─── CK Mall ──────────────────────────────────────────────────────────────────
+
+async function loadMallPage() {
+  var loading = document.getElementById('mall-loading');
+  var content = document.getElementById('mall-content');
+  if (!loading || !content) return;
+  loading.style.display = 'block'; content.style.display = 'none';
+
+  var token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+  try {
+    var res = await fetch(BASE_URL + '/api/mall', { headers: { Authorization: 'Bearer ' + token } });
+    var data = await res.json();
+    if (!data.success) throw new Error(data.message);
+
+    loading.style.display = 'none'; content.style.display = 'block';
+
+    var html = '<div class="card" style="text-align:center;padding:20px;margin-bottom:20px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);">' +
+      '<div style="font-size:2rem;font-weight:800;color:#fbbf24;">🪙 ' + data.balance + '</div><div style="font-size:0.8rem;color:var(--muted);">Your Coin Balance</div></div>';
+
+    // Coupon input
+    html += '<div class="card" style="margin-bottom:20px;padding:20px;">' +
+      '<div style="font-weight:700;color:#fff;margin-bottom:12px;display:flex;align-items:center;gap:8px;"><i class="fas fa-tag" style="color:#6c47ff;"></i> Apply Coupon Code</div>' +
+      '<div style="display:flex;gap:10px;"><input id="mall-coupon-input" type="text" placeholder="Enter coupon code" style="flex:1;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:10px 14px;color:#fff;font-size:0.88rem;outline:none;text-transform:uppercase;" />' +
+      '<button onclick="applyCoupon()" style="background:linear-gradient(135deg,#6c47ff,#b251ff);border:none;border-radius:8px;padding:10px 20px;color:#fff;font-weight:700;cursor:pointer;">Apply</button></div>' +
+      '<div id="mall-coupon-msg" style="display:none;margin-top:8px;font-size:0.82rem;"></div></div>';
+
+    // Offers grid
+    html += '<div style="font-weight:700;color:#fff;margin-bottom:14px;display:flex;align-items:center;gap:8px;"><i class="fas fa-gift" style="color:#f59e0b;"></i> Redeem with Coins</div>';
+    html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">';
+    (data.offers || []).forEach(function(offer) {
+      var opacity = offer.available ? '1' : '0.5';
+      html += '<div class="card" style="padding:16px;opacity:' + opacity + ';">' +
+        '<div style="font-size:1.5rem;margin-bottom:8px;">' + offer.icon + '</div>' +
+        '<div style="font-size:0.88rem;font-weight:700;color:#fff;margin-bottom:4px;">' + offer.title + '</div>' +
+        '<div style="font-size:0.75rem;color:var(--muted);margin-bottom:12px;">' + offer.description + '</div>' +
+        '<button onclick="redeemOffer(\'' + offer.id + '\')" ' + (offer.available ? '' : 'disabled') + ' style="background:' + (offer.available ? 'linear-gradient(135deg,#f59e0b,#fbbf24)' : 'rgba(255,255,255,0.1)') + ';border:none;border-radius:8px;padding:8px 14px;color:' + (offer.available ? '#000' : 'var(--muted)') + ';font-size:0.78rem;font-weight:700;cursor:' + (offer.available ? 'pointer' : 'not-allowed') + ';width:100%;">🪙 ' + offer.coinsRequired + ' Coins</button>' +
+        '</div>';
+    });
+    html += '</div>';
+    content.innerHTML = html;
+  } catch (err) {
+    loading.innerHTML = '<p style="color:var(--muted);">Failed to load mall.</p>';
+  }
+}
+
+async function applyCoupon() {
+  var input = document.getElementById('mall-coupon-input');
+  var msg = document.getElementById('mall-coupon-msg');
+  if (!input || !msg) return;
+  var code = input.value.trim();
+  if (!code) { msg.style.display = 'block'; msg.style.color = '#ef4444'; msg.textContent = 'Please enter a coupon code'; return; }
+
+  var token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+  try {
+    var res = await fetch(BASE_URL + '/api/mall/redeem', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      body: JSON.stringify({ couponCode: code }),
+    });
+    var data = await res.json();
+    msg.style.display = 'block';
+    if (data.success) { msg.style.color = '#22c55e'; msg.textContent = '✅ ' + data.message + ' — ' + data.coupon.discount + '% off!'; }
+    else { msg.style.color = '#ef4444'; msg.textContent = '❌ ' + data.message; }
+  } catch { msg.style.display = 'block'; msg.style.color = '#ef4444'; msg.textContent = 'Network error'; }
+}
+
+async function redeemOffer(offerId) {
+  if (!confirm('Are you sure you want to redeem this offer?')) return;
+  var token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+  try {
+    var res = await fetch(BASE_URL + '/api/mall/redeem', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      body: JSON.stringify({ offerId: offerId }),
+    });
+    var data = await res.json();
+    if (data.success) { alert('✅ ' + data.message + '\nNew balance: ' + data.newBalance + ' coins'); loadMallPage(); }
+    else { alert('❌ ' + data.message); }
+  } catch { alert('Network error'); }
+}
+
+// ─── Rate Us ──────────────────────────────────────────────────────────────────
+
+var _selectedRating = 0;
+
+function loadRateUsPage() {
+  var container = document.getElementById('rate-stars');
+  if (!container) return;
+  _selectedRating = 0;
+  container.innerHTML = '';
+  for (var i = 1; i <= 5; i++) {
+    var star = document.createElement('span');
+    star.textContent = '☆';
+    star.dataset.value = i;
+    star.style.cssText = 'font-size:2.5rem;cursor:pointer;transition:all 0.2s;color:rgba(255,255,255,0.3);';
+    star.onclick = function() {
+      _selectedRating = parseInt(this.dataset.value);
+      container.querySelectorAll('span').forEach(function(s) {
+        s.textContent = parseInt(s.dataset.value) <= _selectedRating ? '★' : '☆';
+        s.style.color = parseInt(s.dataset.value) <= _selectedRating ? '#fbbf24' : 'rgba(255,255,255,0.3)';
+      });
+    };
+    container.appendChild(star);
+  }
+  var msg = document.getElementById('rate-msg');
+  if (msg) msg.style.display = 'none';
+
+  // Load existing app ratings
+  _loadAppRatings();
+}
+
+async function _loadAppRatings() {
+  var content = document.getElementById('rate-us-content');
+  if (!content) return;
+
+  var reviewsDiv = document.getElementById('rate-us-reviews');
+  if (!reviewsDiv) {
+    reviewsDiv = document.createElement('div');
+    reviewsDiv.id = 'rate-us-reviews';
+    reviewsDiv.style.cssText = 'margin-top:20px;max-width:500px;';
+    content.appendChild(reviewsDiv);
+  }
+  reviewsDiv.innerHTML = '<div style="text-align:center;color:var(--muted);font-size:0.82rem;padding:12px;"><i class="fas fa-spinner fa-spin"></i> Loading reviews...</div>';
+
+  try {
+    var res = await fetch(BASE_URL + '/api/feedback/lesson?lessonId=app_rating');
+    var data = await res.json();
+    if (!data.success || data.totalReviews === 0) {
+      reviewsDiv.innerHTML = '<div class="card" style="text-align:center;padding:20px;color:var(--muted);font-size:0.85rem;">No reviews yet. Be the first to rate!</div>';
+      return;
+    }
+
+    var html = '<div class="card" style="padding:20px;">';
+    html += '<div style="display:flex;align-items:center;gap:16px;margin-bottom:16px;">';
+    html += '<div style="text-align:center;"><div style="font-size:2.2rem;font-weight:800;color:#fbbf24;">' + data.avgRating + '</div><div style="font-size:0.72rem;color:var(--muted);">' + data.totalReviews + ' review' + (data.totalReviews > 1 ? 's' : '') + '</div></div>';
+    html += '<div style="flex:1;">';
+    for (var s = 5; s >= 1; s--) {
+      var count = data.ratingCounts[s] || 0;
+      var pct = data.totalReviews > 0 ? Math.round(count / data.totalReviews * 100) : 0;
+      html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">';
+      html += '<span style="font-size:0.7rem;color:var(--muted);width:14px;">' + s + '★</span>';
+      html += '<div style="flex:1;height:5px;background:rgba(255,255,255,0.08);border-radius:3px;overflow:hidden;"><div style="width:' + pct + '%;height:100%;background:#fbbf24;border-radius:3px;"></div></div>';
+      html += '<span style="font-size:0.68rem;color:var(--muted);width:20px;text-align:right;">' + count + '</span>';
+      html += '</div>';
+    }
+    html += '</div></div>';
+
+    // Show recent reviews
+    if (data.reviews && data.reviews.length > 0) {
+      html += '<div style="border-top:1px solid rgba(255,255,255,0.06);margin-top:14px;padding-top:14px;">';
+      html += '<div style="font-weight:700;font-size:0.85rem;color:#fff;margin-bottom:10px;">Recent Reviews</div>';
+      data.reviews.slice(0, 8).forEach(function(r) {
+        var stars = '';
+        for (var i = 1; i <= 5; i++) stars += i <= r.rating ? '★' : '☆';
+        var date = new Date(r.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+        html += '<div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.04);">';
+        html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">';
+        html += '<span style="font-size:0.8rem;font-weight:600;color:#fff;">' + sanitize(r.studentName) + '</span>';
+        html += '<span style="font-size:0.7rem;color:var(--muted);">' + date + '</span></div>';
+        html += '<div style="font-size:0.75rem;color:#fbbf24;margin-bottom:3px;">' + stars + '</div>';
+        if (r.feedback) html += '<div style="font-size:0.78rem;color:rgba(255,255,255,0.6);">' + sanitize(r.feedback) + '</div>';
+        html += '</div>';
+      });
+      html += '</div>';
+    }
+    html += '</div>';
+    reviewsDiv.innerHTML = html;
+  } catch { reviewsDiv.innerHTML = ''; }
+}
+
+async function submitRating() {
+  if (_selectedRating === 0) { alert('Please select a rating'); return; }
+  var feedback = (document.getElementById('rate-feedback') || {}).value || '';
+  var msg = document.getElementById('rate-msg');
+  var token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+
+  try {
+    var res = await fetch(BASE_URL + '/api/feedback', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      body: JSON.stringify({ rating: _selectedRating, feedback: feedback, lessonId: 'app_rating', lessonTitle: 'App Rating' }),
+    });
+    var data = await res.json();
+    if (msg) {
+      msg.style.display = 'block';
+      msg.style.color = data.success ? '#22c55e' : '#ef4444';
+      msg.textContent = data.success ? '🎉 Thank you for your feedback!' : '❌ ' + data.message;
+    }
+    if (data.success) _loadAppRatings();
+  } catch { if (msg) { msg.style.display = 'block'; msg.style.color = '#ef4444'; msg.textContent = 'Network error'; } }
+}
+
 // ─── Help & Support ───────────────────────────────────────────────────────────
 
 var _helpFaqs = [
@@ -3860,6 +4174,126 @@ function renderHomeworkTab(homeworks) {
   html += '<p style="color:var(--muted);font-size:0.75rem;text-align:center;margin-top:12px;"><i class="fas fa-info-circle"></i> Practice problems — no submission required</p>';
   html += '</div>';
   el.innerHTML = html;
+}
+
+// ─── Lesson Rating Tab ────────────────────────────────────────────────────────
+
+var _lessonRating = 0;
+
+function _initLessonRateTab() {
+  _lessonRating = 0;
+  var container = document.getElementById('vp-rate-stars');
+  if (!container) return;
+  container.innerHTML = '';
+  for (var i = 1; i <= 5; i++) {
+    var star = document.createElement('span');
+    star.textContent = '☆';
+    star.dataset.value = i;
+    star.style.cssText = 'font-size:2.2rem;cursor:pointer;transition:all 0.2s;color:rgba(255,255,255,0.3);';
+    star.onclick = function() {
+      _lessonRating = parseInt(this.dataset.value);
+      container.querySelectorAll('span').forEach(function(s) {
+        s.textContent = parseInt(s.dataset.value) <= _lessonRating ? '★' : '☆';
+        s.style.color = parseInt(s.dataset.value) <= _lessonRating ? '#fbbf24' : 'rgba(255,255,255,0.3)';
+      });
+    };
+    container.appendChild(star);
+  }
+  var msg = document.getElementById('vp-rate-msg');
+  if (msg) msg.style.display = 'none';
+  var fb = document.getElementById('vp-rate-feedback');
+  if (fb) fb.value = '';
+
+  // Load existing reviews for this lesson
+  _loadLessonReviews();
+}
+
+async function _loadLessonReviews() {
+  var lessonId = _currentVideoData ? _currentVideoData.lessonId : null;
+  if (!lessonId) return;
+
+  var panel = document.getElementById('vp-rate');
+  if (!panel) return;
+
+  // Find or create reviews container
+  var reviewsDiv = document.getElementById('vp-rate-reviews');
+  if (!reviewsDiv) {
+    reviewsDiv = document.createElement('div');
+    reviewsDiv.id = 'vp-rate-reviews';
+    reviewsDiv.style.cssText = 'margin-top:16px;';
+    panel.querySelector('.tab-card').appendChild(reviewsDiv);
+  }
+  reviewsDiv.innerHTML = '<div style="text-align:center;color:var(--muted);font-size:0.82rem;padding:12px;"><i class="fas fa-spinner fa-spin"></i> Loading reviews...</div>';
+
+  try {
+    var res = await fetch(BASE_URL + '/api/feedback/lesson?lessonId=' + lessonId);
+    var data = await res.json();
+    if (!data.success) { reviewsDiv.innerHTML = ''; return; }
+
+    var html = '';
+
+    // Rating summary
+    if (data.totalReviews > 0) {
+      html += '<div style="border-top:1px solid rgba(255,255,255,0.06);padding-top:16px;margin-top:16px;">';
+      html += '<div style="display:flex;align-items:center;gap:16px;margin-bottom:16px;">';
+      html += '<div style="text-align:center;"><div style="font-size:2rem;font-weight:800;color:#fbbf24;">' + data.avgRating + '</div><div style="font-size:0.72rem;color:var(--muted);">' + data.totalReviews + ' review' + (data.totalReviews > 1 ? 's' : '') + '</div></div>';
+      html += '<div style="flex:1;">';
+      for (var s = 5; s >= 1; s--) {
+        var count = data.ratingCounts[s] || 0;
+        var pct = data.totalReviews > 0 ? Math.round(count / data.totalReviews * 100) : 0;
+        html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">';
+        html += '<span style="font-size:0.7rem;color:var(--muted);width:14px;">' + s + '★</span>';
+        html += '<div style="flex:1;height:5px;background:rgba(255,255,255,0.08);border-radius:3px;overflow:hidden;"><div style="width:' + pct + '%;height:100%;background:#fbbf24;border-radius:3px;"></div></div>';
+        html += '<span style="font-size:0.68rem;color:var(--muted);width:20px;text-align:right;">' + count + '</span>';
+        html += '</div>';
+      }
+      html += '</div></div>';
+
+      // Reviews list
+      html += '<div style="font-weight:700;font-size:0.88rem;color:#fff;margin-bottom:10px;">Student Reviews</div>';
+      data.reviews.slice(0, 10).forEach(function(r) {
+        var stars = '';
+        for (var i = 1; i <= 5; i++) stars += i <= r.rating ? '★' : '☆';
+        var date = new Date(r.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+        html += '<div style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.04);">';
+        html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">';
+        html += '<span style="font-size:0.82rem;font-weight:600;color:#fff;">' + sanitize(r.studentName) + '</span>';
+        html += '<span style="font-size:0.72rem;color:var(--muted);">' + date + '</span>';
+        html += '</div>';
+        html += '<div style="font-size:0.78rem;color:#fbbf24;margin-bottom:4px;">' + stars + '</div>';
+        if (r.feedback) html += '<div style="font-size:0.8rem;color:rgba(255,255,255,0.6);line-height:1.5;">' + sanitize(r.feedback) + '</div>';
+        html += '</div>';
+      });
+      html += '</div>';
+    } else {
+      html += '<div style="border-top:1px solid rgba(255,255,255,0.06);padding:16px 0;text-align:center;color:var(--muted);font-size:0.82rem;">No reviews yet. Be the first to rate!</div>';
+    }
+
+    reviewsDiv.innerHTML = html;
+  } catch { reviewsDiv.innerHTML = ''; }
+}
+
+async function submitLessonRating() {
+  if (_lessonRating === 0) { alert('Please select a star rating'); return; }
+  var feedback = (document.getElementById('vp-rate-feedback') || {}).value || '';
+  var msg = document.getElementById('vp-rate-msg');
+  var token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+  var lessonId = _currentVideoData ? _currentVideoData.lessonId : null;
+  var lessonTitle = _currentVideoData ? _currentVideoData.title : '';
+
+  try {
+    var res = await fetch(BASE_URL + '/api/feedback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      body: JSON.stringify({ rating: _lessonRating, feedback: feedback, lessonId: lessonId, lessonTitle: lessonTitle }),
+    });
+    var data = await res.json();
+    if (msg) {
+      msg.style.display = 'block';
+      msg.style.color = data.success ? '#22c55e' : '#ef4444';
+      msg.textContent = data.success ? '🎉 Thank you! Your rating has been submitted.' : '❌ ' + (data.message || 'Failed');
+    }
+  } catch { if (msg) { msg.style.display = 'block'; msg.style.color = '#ef4444'; msg.textContent = 'Network error'; } }
 }
 
 // ─── Achievements Page ───────────────────────────────────────────────────────
