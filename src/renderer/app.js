@@ -695,6 +695,7 @@ function _navigateInternal(page, addToHistory) {
   if (page === 'orders') loadOrdersPage();
   if (page === 'mall') loadMallPage();
   if (page === 'rate-us') loadRateUsPage();
+  if (page === 'student-progress') loadStudentProgress();
 
   // Refresh dashboard data when navigating to profile
   if (page === 'profile' || page === 'dashboard') {
@@ -708,6 +709,7 @@ function _navigateInternal(page, addToHistory) {
       loadParentReport();
       loadReferralPage();
       loadHelpPage();
+      loadStudentProgress();
     }
     // Fetch weekly streak count once on dashboard load
     if (page === 'dashboard' && t) {
@@ -746,9 +748,9 @@ function _navigateInternal(page, addToHistory) {
   }
 }
 
-const appPages = ['dashboard','courses','course-detail','video','chat','ai','live','downloads','offline-downloads','profile','enrolled-detail','completed-videos','streak-history','achievements','parent-report','help','referral','orders','mall','rate-us','about'];
+const appPages = ['dashboard','courses','course-detail','video','chat','ai','live','downloads','offline-downloads','profile','enrolled-detail','completed-videos','streak-history','achievements','parent-report','help','referral','orders','mall','rate-us','about','student-progress'];
 const authPages = ['login','signup'];
-const sidebarMap = { dashboard:'nav-dashboard', courses:'nav-courses', 'course-detail':'nav-courses', video:'nav-courses', chat:'nav-chat', ai:'nav-ai', live:'nav-live', downloads:'nav-downloads', 'offline-downloads':'nav-offline-downloads', profile:'nav-profile', 'enrolled-detail':'nav-dashboard', 'completed-videos':'nav-dashboard', 'streak-history':'nav-dashboard', 'achievements':'nav-dashboard', 'parent-report':'nav-profile', 'help':'nav-profile', 'referral':'nav-profile', 'orders':'nav-profile', 'mall':'nav-profile', 'rate-us':'nav-profile', 'about':'nav-profile' };
+const sidebarMap = { dashboard:'nav-dashboard', courses:'nav-courses', 'course-detail':'nav-courses', video:'nav-courses', chat:'nav-chat', ai:'nav-ai', live:'nav-live', downloads:'nav-downloads', 'offline-downloads':'nav-offline-downloads', profile:'nav-profile', 'enrolled-detail':'nav-dashboard', 'completed-videos':'nav-dashboard', 'streak-history':'nav-dashboard', 'achievements':'nav-dashboard', 'parent-report':'nav-profile', 'help':'nav-profile', 'referral':'nav-profile', 'orders':'nav-profile', 'mall':'nav-profile', 'rate-us':'nav-profile', 'about':'nav-profile', 'student-progress':'nav-profile' };
 
 function navigate(page) {
   // Public API - always adds to history
@@ -4343,4 +4345,157 @@ async function showAchievements() {
   } catch {
     container.innerHTML = '<p style="color:var(--danger)">Failed to load achievements.</p>';
   }
+}
+
+// ─── Student Progress Feature ──────────────────────────────────────────────
+
+async function loadStudentProgress() {
+  var loading = document.getElementById('student-progress-loading');
+  var content = document.getElementById('student-progress-content');
+  if (!loading || !content) return;
+
+  loading.style.display = 'block';
+  content.style.display = 'none';
+
+  var token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+  if (!token) {
+    loading.innerHTML = '<p style="color:var(--muted)">Please log in to view progress.</p>';
+    return;
+  }
+
+  try {
+    var res = await fetch(BASE_URL + '/api/student/progress', {
+      headers: { Authorization: 'Bearer ' + token },
+    });
+    var data = await res.json();
+    if (!data.success) throw new Error(data.message || 'Failed to load progress.');
+
+    loading.style.display = 'none';
+    content.style.display = 'block';
+    _renderStudentProgress(data);
+  } catch (err) {
+    loading.innerHTML = '<div style="text-align:center;padding:40px;">' +
+      '<i class="fas fa-exclamation-circle" style="font-size:2rem;color:var(--danger);margin-bottom:12px;display:block;"></i>' +
+      '<p style="color:var(--muted)">' + sanitize(err.message || 'Failed to load progress.') + '</p>' +
+      '<button class="btn btn-outline btn-sm" onclick="loadStudentProgress()" style="margin-top:12px;">Retry</button></div>';
+  }
+}
+
+function _renderStars(rating) {
+  var html = '';
+  for (var i = 1; i <= 5; i++) {
+    html += '<i class="fas fa-star" style="color:' + (i <= rating ? '#fbbf24' : 'rgba(255,255,255,0.15)') + ';font-size:1.2rem;"></i>';
+  }
+  return html;
+}
+
+function _renderStudentProgress(data) {
+  var content = document.getElementById('student-progress-content');
+  if (!content) return;
+
+  // Overall Rating Card
+  var overallHtml = '<div style="background:linear-gradient(135deg,rgba(108,71,255,0.15),rgba(236,72,153,0.1));border:1px solid rgba(108,71,255,0.3);border-radius:20px;padding:28px;margin-bottom:24px;">' +
+    '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;">' +
+    '<div>' +
+    '<div style="font-size:0.8rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Overall Student Rating</div>' +
+    '<div style="display:flex;align-items:center;gap:8px;">' + _renderStars(data.overallRating) + '<span style="font-size:1.8rem;font-weight:800;color:#fff;margin-left:8px;">' + data.overallRating + '/5</span></div>' +
+    '<div style="font-size:0.78rem;color:var(--muted);margin-top:6px;">Based on quiz accuracy (70%) + exercise completion (30%) · Score: ' + data.overallScore + '%</div>' +
+    '</div>' +
+    '<div style="display:flex;gap:12px;">' +
+    '<div style="text-align:center;padding:12px 16px;background:rgba(255,255,255,0.05);border-radius:12px;cursor:pointer;" onclick="document.getElementById(\'sp-rating-detail\').style.display=document.getElementById(\'sp-rating-detail\').style.display===\'none\'?\'block\':\'none\'">' +
+    '<div style="font-size:1.3rem;font-weight:800;color:#fff;">' + data.totalLessonsCompleted + '/' + data.totalLessons + '</div>' +
+    '<div style="font-size:0.7rem;color:var(--muted);">Lessons Done</div></div>' +
+    '<div style="text-align:center;padding:12px 16px;background:rgba(255,255,255,0.05);border-radius:12px;">' +
+    '<div style="font-size:1.3rem;font-weight:800;color:#fff;">' + data.courses.length + '</div>' +
+    '<div style="font-size:0.7rem;color:var(--muted);">Courses</div></div>' +
+    '</div></div>' +
+    // Rating breakdown (click to expand)
+    '<div id="sp-rating-detail" style="display:none;margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,0.1);">' +
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">' +
+    // Quiz rating
+    '<div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:14px;padding:16px;">' +
+    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;"><i class="fas fa-brain" style="color:#a78bfa;"></i><span style="font-weight:700;color:#fff;font-size:0.9rem;">Quiz Rating</span></div>' +
+    '<div style="margin-bottom:8px;">' + _renderStars(data.ratingBreakdown.quiz.rating) + ' <span style="color:#fff;font-weight:700;">' + data.ratingBreakdown.quiz.rating + '/5</span></div>' +
+    '<div style="font-size:0.78rem;color:var(--muted);line-height:1.8;">' +
+    'Accuracy: <strong style="color:#4ade80;">' + data.ratingBreakdown.quiz.accuracy + '%</strong><br/>' +
+    'Total Quizzes: ' + data.ratingBreakdown.quiz.totalQuizzes + '<br/>' +
+    'Attempted: ' + data.ratingBreakdown.quiz.attempted + '<br/>' +
+    'Correct: ' + data.ratingBreakdown.quiz.correct +
+    '</div></div>' +
+    // Exercise rating
+    '<div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:14px;padding:16px;">' +
+    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;"><i class="fas fa-code" style="color:#22c55e;"></i><span style="font-weight:700;color:#fff;font-size:0.9rem;">Exercise Rating</span></div>' +
+    '<div style="margin-bottom:8px;">' + _renderStars(data.ratingBreakdown.exercise.rating) + ' <span style="color:#fff;font-weight:700;">' + data.ratingBreakdown.exercise.rating + '/5</span></div>' +
+    '<div style="font-size:0.78rem;color:var(--muted);line-height:1.8;">' +
+    'Pass Rate: <strong style="color:#4ade80;">' + data.ratingBreakdown.exercise.passRate + '%</strong><br/>' +
+    'Total Exercises: ' + data.ratingBreakdown.exercise.totalExercises + '<br/>' +
+    'Attempted: ' + data.ratingBreakdown.exercise.attempted + '<br/>' +
+    'Passed: ' + data.ratingBreakdown.exercise.passed +
+    '</div></div>' +
+    '</div></div>' +
+    '</div>';
+
+  // Per-course progress
+  var coursesHtml = '';
+  data.courses.forEach(function(course) {
+    coursesHtml += '<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:16px;margin-bottom:16px;overflow:hidden;">' +
+      // Course header
+      '<div onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display===\'none\'?\'block\':\'none\';this.querySelector(\'.sp-chevron\').classList.toggle(\'fa-chevron-down\');this.querySelector(\'.sp-chevron\').classList.toggle(\'fa-chevron-up\')" style="padding:18px 20px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;">' +
+      '<div style="display:flex;align-items:center;gap:14px;">' +
+      '<div style="width:42px;height:42px;border-radius:12px;background:' + (course.color || 'linear-gradient(135deg,#6c47ff,#ec4899)') + ';display:flex;align-items:center;justify-content:center;"><i class="' + (course.icon || 'fas fa-book') + '" style="color:#fff;font-size:1rem;"></i></div>' +
+      '<div><div style="font-size:1rem;font-weight:700;color:#fff;">' + sanitize(course.title) + '</div>' +
+      '<div style="font-size:0.75rem;color:var(--muted);">' + course.lessonsCompleted + '/' + course.totalLessons + ' lessons · Quiz: ' + course.quiz.accuracy + '% · Progress: ' + course.progressPercent + '%</div></div></div>' +
+      '<i class="fas fa-chevron-down sp-chevron" style="color:var(--muted);font-size:0.8rem;"></i>' +
+      '</div>' +
+      // Course content (modules + lessons) - collapsed by default
+      '<div style="display:none;padding:0 20px 20px;">';
+
+    // Course quiz/exercise summary
+    coursesHtml += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px;">' +
+      '<div style="background:rgba(108,71,255,0.1);border-radius:10px;padding:12px;text-align:center;"><div style="font-size:1.1rem;font-weight:800;color:#fff;">' + course.quiz.attempted + '/' + course.quiz.total + '</div><div style="font-size:0.68rem;color:var(--muted);">Quizzes Done</div></div>' +
+      '<div style="background:rgba(34,197,94,0.1);border-radius:10px;padding:12px;text-align:center;"><div style="font-size:1.1rem;font-weight:800;color:#fff;">' + course.exercise.passed + '/' + course.exercise.total + '</div><div style="font-size:0.68rem;color:var(--muted);">Exercises Passed</div></div>' +
+      '<div style="background:rgba(245,158,11,0.1);border-radius:10px;padding:12px;text-align:center;"><div style="font-size:1.1rem;font-weight:800;color:#fff;">' + course.quiz.accuracy + '%</div><div style="font-size:0.68rem;color:var(--muted);">Quiz Accuracy</div></div>' +
+      '</div>';
+
+    // Modules
+    course.modules.forEach(function(mod) {
+      coursesHtml += '<div style="margin-bottom:12px;">' +
+        '<div style="font-size:0.8rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;padding-left:4px;">' + sanitize(mod.title) + '</div>';
+
+      // Lessons
+      mod.lessons.forEach(function(lesson) {
+        var quizBadge = lesson.quiz.total > 0
+          ? '<span style="font-size:0.68rem;padding:2px 8px;border-radius:6px;background:' + (lesson.quiz.accuracy !== null && lesson.quiz.accuracy >= 70 ? 'rgba(34,197,94,0.15);color:#4ade80' : 'rgba(245,158,11,0.15);color:#fbbf24') + ';">Quiz: ' + (lesson.quiz.accuracy !== null ? lesson.quiz.accuracy + '%' : 'Not taken') + '</span>'
+          : '';
+        var exerciseBadge = lesson.exercise.total > 0
+          ? '<span style="font-size:0.68rem;padding:2px 8px;border-radius:6px;background:' + (lesson.exercise.passed > 0 ? 'rgba(34,197,94,0.15);color:#4ade80' : 'rgba(239,68,68,0.15);color:#f87171') + ';">Ex: ' + lesson.exercise.passed + '/' + lesson.exercise.total + '</span>'
+          : '';
+        var achieveBadge = lesson.achievements.length > 0
+          ? lesson.achievements.map(function(a) { return '<span style="font-size:0.68rem;padding:2px 8px;border-radius:6px;background:rgba(251,191,36,0.15);color:#fbbf24;">' + (a.badgeType === 'super-master' ? '🏆' : a.badgeType === 'master' ? '🥈' : '⭐') + '</span>'; }).join('')
+          : '';
+        var hwBadge = lesson.homeworkCount > 0
+          ? '<span style="font-size:0.68rem;padding:2px 8px;border-radius:6px;background:rgba(236,72,153,0.15);color:#ec4899;">HW: ' + lesson.homeworkCount + '</span>'
+          : '';
+
+        coursesHtml += '<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.05);border-radius:10px;margin-bottom:6px;">' +
+          '<i class="fas ' + (lesson.completed ? 'fa-check-circle' : 'fa-circle') + '" style="color:' + (lesson.completed ? '#22c55e' : 'rgba(255,255,255,0.2)') + ';font-size:0.8rem;flex-shrink:0;"></i>' +
+          '<div style="flex:1;min-width:0;">' +
+          '<div style="font-size:0.82rem;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + sanitize(lesson.title) + '</div>' +
+          '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">' + quizBadge + exerciseBadge + hwBadge + achieveBadge + '</div>' +
+          '</div>' +
+          '<span style="font-size:0.7rem;color:var(--muted);flex-shrink:0;">' + (lesson.duration || '') + '</span>' +
+          '</div>';
+      });
+
+      coursesHtml += '</div>';
+    });
+
+    coursesHtml += '</div></div>';
+  });
+
+  if (data.courses.length === 0) {
+    coursesHtml = '<div style="text-align:center;padding:40px;"><i class="fas fa-book-open" style="font-size:2rem;color:var(--muted);margin-bottom:12px;display:block;"></i><p style="color:var(--muted);">No enrolled courses yet. Start learning to see your progress!</p></div>';
+  }
+
+  content.innerHTML = overallHtml + '<div style="font-size:1.1rem;font-weight:800;color:#fff;margin-bottom:16px;">Course-wise Progress</div>' + coursesHtml;
 }
