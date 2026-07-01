@@ -1,0 +1,189 @@
+/* ═══════════════════════════════════════════════════════
+   CodingKida — Coding Playground Page Styles
+   LeetCode/GFG-style split panel layout
+   ═══════════════════════════════════════════════════════ */
+
+.coding-pg-container {
+  display: flex;
+  height: 100%;
+  min-height: calc(100vh - 64px);
+  overflow: hidden;
+}
+
+/* Left Panel: Problem List */
+.coding-pg-left {
+  width: 340px;
+  min-width: 280px;
+  border-right: 1px solid rgba(255,255,255,0.06);
+  display: flex;
+  flex-direction: column;
+  background: rgba(0,0,0,0.2);
+  height: 100%;
+  overflow: hidden;
+}
+
+.coding-pg-left-header {
+  padding: 16px 16px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+.coding-pg-left-header h3 {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #fff;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.coding-pg-add-btn {
+  width: 30px; height: 30px;
+  border-radius: 8px;
+  background: rgba(108,71,255,0.15);
+  border: 1px solid rgba(108,71,255,0.3);
+  color: #a78bfa;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-size: 0.75rem;
+}
+.coding-pg-add-btn:hover {
+  background: rgba(108,71,255,0.25);
+  color: #fff;
+}
+
+/* Filters */
+.coding-pg-filters {
+  padding: 10px 16px;
+  display: flex;
+  gap: 8px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+
+.coding-pg-filters select {
+  flex: 1;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  padding: 6px 10px;
+  color: #fff;
+  font-size: 0.75rem;
+  outline: none;
+  cursor: pointer;
+}
+.coding-pg-filters select option {
+  background: #1a1a2e;
+  color: #fff;
+}
+
+/* Add Problem Modal - Dropdown Options */
+#pg-add-cat option,
+#pg-add-diff option {
+  background: #1a1a2e;
+  color: #fff;
+}
+
+/* Tabs */
+.coding-pg-tabs {
+  display: flex;
+  padding: 0 16px;
+  gap: 2px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.coding-pg-tab {
+  padding: 10px 14px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.15s;
+}
+.coding-pg-tab:hover { color: #fff; }
+.coding-pg-tab.active {
+  color: #a78bfa;
+  border-bottom-color: #a78bfa;
+}
+
+/* Problem List */
+.coding-pg-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.coding-pg-item {
+  padding: 12px 14px;
+  border-radius: 10px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  transition: all 0.15s;
+  border: 1px solid transparent;
+  margin-bottom: 4px;
+}
+.coding-pg-item:hover {
+  background: rgba(255,255,255,0.04);
+  border-color: rgba(255,255,255,0.06);
+}
+.coding-pg-item.active {
+  background: rgba(108,71,255,0.1);
+  border-color: rgba(108,71,255,0.25);
+}
+
+.coding-pg-item-num {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--muted);
+  min-width: 24px;
+}
+.coding-pg-item-info { flex: 1; }
+.coding-pg-item-title {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #fff;
+  margin-bottom: 2px;
+}
+.coding-pg-item-meta {
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+.coding-pg-diff {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 10px;
+  text-transform: uppercase;
+}
+.coding-pg-diff-easy { background: rgba(34,197,94,0.15); color: #22c55e; }
+.coding-pg-diff-medium { background: rgba(245,158,11,0.15); color: #f59e0b; }
+.coding-pg-diff-hard { background: rgba(239,68,68,0.15); color: #ef4444; }
+
+/* Right Panel */
+.coding-pg-right {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.coding-pg-welcome {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.coding-pg-editor-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding: 16px;
+}

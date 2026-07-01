@@ -696,6 +696,16 @@ function _navigateInternal(page, addToHistory) {
   if (page === 'mall') loadMallPage();
   if (page === 'rate-us') loadRateUsPage();
   if (page === 'student-progress') loadStudentProgress();
+  if (page === 'coding' && typeof codingPgInit === 'function') {
+    // Ensure page-coding is inside main-content (fixes placement issue)
+    var pgEl = document.getElementById('page-coding');
+    var mc = document.querySelector('.main-content');
+    if (pgEl && mc && pgEl.parentElement !== mc) {
+      mc.appendChild(pgEl);
+    }
+    codingPgInit();
+    if (mc) mc.scrollTop = 0;
+  }
 
   // Refresh dashboard data when navigating to profile
   if (page === 'profile' || page === 'dashboard') {
@@ -748,9 +758,9 @@ function _navigateInternal(page, addToHistory) {
   }
 }
 
-const appPages = ['dashboard','courses','course-detail','video','chat','ai','live','downloads','offline-downloads','profile','enrolled-detail','completed-videos','streak-history','achievements','parent-report','help','referral','orders','mall','rate-us','about','student-progress'];
+const appPages = ['dashboard','courses','course-detail','video','chat','ai','live','downloads','offline-downloads','profile','enrolled-detail','completed-videos','streak-history','achievements','parent-report','help','referral','orders','mall','rate-us','about','student-progress','coding'];
 const authPages = ['login','signup'];
-const sidebarMap = { dashboard:'nav-dashboard', courses:'nav-courses', 'course-detail':'nav-courses', video:'nav-courses', chat:'nav-chat', ai:'nav-ai', live:'nav-live', downloads:'nav-downloads', 'offline-downloads':'nav-offline-downloads', profile:'nav-profile', 'enrolled-detail':'nav-dashboard', 'completed-videos':'nav-dashboard', 'streak-history':'nav-dashboard', 'achievements':'nav-dashboard', 'parent-report':'nav-profile', 'help':'nav-profile', 'referral':'nav-profile', 'orders':'nav-profile', 'mall':'nav-profile', 'rate-us':'nav-profile', 'about':'nav-profile', 'student-progress':'nav-profile' };
+const sidebarMap = { dashboard:'nav-dashboard', courses:'nav-courses', 'course-detail':'nav-courses', video:'nav-courses', chat:'nav-chat', ai:'nav-ai', live:'nav-live', downloads:'nav-downloads', 'offline-downloads':'nav-offline-downloads', profile:'nav-profile', 'enrolled-detail':'nav-dashboard', 'completed-videos':'nav-dashboard', 'streak-history':'nav-dashboard', 'achievements':'nav-dashboard', 'parent-report':'nav-profile', 'help':'nav-profile', 'referral':'nav-profile', 'orders':'nav-profile', 'mall':'nav-profile', 'rate-us':'nav-profile', 'about':'nav-profile', 'student-progress':'nav-profile','coding':'nav-coding' };
 
 function navigate(page) {
   // Public API - always adds to history
@@ -1054,10 +1064,12 @@ async function submitExerciseAnswer(exIndex) {
     const exerciseId = exerciseCards[idx] ? exerciseCards[idx].dataset.exerciseid || '' : '';
 
     if (exerciseId && courseId && _token) {
+      // Read language from data attribute (set by coding editor)
+      const language = codeInput.getAttribute('data-language') || null;
       const res = await fetch(BASE_URL + '/api/exercise', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + _token },
-        body: JSON.stringify({ exerciseId, code, courseId }),
+        body: JSON.stringify({ exerciseId, code, courseId, language }),
       });
       const data = await res.json();
       if (data.success) {
@@ -1070,9 +1082,20 @@ async function submitExerciseAnswer(exIndex) {
           result.innerHTML = '<i class="fas fa-exclamation-triangle"></i> ' + (data.message || 'Not quite right. Keep trying!');
           codeInput.style.borderColor = 'rgba(245,158,11,0.4)';
         }
+        // Update coding output console (for coding exercises)
+        var codingOutput = document.getElementById('coding-output-' + idx);
+        if (codingOutput) {
+          if (data.passed) {
+            codingOutput.innerHTML = '<span class="coding-output-success"><i class="fas fa-check-circle"></i> ' + sanitize(data.message || 'Correct! Well done! 🎉') + '</span>';
+          } else {
+            codingOutput.innerHTML = '<span class="coding-output-error"><i class="fas fa-times-circle"></i> ' + sanitize(data.message || 'Not quite right. Keep trying!') + '</span>';
+          }
+        }
       } else {
         result.style.color = '#22c55e';
         result.innerHTML = '<i class="fas fa-check-circle"></i> Solution submitted!';
+        var codingOutput2 = document.getElementById('coding-output-' + idx);
+        if (codingOutput2) codingOutput2.innerHTML = '<span class="coding-output-success"><i class="fas fa-check-circle"></i> Solution submitted!</span>';
       }
     } else {
       // No server validation possible — mark as submitted
@@ -1270,6 +1293,27 @@ function renderExerciseTab(exerciseData) {
   }
 
   exercises.forEach((exercise, exIndex) => {
+    // Check if this is a coding exercise — render full coding interface + link button
+    if (exercise.type === 'coding') {
+      html += '<div class="exercise-card" data-exerciseid="' + (exercise.id || '') + '" style="margin-bottom:20px; padding-bottom:20px;' + (exIndex < exercises.length - 1 ? ' border-bottom:1px solid rgba(255,255,255,0.06);' : '') + '">';
+      if (exercises.length > 1) {
+        html += '<div style="font-size:0.75rem; font-weight:700; color:#a78bfa; margin-bottom:8px; text-transform:uppercase; letter-spacing:0.5px;">Exercise ' + (exIndex + 1) + ' of ' + exercises.length + '</div>';
+      }
+      // "Practice in Code Editor" button — links to Code Editor page
+      html += '<div style="margin-bottom:14px;">';
+      html += '  <button onclick="codingPgOpenFromExercise(\'' + (exercise.id || '') + '\')" style="background:linear-gradient(135deg,#6c47ff,#b251ff);border:none;border-radius:10px;padding:10px 18px;color:#fff;font-size:0.82rem;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:8px;transition:all 0.15s;" onmouseover="this.style.transform=\'translateY(-1px)\';this.style.boxShadow=\'0 4px 15px rgba(108,71,255,0.4)\'" onmouseout="this.style.transform=\'translateY(0)\';this.style.boxShadow=\'none\'">';
+      html += '    <i class="fas fa-external-link-alt"></i> Practice in Code Editor →';
+      html += '  </button>';
+      html += '</div>';
+      html += renderCodingExercise(exercise, exIndex);
+      // Hidden textarea for backward-compatible submission
+      html += '<textarea id="exercise-code-input-' + exIndex + '" style="display:none;"></textarea>';
+      html += '<div id="exercise-submit-result-' + exIndex + '" style="display:none; margin-top:10px; font-size:0.85rem;"></div>';
+      html += '</div>';
+      return;
+    }
+
+    // Default: theory exercise (existing behavior)
     html += '<div class="exercise-card" data-exerciseid="' + (exercise.id || '') + '" style="margin-bottom:20px; padding-bottom:20px;' + (exIndex < exercises.length - 1 ? ' border-bottom:1px solid rgba(255,255,255,0.06);' : '') + '">';
     if (exercises.length > 1) {
       html += '<div style="font-size:0.75rem; font-weight:700; color:#a78bfa; margin-bottom:8px; text-transform:uppercase; letter-spacing:0.5px;">Exercise ' + (exIndex + 1) + ' of ' + exercises.length + (exercise.difficulty ? ' · ' + exercise.difficulty : '') + '</div>';
@@ -1825,6 +1869,9 @@ async function openVideoFromBackend(courseId, moduleId, lessonId) {
     // Store lesson context for lazy fetch
     _currentLessonForTabs = { lessonId: lesson.id, courseId: courseId };
     _tabDataLoaded = { quiz: false, exercise: false, streak: false, homework: false };
+
+    // Cleanup any previous Monaco editor instances
+    if (typeof codingCleanupEditors === 'function') codingCleanupEditors();
 
     // Show placeholder in tabs (will be replaced on tab click)
     renderQuizTab(null);
