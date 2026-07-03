@@ -538,7 +538,15 @@ function codingPgRun() {
       if (data.status === 'compilation_error') { h += '<div class="coding-output-status coding-status-error">Compilation Error</div><pre class="coding-output-pre coding-output-error-text">' + sanitize(data.compile_output) + '</pre>'; }
       else if (data.status === 'runtime_error') { h += '<div class="coding-output-status coding-status-error">Runtime Error</div><pre class="coding-output-pre coding-output-error-text">' + sanitize(data.stderr) + '</pre>'; }
       else if (data.status === 'time_limit') { h += '<div class="coding-output-status coding-status-warning">Time Limit Exceeded</div>'; }
-      else { h += '<div class="coding-output-status coding-status-success">Executed Successfully</div><pre class="coding-output-pre">' + sanitize(data.stdout || '(no output)') + '</pre>'; }
+      else {
+        h += '<div class="coding-output-status coding-status-success">Executed Successfully</div><pre class="coding-output-pre">' + sanitize(data.stdout || '(no output)') + '</pre>';
+        if (data.time != null || data.memory != null) {
+          h += '<div style="display:flex;gap:12px;margin-top:8px;padding:6px 10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:8px;">';
+          if (data.time != null) h += '<span style="font-size:0.72rem;color:#22c55e;font-weight:600;">⏱ ' + parseFloat(data.time).toFixed(3) + 's</span>';
+          if (data.memory != null) h += '<span style="font-size:0.72rem;color:#60a5fa;font-weight:600;">💾 ' + (data.memory >= 1024 ? (data.memory / 1024).toFixed(1) + ' MB' : data.memory + ' KB') + '</span>';
+          h += '</div>';
+        }
+      }
       if (outputEl) outputEl.innerHTML = h;
     } else { if (outputEl) outputEl.innerHTML = '<span class="coding-output-error"><i class="fas fa-exclamation-circle"></i> ' + sanitize(data.message) + '</span>'; }
   })
