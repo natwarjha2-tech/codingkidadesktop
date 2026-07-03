@@ -163,8 +163,41 @@ function codingPgSelectProblem(problemId) {
   if (welcome) welcome.style.display = 'none';
   if (editorArea) editorArea.style.display = 'flex';
 
+  // Auto-collapse left panel for full-screen coding workspace
+  var leftPanel = document.getElementById('coding-pg-left');
+  if (leftPanel) {
+    leftPanel.style.width = '0';
+    leftPanel.style.minWidth = '0';
+    leftPanel.style.padding = '0';
+    leftPanel.style.overflow = 'hidden';
+    leftPanel.style.borderRight = 'none';
+    leftPanel.style.transition = 'all 0.25s ease';
+  }
+
   // Render the coding interface for this problem
   codingPgRenderEditor(problem);
+}
+
+/**
+ * Toggle left panel visibility (VS Code style sidebar toggle)
+ */
+function codingPgToggleLeftPanel() {
+  var leftPanel = document.getElementById('coding-pg-left');
+  if (!leftPanel) return;
+  var isCollapsed = leftPanel.style.width === '0' || leftPanel.style.width === '0px';
+  if (isCollapsed) {
+    leftPanel.style.width = '320px';
+    leftPanel.style.minWidth = '280px';
+    leftPanel.style.padding = '';
+    leftPanel.style.overflow = 'hidden';
+    leftPanel.style.borderRight = '1px solid rgba(255,255,255,0.08)';
+  } else {
+    leftPanel.style.width = '0';
+    leftPanel.style.minWidth = '0';
+    leftPanel.style.padding = '0';
+    leftPanel.style.overflow = 'hidden';
+    leftPanel.style.borderRight = 'none';
+  }
 }
 
 /**
@@ -184,11 +217,11 @@ function codingPgRenderEditor(problem) {
 
   var html = '';
 
-  // Horizontal split container
-  html += '<div style="display:flex;gap:12px;height:100%;min-height:70vh;">';
+  // Horizontal split container — proper flex split pane (LeetCode style)
+  html += '<div id="coding-pg-split-container" style="display:flex;height:100%;width:100%;overflow:hidden;">';
 
   // ═══ LEFT: Problem Description ═══
-  html += '<div style="width:40%;min-width:280px;overflow-y:auto;padding-right:12px;border-right:1px solid rgba(255,255,255,0.06);">';
+  html += '<div id="coding-pg-desc-panel" style="flex:none;width:38%;min-width:150px;max-width:65%;overflow-y:auto;padding:12px 8px 12px 12px;user-select:text;cursor:text;">';
 
   // Problem Header
   html += '<div class="coding-header">';
@@ -279,12 +312,16 @@ function codingPgRenderEditor(problem) {
 
   html += '</div>'; // End left panel
 
-  // ═══ RIGHT: Code Editor ═══
-  html += '<div style="flex:1;display:flex;flex-direction:column;overflow-y:auto;">';
+  // ── Resize Handle (Description ↔ Editor) — vertical drag ──
+  html += '<div id="coding-pg-vresize" style="flex:none;width:5px;cursor:col-resize;background:rgba(255,255,255,0.04);border-left:1px solid rgba(255,255,255,0.08);border-right:1px solid rgba(255,255,255,0.08);" onmouseenter="this.style.background=\'rgba(108,71,255,0.5)\'" onmouseleave="this.style.background=\'rgba(255,255,255,0.04)\'" onmousedown="codingPgStartResize(event)"></div>';
 
-  // Toolbar
+  // ═══ RIGHT: Code Editor ═══
+  html += '<div style="flex:1;min-width:0;width:0;display:flex;flex-direction:column;overflow:hidden;padding-left:4px;">';
+
+  // Toolbar with toggle button
   html += '<div class="coding-toolbar">';
   html += '  <div class="coding-toolbar-left">';
+  html += '    <button onclick="codingPgToggleLeftPanel()" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:5px 8px;color:#94a3b8;cursor:pointer;font-size:0.7rem;margin-right:8px;" title="Toggle Problem List (Ctrl+B)"><i class="fas fa-bars"></i></button>';
   html += '    <select id="coding-pg-lang" class="coding-lang-select" onchange="codingPgChangeLang()">';
   CODING_LANGUAGES.forEach(function(lang) {
     var sel = lang.id === defaultLang ? ' selected' : '';
@@ -298,22 +335,29 @@ function codingPgRenderEditor(problem) {
   html += '  </div>';
   html += '</div>';
 
-  // Monaco container
-  html += '<div class="coding-editor-wrap" style="flex:1;display:flex;flex-direction:column;">';
+  // Monaco container — flex:1 fills remaining height between toolbar and bottom panels
+  html += '<div class="coding-editor-wrap" style="flex:1;display:flex;flex-direction:column;min-height:0;">';
   html += '  <div class="coding-editor-header">';
   html += '    <span class="coding-editor-filename" id="coding-pg-filename"><i class="fas fa-code"></i> solution' + langObj.extension + '</span>';
   html += '    <span class="coding-editor-info" id="coding-pg-cursor">Ln 1, Col 1</span>';
   html += '  </div>';
-  html += '  <div id="coding-pg-monaco" class="coding-monaco-container" style="height:100%;min-height:180px;flex:1;"></div>';
+  html += '  <div id="coding-pg-monaco" class="coding-monaco-container" style="flex:1;min-height:0;"></div>';
   html += '</div>';
 
-  // Custom Input
+  // Bottom panels — scrollable area for input/output/history
+  html += '<div style="flex:none;overflow-y:auto;max-height:45%;min-height:160px;">';
+
+  // Custom Input — auto-load first sample input
+  var firstSampleInput = '';
+  var visibleTCsForInput = (problem.testCases || []).filter(function(tc) { return !tc.isHidden; });
+  if (visibleTCsForInput.length > 0) firstSampleInput = visibleTCsForInput[0].input || '';
+
   html += '<div class="coding-input-section">';
   html += '  <div class="coding-input-header" onclick="codingPgToggleInput()">';
   html += '    <span><i class="fas fa-terminal"></i> Custom Input</span>';
-  html += '    <span id="coding-pg-input-toggle">▶</span>';
+  html += '    <span id="coding-pg-input-toggle">▼</span>';
   html += '  </div>';
-  html += '  <textarea id="coding-pg-stdin" class="coding-input-textarea" style="display:none;" placeholder="Enter input..."></textarea>';
+  html += '  <textarea id="coding-pg-stdin" class="coding-input-textarea" style="display:block;" placeholder="Enter input...">' + sanitize(firstSampleInput) + '</textarea>';
   html += '</div>';
 
   // Output
@@ -323,14 +367,15 @@ function codingPgRenderEditor(problem) {
   html += '  <div id="coding-pg-output" class="coding-output-console"><span class="coding-output-placeholder">Run your code to see output...</span></div>';
   html += '</div>';
 
-  // Submission History (always visible, scrollable)
+  // Submission History
   html += '<div style="margin-top:8px;border:1px solid rgba(255,255,255,0.06);border-radius:10px;overflow:hidden;">';
   html += '  <div style="padding:8px 12px;background:rgba(255,255,255,0.02);border-bottom:1px solid rgba(255,255,255,0.04);font-size:0.78rem;font-weight:700;color:var(--muted);display:flex;align-items:center;gap:6px;"><i class="fas fa-history"></i> Submission History</div>';
-  html += '  <div id="coding-pg-history-body" style="padding:8px;">';
+  html += '  <div id="coding-pg-history-body" style="padding:8px;max-height:110px;overflow-y:auto;">';
   html += '    <span style="color:var(--muted);font-size:0.78rem;font-style:italic;">No submissions yet.</span>';
   html += '  </div>';
   html += '</div>';
 
+  html += '</div>'; // End bottom panels
   html += '</div>'; // End right panel (editor)
   html += '</div>'; // End horizontal split container
 
@@ -871,4 +916,50 @@ function codingPgRenderScore() {
   }
 
   listEl.innerHTML = html + '<div style="height:16px;"></div>';
+}
+
+// ═══════════════════════════════════════════════════════
+// RESIZABLE PANELS (VS Code style drag handles)
+// ═══════════════════════════════════════════════════════
+
+/**
+ * Start vertical resize (Description ↔ Editor width)
+ */
+function codingPgStartResize(e) {
+  e.preventDefault();
+  var descPanel = document.getElementById('coding-pg-desc-panel');
+  var container = document.getElementById('coding-pg-split-container');
+  if (!descPanel || !container) return;
+
+  var startX = e.clientX;
+  var startWidth = descPanel.getBoundingClientRect().width;
+  var containerWidth = container.getBoundingClientRect().width;
+
+  // Highlight divider during drag
+  var divider = document.getElementById('coding-pg-vresize');
+  if (divider) divider.style.background = 'rgba(108,71,255,0.6)';
+
+  function onMove(ev) {
+    var dx = ev.clientX - startX;
+    var newWidth = Math.max(150, Math.min(startWidth + dx, containerWidth * 0.65));
+    descPanel.style.flex = 'none';
+    descPanel.style.width = newWidth + 'px';
+    if (_pgEditorInstance) {
+      requestAnimationFrame(function() { _pgEditorInstance.layout(); });
+    }
+  }
+
+  function onUp() {
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    if (divider) divider.style.background = 'rgba(255,255,255,0.04)';
+    if (_pgEditorInstance) _pgEditorInstance.layout();
+  }
+
+  document.body.style.cursor = 'col-resize';
+  document.body.style.userSelect = 'none';
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
 }

@@ -1260,7 +1260,7 @@
 <!-- CODING PLAYGROUND PAGE -->
 <div id="page-coding" class="page" style="padding:0 !important;overflow:hidden;height:calc(100vh - 48px);">
   <div style="display:flex;height:100%;">
-    <div style="width:320px;min-width:280px;border-right:1px solid rgba(255,255,255,0.08);display:flex;flex-direction:column;background:#12101f;height:100%;overflow:hidden;" id="coding-pg-left">
+    <div style="width:320px;min-width:280px;border-right:1px solid rgba(255,255,255,0.08);display:flex;flex-direction:column;background:#12101f;height:100%;overflow:hidden;transition:all 0.25s ease;" id="coding-pg-left">
       <div style="padding:14px 16px;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:space-between;">
         <h3 style="font-size:0.95rem;font-weight:700;color:#fff;margin:0;display:flex;align-items:center;gap:8px;"><i class="fas fa-laptop-code" style="color:#a78bfa;"></i> Coding Practice</h3>
         <button onclick="codingPgShowAddModal()" title="Add your own problem" style="width:28px;height:28px;border-radius:8px;background:rgba(108,71,255,0.15);border:1px solid rgba(108,71,255,0.3);color:#a78bfa;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:0.7rem;"><i class="fas fa-plus"></i></button>
@@ -1278,7 +1278,7 @@
     </div>
     <div style="flex:1;display:flex;flex-direction:column;overflow:hidden;height:100%;" id="coding-pg-right">
       <div id="coding-pg-welcome" style="flex:1;display:flex;align-items:center;justify-content:center;"><div style="text-align:center;padding:60px 40px;"><div style="font-size:3rem;margin-bottom:16px;">🖥️</div><h2 style="color:#fff;font-size:1.4rem;font-weight:800;margin-bottom:8px;">Select a Problem</h2><p style="color:#94a3b8;font-size:0.9rem;line-height:1.6;">Choose a problem from the left panel to start coding.<br>Practice makes perfect!</p></div></div>
-      <div id="coding-pg-editor-area" style="display:none;flex:1;overflow-y:scroll;padding:12px;height:100%;"></div>
+      <div id="coding-pg-editor-area" style="display:none;flex:1;overflow:hidden;height:100%;"></div>
     </div>
   </div>
 </div>
