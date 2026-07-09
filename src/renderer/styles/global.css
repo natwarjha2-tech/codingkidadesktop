@@ -142,7 +142,7 @@ body {
 .user-role { font-size: 0.72rem; color: var(--muted); }
 
 /* ===== MAIN CONTENT ===== */
-.main-content { flex: 1; overflow-y: auto; background: var(--dark); }
+.main-content { flex: 1; overflow-y: auto; background: var(--dark); height: 100vh; }
 .page { display: none; padding: 32px; }
 .page.active { display: block; }
 

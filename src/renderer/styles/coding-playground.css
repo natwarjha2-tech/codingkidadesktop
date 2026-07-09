@@ -187,3 +187,16 @@
   overflow-y: auto;
   padding: 16px;
 }
+
+/* Description panel — text content gets text cursor, scrollbar area gets default arrow */
+#coding-pg-desc-panel .coding-header,
+#coding-pg-desc-panel .coding-description,
+#coding-pg-desc-panel .coding-samples,
+#coding-pg-desc-panel .coding-hint,
+#coding-pg-desc-panel pre,
+#coding-pg-desc-panel p,
+#coding-pg-desc-panel div:not(#coding-pg-desc-panel) {
+  cursor: text;
+}
+
+/* Bottom panel toggle is now in the toolbar — no separate div needed */

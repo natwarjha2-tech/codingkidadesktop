@@ -16,6 +16,7 @@ var _pgMyProblems = [];     // User's custom problems (localStorage)
 var _pgActiveTab = 'all';   // 'all' | 'my'
 var _pgActiveProblem = null; // Currently selected problem
 var _pgEditorInstance = null; // Monaco editor for playground
+var _pgBottomPanelVisible = true; // Bottom panel (input/output/history) visible
 
 // ═══════════════════════════════════════════════════════
 // INITIALIZATION — called when page navigates to 'coding'
@@ -221,7 +222,7 @@ function codingPgRenderEditor(problem) {
   html += '<div id="coding-pg-split-container" style="display:flex;height:100%;width:100%;overflow:hidden;">';
 
   // ═══ LEFT: Problem Description ═══
-  html += '<div id="coding-pg-desc-panel" style="flex:none;width:38%;min-width:150px;max-width:65%;overflow-y:auto;padding:12px 8px 12px 12px;user-select:text;cursor:text;">';
+  html += '<div id="coding-pg-desc-panel" style="flex:none;width:38%;min-width:150px;max-width:65%;overflow-y:auto;padding:12px 8px 12px 12px;user-select:text;cursor:default;">';
 
   // Problem Header
   html += '<div class="coding-header">';
@@ -330,6 +331,8 @@ function codingPgRenderEditor(problem) {
   html += '    </select>';
   html += '  </div>';
   html += '  <div class="coding-toolbar-right">';
+  html += '    <button onclick="codingPgFormatCode()" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:5px 10px;color:#94a3b8;cursor:pointer;font-size:0.7rem;font-weight:600;display:flex;align-items:center;gap:4px;transition:all 0.15s;" onmouseover="this.style.background=\'rgba(34,197,94,0.15)\';this.style.color=\'#22c55e\';this.style.borderColor=\'rgba(34,197,94,0.3)\'" onmouseout="this.style.background=\'rgba(255,255,255,0.05)\';this.style.color=\'#94a3b8\';this.style.borderColor=\'rgba(255,255,255,0.1)\'" title="Format Code (Ctrl+Shift+F)"><i class="fas fa-magic"></i> Format</button>';
+  html += '    <button id="coding-pg-bottom-toggle-btn" onclick="codingPgToggleBottomPanel()" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:5px 10px;color:#94a3b8;cursor:pointer;font-size:0.7rem;font-weight:600;display:flex;align-items:center;gap:4px;transition:all 0.15s;" onmouseover="this.style.background=\'rgba(108,71,255,0.15)\';this.style.color=\'#a78bfa\';this.style.borderColor=\'rgba(108,71,255,0.3)\'" onmouseout="this.style.background=\'rgba(255,255,255,0.05)\';this.style.color=\'#94a3b8\';this.style.borderColor=\'rgba(255,255,255,0.1)\'" title="Toggle Bottom Panel"><i class="fas fa-terminal"></i> <span id="coding-pg-toggle-text">Hide Panel</span></button>';
   html += '    <button class="coding-btn coding-btn-run" id="coding-pg-run-btn" onclick="codingPgRun()"><i class="fas fa-play"></i> Run</button>';
   html += '    <button class="coding-btn coding-btn-submit" id="coding-pg-submit-btn" onclick="codingPgSubmit()"><i class="fas fa-paper-plane"></i> Submit</button>';
   html += '  </div>';
@@ -345,7 +348,7 @@ function codingPgRenderEditor(problem) {
   html += '</div>';
 
   // Bottom panels — scrollable area for input/output/history
-  html += '<div style="flex:none;overflow-y:auto;max-height:45%;min-height:160px;">';
+  html += '<div id="coding-pg-bottom-panels" style="flex:none;overflow-y:auto;max-height:45%;min-height:160px;">';
 
   // Custom Input — auto-load first sample input
   var firstSampleInput = '';
@@ -456,12 +459,14 @@ function codingPgInitMonaco(langId, starterCode) {
       if (el) el.textContent = 'Ln ' + e.position.lineNumber + ', Col ' + e.position.column;
     });
 
-    // Auto-save code on change
+    // Auto-save code on change + trigger compile check
     _pgEditorInstance.onDidChangeModelContent(function() {
       var pid = _pgActiveProblem ? _pgActiveProblem.id : '';
       var select = document.getElementById('coding-pg-lang');
       var lid = select ? select.value : langId;
       if (pid) pgSaveCode(pid, lid, _pgEditorInstance.getValue());
+      // Real-time syntax error detection (debounced)
+      codingPgScheduleCompileCheck();
     });
   }).catch(function() {
     container.innerHTML = '<textarea id="coding-pg-fallback" class="coding-editor-textarea" spellcheck="false" placeholder="// Write your code here...">' + sanitize(starterCode || '') + '</textarea>';
@@ -619,7 +624,18 @@ function codingPgSubmit() {
           if (award.awarded) {
             var toast = '<div style="margin-top:10px;padding:10px 14px;background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.3);border-radius:10px;font-size:0.82rem;color:#22c55e;font-weight:600;">🎉 +' + award.points + ' points | +' + award.coins + ' coins earned!</div>';
             if (outputEl) outputEl.innerHTML += toast;
+            // Show streak bonus toast if earned
+            if (award.streakBonus) {
+              var streakToast = '<div style="margin-top:6px;padding:10px 14px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:10px;font-size:0.82rem;color:#fbbf24;font-weight:600;">🔥 7-Day Streak Complete! +10 bonus coins awarded!</div>';
+              if (outputEl) outputEl.innerHTML += streakToast;
+            }
           }
+          // Show "View Best Solution" button after successful submit
+          var viewBtn = '<div style="margin-top:8px;"><button onclick="codingPgViewBestSolution()" style="background:rgba(108,71,255,0.15);border:1px solid rgba(108,71,255,0.3);border-radius:8px;padding:8px 14px;color:#a78bfa;font-size:0.78rem;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px;"><i class="fas fa-eye"></i> View Best Solution</button></div>';
+          if (outputEl) outputEl.innerHTML += viewBtn;
+
+          // Submit to leaderboard (non-blocking)
+          codingPgSubmitToLeaderboard(_pgActiveProblem.id, _pgActiveProblem.title);
         }
 
         // Save submission to localStorage + refresh history
@@ -648,6 +664,127 @@ function codingPgToggleInput() {
 function codingPgClearOutput() {
   var el = document.getElementById('coding-pg-output');
   if (el) el.innerHTML = '<span class="coding-output-placeholder">Run your code to see output...</span>';
+}
+
+/**
+ * Toggle bottom panel (Custom Input / Output / Submission History)
+ * When hidden, code editor takes full height
+ */
+function codingPgToggleBottomPanel() {
+  _pgBottomPanelVisible = !_pgBottomPanelVisible;
+  var bottomPanel = document.getElementById('coding-pg-bottom-panels');
+  var toggleText = document.getElementById('coding-pg-toggle-text');
+  if (bottomPanel) {
+    bottomPanel.style.display = _pgBottomPanelVisible ? '' : 'none';
+  }
+  if (toggleText) {
+    toggleText.textContent = _pgBottomPanelVisible ? 'Hide Panel' : 'Show Panel';
+  }
+  // Relayout Monaco editor to fill available space
+  if (_pgEditorInstance) {
+    setTimeout(function() { _pgEditorInstance.layout(); }, 50);
+  }
+}
+
+/**
+ * Format code in the editor
+ * Uses Monaco's built-in formatter for JS, custom indent-based for C/Java/Python
+ */
+function codingPgFormatCode() {
+  if (!_pgEditorInstance) return;
+
+  var select = document.getElementById('coding-pg-lang');
+  var langId = select ? select.value : 'c';
+
+  // Try Monaco's built-in format action first (works well for JS)
+  if (langId === 'javascript') {
+    var formatAction = _pgEditorInstance.getAction('editor.action.formatDocument');
+    if (formatAction) {
+      formatAction.run();
+      return;
+    }
+  }
+
+  // Custom formatter for C/Java/Python — indent-based
+  var code = _pgEditorInstance.getValue();
+  var formatted = _pgFormatIndent(code, langId);
+  if (formatted !== code) {
+    _pgEditorInstance.setValue(formatted);
+  }
+}
+
+/**
+ * Custom indent-based code formatter
+ * Handles bracket-based languages (C, Java) and Python
+ */
+function _pgFormatIndent(code, langId) {
+  if (!code || !code.trim()) return code;
+
+  if (langId === 'python') {
+    // Python: normalize indentation (spaces only), remove trailing whitespace per line
+    var pyLines = code.split('\n');
+    var result = [];
+    for (var i = 0; i < pyLines.length; i++) {
+      // Replace tabs with 4 spaces, trim trailing whitespace
+      result.push(pyLines[i].replace(/\t/g, '    ').replace(/\s+$/, ''));
+    }
+    // Remove multiple consecutive blank lines
+    var final = [];
+    var prevBlank = false;
+    for (var j = 0; j < result.length; j++) {
+      var isBlank = result[j].trim() === '';
+      if (isBlank && prevBlank) continue;
+      final.push(result[j]);
+      prevBlank = isBlank;
+    }
+    return final.join('\n');
+  }
+
+  // C / Java — bracket-based indentation formatter
+  var lines = code.split('\n');
+  var indent = 0;
+  var formatted = [];
+  var indentStr = '    '; // 4 spaces
+
+  for (var k = 0; k < lines.length; k++) {
+    var line = lines[k].trim();
+    if (!line) { formatted.push(''); continue; }
+
+    // Decrease indent before closing braces
+    var closingFirst = /^[}\]]/.test(line);
+    if (closingFirst && indent > 0) indent--;
+
+    // Apply current indentation
+    var prefix = '';
+    for (var p = 0; p < indent; p++) prefix += indentStr;
+    formatted.push(prefix + line);
+
+    // Count braces to adjust indent for next line
+    var opens = (line.match(/[{]/g) || []).length;
+    var closes = (line.match(/[}]/g) || []).length;
+    indent += opens - closes;
+    // Re-add closing that was subtracted at start
+    if (closingFirst) indent += 0; // already handled
+    else indent = indent; // no change needed
+
+    if (indent < 0) indent = 0;
+  }
+
+  // Remove multiple consecutive blank lines (keep max 1)
+  var collapsed = [];
+  var wasPrevBlank = false;
+  for (var m = 0; m < formatted.length; m++) {
+    var isEmpty = formatted[m].trim() === '';
+    if (isEmpty && wasPrevBlank) continue;
+    collapsed.push(formatted[m]);
+    wasPrevBlank = isEmpty;
+  }
+  // Remove trailing blank lines
+  while (collapsed.length > 0 && collapsed[collapsed.length - 1].trim() === '') {
+    collapsed.pop();
+  }
+
+  return collapsed.join('\n');
 }
 
 /**
@@ -817,6 +954,7 @@ function codingScoreAward(problemId, problemTitle, difficulty, language) {
   if (!data.totalPoints) data.totalPoints = 0;
   if (!data.totalCoins) data.totalCoins = 0;
   if (!data.submissionCalendar) data.submissionCalendar = {};
+  if (!data.streakRewards) data.streakRewards = [];
 
   // Check if already solved
   var alreadySolved = data.solvedProblems.find(function(p) { return p.problemId === problemId; });
@@ -843,6 +981,9 @@ function codingScoreAward(problemId, problemTitle, difficulty, language) {
   var today = new Date().toISOString().split('T')[0];
   data.submissionCalendar[today] = (data.submissionCalendar[today] || 0) + 1;
 
+  // Check 7-day streak and award bonus
+  var streakBonus = _pgCheckStreakBonus(data);
+
   codingScoreSave(data);
 
   // Award coins on server (non-blocking)
@@ -853,9 +994,80 @@ function codingScoreAward(problemId, problemTitle, difficulty, language) {
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
       body: JSON.stringify({ problemId: problemId, problemTitle: problemTitle, difficulty: difficulty, points: points, coins: coins }),
     }).catch(function() {});
+
+    // Award streak bonus on server if earned
+    if (streakBonus) {
+      fetch(BASE_URL + '/api/coding-score/earn', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+        body: JSON.stringify({ problemId: 'streak_bonus_' + today, problemTitle: '7-Day Streak Bonus', difficulty: 'streak', points: 0, coins: 10 }),
+      }).catch(function() {});
+    }
   }
 
-  return { awarded: true, points: points, coins: coins };
+  return { awarded: true, points: points, coins: coins, streakBonus: streakBonus };
+}
+
+/**
+ * Check if user has completed a 7-day streak and award 10 bonus coins
+ * Returns true if bonus was awarded, false otherwise
+ */
+function _pgCheckStreakBonus(data) {
+  var calendar = data.submissionCalendar || {};
+  var today = new Date();
+  var streak = 0;
+
+  // Count consecutive days backwards from today
+  for (var d = 0; d < 30; d++) {
+    var checkDate = new Date(today);
+    checkDate.setDate(checkDate.getDate() - d);
+    var key = checkDate.toISOString().split('T')[0];
+    if (calendar[key] && calendar[key] > 0) {
+      streak++;
+    } else {
+      break;
+    }
+  }
+
+  // If streak is exactly 7 (or multiple of 7), check if already rewarded
+  if (streak >= 7 && streak % 7 === 0) {
+    var streakEndDate = today.toISOString().split('T')[0];
+    var streakStartDate = new Date(today);
+    streakStartDate.setDate(streakStartDate.getDate() - 6);
+    var streakKey = streakStartDate.toISOString().split('T')[0] + '_to_' + streakEndDate;
+
+    if (!data.streakRewards) data.streakRewards = [];
+    if (data.streakRewards.indexOf(streakKey) === -1) {
+      // Award 10 bonus coins
+      data.streakRewards.push(streakKey);
+      data.totalCoins += 10;
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Get current streak count (consecutive days with submissions)
+ */
+function _pgGetCurrentStreak() {
+  var data = codingScoreGet();
+  var calendar = data.submissionCalendar || {};
+  var today = new Date();
+  var streak = 0;
+
+  for (var d = 0; d < 365; d++) {
+    var checkDate = new Date(today);
+    checkDate.setDate(checkDate.getDate() - d);
+    var key = checkDate.toISOString().split('T')[0];
+    if (calendar[key] && calendar[key] > 0) {
+      streak++;
+    } else {
+      break;
+    }
+  }
+  return streak;
 }
 
 /**
@@ -880,6 +1092,28 @@ function codingPgRenderScore() {
   html += '  <div style="font-size:0.9rem;color:#fbbf24;font-weight:700;">🪙 ' + totalCoins + ' coins earned</div>';
   html += '</div>';
 
+  // 7-Day Streak Card
+  var currentStreak = _pgGetCurrentStreak();
+  var streakProgress = Math.min(currentStreak, 7);
+  html += '<div style="margin:0 4px 12px;padding:12px 14px;background:rgba(245,158,11,0.06);border:1px solid rgba(245,158,11,0.15);border-radius:12px;">';
+  html += '  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">';
+  html += '    <span style="font-size:0.78rem;font-weight:700;color:#fbbf24;display:flex;align-items:center;gap:5px;">🔥 Current Streak: ' + currentStreak + ' day' + (currentStreak !== 1 ? 's' : '') + '</span>';
+  if (currentStreak >= 7) {
+    html += '    <span style="font-size:0.65rem;font-weight:700;color:#22c55e;background:rgba(34,197,94,0.15);padding:2px 8px;border-radius:8px;">✅ Streak Active!</span>';
+  } else {
+    html += '    <span style="font-size:0.65rem;color:#94a3b8;">' + (7 - streakProgress) + ' more to bonus</span>';
+  }
+  html += '  </div>';
+  // Streak progress bar (7 dots)
+  html += '  <div style="display:flex;gap:4px;align-items:center;">';
+  for (var sd = 0; sd < 7; sd++) {
+    var filled = sd < streakProgress;
+    html += '<div style="flex:1;height:6px;border-radius:3px;background:' + (filled ? 'linear-gradient(90deg,#f59e0b,#fbbf24)' : 'rgba(255,255,255,0.08)') + ';"></div>';
+  }
+  html += '  </div>';
+  html += '  <div style="font-size:0.65rem;color:#94a3b8;margin-top:6px;">Complete 7 consecutive days → +10 bonus coins 🪙</div>';
+  html += '</div>';
+
   // Submission Heatmap
   var year = new Date().getFullYear();
   var totalSubs = Object.values(calendar).reduce(function(s, v) { return s + v; }, 0);
@@ -897,7 +1131,7 @@ function codingPgRenderScore() {
   html += '  </div>';
   html += '</div>';
 
-  // Solved Problems List
+  // Solved Problems List with Leaderboard button
   if (solved.length === 0) {
     html += '<div style="text-align:center;padding:30px;color:#94a3b8;"><div style="font-size:1.5rem;margin-bottom:8px;">📊</div><div style="font-size:0.82rem;">No problems solved yet.<br>Start solving to earn points!</div></div>';
   } else {
@@ -913,11 +1147,14 @@ function codingPgRenderScore() {
       html += '    <span style="font-size:0.8rem;font-weight:700;color:#fff;">✅ ' + sanitize(s.title) + '</span>';
       html += '    <span style="font-size:0.65rem;font-weight:700;padding:2px 6px;border-radius:8px;background:' + dc + '20;color:' + dc + ';border:1px solid ' + dc + '40;">' + s.difficulty.toUpperCase() + '</span>';
       html += '  </div>';
-      html += '  <div style="display:flex;align-items:center;gap:10px;font-size:0.7rem;color:#94a3b8;">';
-      html += '    <span style="color:#a78bfa;font-weight:600;">+' + s.points + 'pts</span>';
-      html += '    <span style="color:#fbbf24;font-weight:600;">+' + s.coins + '🪙</span>';
-      html += '    <span>' + (s.language || '').toUpperCase() + '</span>';
-      html += '    <span>' + dateStr + '</span>';
+      html += '  <div style="display:flex;align-items:center;justify-content:space-between;">';
+      html += '    <div style="display:flex;align-items:center;gap:10px;font-size:0.7rem;color:#94a3b8;">';
+      html += '      <span style="color:#a78bfa;font-weight:600;">+' + s.points + 'pts</span>';
+      html += '      <span style="color:#fbbf24;font-weight:600;">+' + s.coins + '🪙</span>';
+      html += '      <span>' + (s.language || '').toUpperCase() + '</span>';
+      html += '      <span>' + dateStr + '</span>';
+      html += '    </div>';
+      html += '    <button onclick="codingPgShowLeaderboard(\'' + s.problemId + '\')" style="background:rgba(108,71,255,0.1);border:1px solid rgba(108,71,255,0.25);border-radius:6px;padding:3px 8px;color:#a78bfa;font-size:0.65rem;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:3px;" onmouseover="this.style.background=\'rgba(108,71,255,0.2)\'" onmouseout="this.style.background=\'rgba(108,71,255,0.1)\'">🏆 Rank</button>';
       html += '  </div>';
       html += '</div>';
     });
@@ -970,4 +1207,279 @@ function codingPgStartResize(e) {
   document.body.style.userSelect = 'none';
   document.addEventListener('mousemove', onMove);
   document.addEventListener('mouseup', onUp);
+}
+
+// ═══════════════════════════════════════════════════════
+// REAL-TIME SYNTAX ERROR DETECTION (VS Code style)
+// Debounced compile-check on every code change
+// ═══════════════════════════════════════════════════════
+
+var _pgCompileCheckTimer = null;
+
+/**
+ * Trigger compile check after 2 seconds of no typing
+ * Called from Monaco onDidChangeModelContent
+ */
+function codingPgScheduleCompileCheck() {
+  clearTimeout(_pgCompileCheckTimer);
+  _pgCompileCheckTimer = setTimeout(function() {
+    codingPgRunCompileCheck();
+  }, 2000);
+}
+
+/**
+ * Send code to /api/code/compile-check and show errors in Monaco
+ */
+function codingPgRunCompileCheck() {
+  if (!_pgEditorInstance || !window.monaco) return;
+
+  var code = _pgEditorInstance.getValue();
+  if (!code || code.trim().length < 5) {
+    // Clear markers if code is too short
+    var model = _pgEditorInstance.getModel();
+    if (model) window.monaco.editor.setModelMarkers(model, 'compile-check', []);
+    return;
+  }
+
+  var select = document.getElementById('coding-pg-lang');
+  var langId = select ? select.value : 'c';
+  var langObj = CODING_LANGUAGES.find(function(l) { return l.id === langId; });
+  if (!langObj) return;
+
+  // Skip for Python/JS (interpreted — no compile errors)
+  if (langObj.judge0Id === 71 || langObj.judge0Id === 63) {
+    var model = _pgEditorInstance.getModel();
+    if (model) window.monaco.editor.setModelMarkers(model, 'compile-check', []);
+    return;
+  }
+
+  var token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+  if (!token) return;
+
+  fetch(BASE_URL + '/api/code/compile-check', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+    body: JSON.stringify({ source_code: code, language_id: langObj.judge0Id }),
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (!_pgEditorInstance || !window.monaco) return;
+    var model = _pgEditorInstance.getModel();
+    if (!model) return;
+
+    if (data.success && data.has_errors && data.errors && data.errors.length > 0) {
+      // Set Monaco markers (red/yellow underlines)
+      var markers = data.errors.map(function(err) {
+        return {
+          severity: err.severity === 'warning' ? window.monaco.MarkerSeverity.Warning : window.monaco.MarkerSeverity.Error,
+          startLineNumber: err.line || 1,
+          startColumn: err.column || 1,
+          endLineNumber: err.line || 1,
+          endColumn: (err.column || 1) + 20,
+          message: err.message || 'Syntax error',
+          source: 'CodingKida Compiler',
+        };
+      });
+      window.monaco.editor.setModelMarkers(model, 'compile-check', markers);
+    } else {
+      // Clear markers — no errors
+      window.monaco.editor.setModelMarkers(model, 'compile-check', []);
+    }
+  })
+  .catch(function() {
+    // Silently fail — don't disrupt user
+  });
+}
+
+// ═══════════════════════════════════════════════════════
+// BEST SOLUTION VIEWER + QUALITY COMPARISON
+// ═══════════════════════════════════════════════════════
+
+/**
+ * Show "View Best Solution" popup for current problem
+ */
+function codingPgViewBestSolution() {
+  if (!_pgActiveProblem) return;
+
+  var token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+  fetch(BASE_URL + '/api/coding-problems/best-solution?problemId=' + _pgActiveProblem.id, {
+    headers: token ? { 'Authorization': 'Bearer ' + token } : {},
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.success && data.solution) {
+      var s = data.solution;
+      var html = '<div style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.8);z-index:9999;display:flex;align-items:center;justify-content:center;" id="best-solution-modal" onclick="if(event.target===this)this.remove()">';
+      html += '<div style="background:#1a1a2e;border:1px solid rgba(108,71,255,0.3);border-radius:16px;padding:24px;width:600px;max-height:80vh;overflow-y:auto;">';
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">';
+      html += '  <h3 style="color:#fff;font-size:1.1rem;margin:0;">🏆 Best Solution — ' + sanitize(_pgActiveProblem.title) + '</h3>';
+      html += '  <button onclick="document.getElementById(\'best-solution-modal\').remove()" style="background:rgba(255,255,255,0.1);border:none;border-radius:50%;width:28px;height:28px;color:#fff;cursor:pointer;font-size:0.9rem;">✕</button>';
+      html += '</div>';
+      // Complexity badges
+      html += '<div style="display:flex;gap:12px;margin-bottom:14px;">';
+      html += '  <span style="font-size:0.78rem;font-weight:700;background:rgba(34,197,94,0.1);color:#22c55e;padding:4px 10px;border-radius:8px;border:1px solid rgba(34,197,94,0.2);">⏱ Time: ' + sanitize(s.timeComplexity) + '</span>';
+      html += '  <span style="font-size:0.78rem;font-weight:700;background:rgba(96,165,250,0.1);color:#60a5fa;padding:4px 10px;border-radius:8px;border:1px solid rgba(96,165,250,0.2);">💾 Space: ' + sanitize(s.spaceComplexity) + '</span>';
+      html += '  <span style="font-size:0.78rem;font-weight:600;background:rgba(255,255,255,0.05);color:#94a3b8;padding:4px 10px;border-radius:8px;">' + sanitize(s.language).toUpperCase() + '</span>';
+      html += '</div>';
+      // Code block
+      html += '<pre style="background:#0d0b1e;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:16px;font-family:\'JetBrains Mono\',monospace;font-size:0.82rem;color:#c4b5fd;overflow-x:auto;white-space:pre-wrap;margin-bottom:14px;">' + sanitize(s.code) + '</pre>';
+      // Explanation
+      html += '<div style="background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.15);border-radius:10px;padding:12px 14px;font-size:0.82rem;">';
+      html += '  <div style="color:#22c55e;font-weight:700;margin-bottom:6px;font-size:0.72rem;text-transform:uppercase;">Explanation</div>';
+      html += '  <div style="color:rgba(255,255,255,0.8);line-height:1.6;">' + sanitize(s.explanation) + '</div>';
+      html += '</div>';
+      html += '</div></div>';
+      document.body.insertAdjacentHTML('beforeend', html);
+    } else {
+      alert('Best solution not available for this problem yet.');
+    }
+  })
+  .catch(function() { alert('Could not load best solution.'); });
+}
+
+/**
+ * Compare user's solution quality with best solution
+ * Returns: 'green' | 'yellow' | 'red'
+ */
+function codingPgGetQualityTag(problemId, userTC, userSC) {
+  // Simple comparison based on problem's expected TC/SC
+  var problem = _pgProblems.find(function(p) { return p.id === problemId; });
+  if (!problem || !problem.timeComplexity) return 'yellow';
+
+  var expectedTC = problem.timeComplexity;
+  var expectedSC = problem.spaceComplexity;
+
+  // Exact match = green
+  if (userTC === expectedTC && userSC === expectedSC) return 'green';
+
+  // Close match (same class) = yellow
+  if (userTC === expectedTC || userSC === expectedSC) return 'yellow';
+
+  // Far off = red
+  return 'red';
+}
+
+// ═══════════════════════════════════════════════════════
+// LEADERBOARD + RANKING COINS
+// ═══════════════════════════════════════════════════════
+
+/**
+ * Submit to per-problem leaderboard after successful submission
+ * Awards coins: Top 20 = 20 coins, Rank 21-50 = 10 coins
+ */
+function codingPgSubmitToLeaderboard(problemId, problemTitle) {
+  var token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+  if (!token || !problemId) return;
+
+  fetch(BASE_URL + '/api/coding-problems/leaderboard', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+    body: JSON.stringify({ problemId: problemId, problemTitle: problemTitle, qualityTag: 'green' }),
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.success && !data.alreadyRanked) {
+      var outputEl = document.getElementById('coding-pg-output');
+      if (outputEl && data.rank) {
+        var rankHtml = '<div style="margin-top:8px;padding:10px 14px;background:rgba(108,71,255,0.1);border:1px solid rgba(108,71,255,0.25);border-radius:10px;font-size:0.82rem;display:flex;align-items:center;justify-content:space-between;">';
+        rankHtml += '<span style="color:#a78bfa;font-weight:700;">🏆 Rank #' + data.rank + '</span>';
+        if (data.coinsAwarded > 0) {
+          rankHtml += '<span style="color:#fbbf24;font-weight:700;">+' + data.coinsAwarded + ' 🪙 coins</span>';
+        }
+        rankHtml += '</div>';
+        outputEl.innerHTML += rankHtml;
+      }
+    }
+  })
+  .catch(function() {});
+}
+
+/**
+ * View leaderboard for current problem (popup)
+ */
+function codingPgViewLeaderboard() {
+  if (!_pgActiveProblem) return;
+  var token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+
+  fetch(BASE_URL + '/api/coding-problems/leaderboard?problemId=' + _pgActiveProblem.id, {
+    headers: token ? { 'Authorization': 'Bearer ' + token } : {},
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (!data.success) { alert('Could not load leaderboard.'); return; }
+
+    var lb = data.leaderboard || [];
+    var html = '<div style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.8);z-index:9999;display:flex;align-items:center;justify-content:center;" id="coding-lb-modal" onclick="if(event.target===this)this.remove()">';
+    html += '<div style="background:#1a1a2e;border:1px solid rgba(108,71,255,0.3);border-radius:16px;padding:24px;width:450px;max-height:70vh;overflow-y:auto;">';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">';
+    html += '  <h3 style="color:#fff;font-size:1rem;margin:0;">🏆 Leaderboard — ' + sanitize(_pgActiveProblem.title) + '</h3>';
+    html += '  <button onclick="document.getElementById(\'coding-lb-modal\').remove()" style="background:rgba(255,255,255,0.1);border:none;border-radius:50%;width:28px;height:28px;color:#fff;cursor:pointer;">✕</button>';
+    html += '</div>';
+    html += '<div style="font-size:0.75rem;color:#94a3b8;margin-bottom:12px;">' + data.totalParticipants + ' participants</div>';
+
+    if (lb.length === 0) {
+      html += '<div style="text-align:center;padding:30px;color:#94a3b8;">No submissions yet. Be the first!</div>';
+    } else {
+      lb.forEach(function(entry) {
+        var rankColor = entry.rank <= 3 ? '#fbbf24' : entry.rank <= 20 ? '#22c55e' : entry.rank <= 50 ? '#60a5fa' : '#94a3b8';
+        html += '<div style="display:flex;align-items:center;padding:8px 12px;margin-bottom:4px;background:rgba(255,255,255,0.03);border-radius:8px;border:1px solid rgba(255,255,255,0.05);">';
+        html += '  <span style="width:30px;font-size:0.82rem;font-weight:800;color:' + rankColor + ';">#' + entry.rank + '</span>';
+        html += '  <span style="flex:1;font-size:0.82rem;color:#fff;font-weight:600;">' + sanitize(entry.name) + '</span>';
+        if (entry.coins > 0) html += '<span style="font-size:0.72rem;color:#fbbf24;font-weight:700;">+' + entry.coins + '🪙</span>';
+        html += '</div>';
+      });
+    }
+    html += '</div></div>';
+    document.body.insertAdjacentHTML('beforeend', html);
+  })
+  .catch(function() { alert('Could not load leaderboard.'); });
+}
+
+/**
+ * Show leaderboard for any problem by ID (used from Coding Score tab)
+ */
+function codingPgShowLeaderboard(problemId) {
+  if (!problemId) return;
+  var token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+
+  // Find problem title from solved list
+  var data = codingScoreGet();
+  var solvedItem = (data.solvedProblems || []).find(function(p) { return p.problemId === problemId; });
+  var title = solvedItem ? solvedItem.title : 'Problem';
+
+  fetch(BASE_URL + '/api/coding-problems/leaderboard?problemId=' + problemId, {
+    headers: token ? { 'Authorization': 'Bearer ' + token } : {},
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (!data.success) { alert('Could not load leaderboard.'); return; }
+
+    var lb = data.leaderboard || [];
+    var html = '<div style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.8);z-index:9999;display:flex;align-items:center;justify-content:center;" id="coding-lb-modal" onclick="if(event.target===this)this.remove()">';
+    html += '<div style="background:#1a1a2e;border:1px solid rgba(108,71,255,0.3);border-radius:16px;padding:24px;width:450px;max-height:70vh;overflow-y:auto;">';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">';
+    html += '  <h3 style="color:#fff;font-size:1rem;margin:0;">🏆 Leaderboard — ' + sanitize(title) + '</h3>';
+    html += '  <button onclick="document.getElementById(\'coding-lb-modal\').remove()" style="background:rgba(255,255,255,0.1);border:none;border-radius:50%;width:28px;height:28px;color:#fff;cursor:pointer;">✕</button>';
+    html += '</div>';
+    html += '<div style="font-size:0.75rem;color:#94a3b8;margin-bottom:12px;">' + (data.totalParticipants || 0) + ' participants</div>';
+
+    if (lb.length === 0) {
+      html += '<div style="text-align:center;padding:30px;color:#94a3b8;">No submissions yet. Be the first!</div>';
+    } else {
+      lb.forEach(function(entry) {
+        var rankColor = entry.rank <= 3 ? '#fbbf24' : entry.rank <= 20 ? '#22c55e' : entry.rank <= 50 ? '#60a5fa' : '#94a3b8';
+        html += '<div style="display:flex;align-items:center;padding:8px 12px;margin-bottom:4px;background:rgba(255,255,255,0.03);border-radius:8px;border:1px solid rgba(255,255,255,0.05);">';
+        html += '  <span style="width:30px;font-size:0.82rem;font-weight:800;color:' + rankColor + ';">#' + entry.rank + '</span>';
+        html += '  <span style="flex:1;font-size:0.82rem;color:#fff;font-weight:600;">' + sanitize(entry.name) + '</span>';
+        if (entry.coins > 0) html += '<span style="font-size:0.72rem;color:#fbbf24;font-weight:700;">+' + entry.coins + '🪙</span>';
+        html += '</div>';
+      });
+    }
+    html += '</div></div>';
+    // Remove existing modal if any
+    var existing = document.getElementById('coding-lb-modal');
+    if (existing) existing.remove();
+    document.body.insertAdjacentHTML('beforeend', html);
+  })
+  .catch(function() { alert('Could not load leaderboard.'); });
 }
