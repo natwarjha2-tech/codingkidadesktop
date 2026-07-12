@@ -17,6 +17,9 @@ var _pgActiveTab = 'all';   // 'all' | 'my'
 var _pgActiveProblem = null; // Currently selected problem
 var _pgEditorInstance = null; // Monaco editor for playground
 var _pgBottomPanelVisible = true; // Bottom panel (input/output/history) visible
+var _pgPreloadedSolution = null; // Pre-loaded best solution for instant view
+var _pgUserComplexity = null; // User's code TC/SC from AI analysis
+var _pgPreloadedData = null; // Pre-fetched problems data from dashboard load (for instant open)
 
 // ═══════════════════════════════════════════════════════
 // INITIALIZATION — called when page navigates to 'coding'
@@ -28,12 +31,28 @@ function codingPgInit() {
 }
 
 /**
- * Load problems from API
+ * Load problems from API (uses pre-cached data if available for instant load)
  */
 function codingPgLoadProblems() {
   var listEl = document.getElementById('coding-pg-list');
   if (!listEl) return;
 
+  // If problems were pre-fetched on dashboard load, use them instantly (no spinner)
+  if (_pgPreloadedData && _pgPreloadedData.success) {
+    _pgProblems = _pgPreloadedData.problems || [];
+    var catFilter = document.getElementById('coding-pg-cat-filter');
+    if (catFilter && _pgPreloadedData.categories) {
+      catFilter.innerHTML = '<option value="all">All Categories</option>';
+      _pgPreloadedData.categories.forEach(function(cat) {
+        catFilter.innerHTML += '<option value="' + cat + '">' + cat + '</option>';
+      });
+    }
+    _pgPreloadedData = null; // Clear cache after use
+    codingPgRenderList();
+    return;
+  }
+
+  // Fallback: fetch from API (shows loading state)
   fetch(BASE_URL + '/api/coding-problems')
     .then(function(res) { return res.json(); })
     .then(function(data) {
@@ -202,6 +221,28 @@ function codingPgToggleLeftPanel() {
 }
 
 /**
+ * Toggle description panel visibility
+ */
+function codingPgToggleDescPanel() {
+  var descPanel = document.getElementById('coding-pg-desc-panel');
+  var resizeHandle = document.getElementById('coding-pg-vresize');
+  if (!descPanel) return;
+  var isHidden = descPanel.style.display === 'none';
+  if (isHidden) {
+    descPanel.style.display = '';
+    descPanel.style.width = '38%';
+    descPanel.style.minWidth = '150px';
+    if (resizeHandle) resizeHandle.style.display = '';
+  } else {
+    descPanel.style.display = 'none';
+    if (resizeHandle) resizeHandle.style.display = 'none';
+  }
+  if (_pgEditorInstance) {
+    setTimeout(function() { _pgEditorInstance.layout(); }, 50);
+  }
+}
+
+/**
  * Render Monaco editor + problem details in right panel
  * Layout: horizontal split — left=problem, right=editor (like LeetCode)
  */
@@ -322,7 +363,8 @@ function codingPgRenderEditor(problem) {
   // Toolbar with toggle button
   html += '<div class="coding-toolbar">';
   html += '  <div class="coding-toolbar-left">';
-  html += '    <button onclick="codingPgToggleLeftPanel()" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:5px 8px;color:#94a3b8;cursor:pointer;font-size:0.7rem;margin-right:8px;" title="Toggle Problem List (Ctrl+B)"><i class="fas fa-bars"></i></button>';
+  html += '    <button onclick="codingPgToggleLeftPanel()" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:5px 8px;color:#94a3b8;cursor:pointer;font-size:0.7rem;margin-right:4px;" title="Toggle Problem List (Ctrl+B)"><i class="fas fa-bars"></i></button>';
+  html += '    <button onclick="codingPgToggleDescPanel()" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:5px 8px;color:#94a3b8;cursor:pointer;font-size:0.7rem;margin-right:8px;" title="Toggle Description Panel"><i class="fas fa-file-alt" id="coding-pg-desc-toggle-icon"></i></button>';
   html += '    <select id="coding-pg-lang" class="coding-lang-select" onchange="codingPgChangeLang()">';
   CODING_LANGUAGES.forEach(function(lang) {
     var sel = lang.id === defaultLang ? ' selected' : '';
@@ -332,7 +374,7 @@ function codingPgRenderEditor(problem) {
   html += '  </div>';
   html += '  <div class="coding-toolbar-right">';
   html += '    <button onclick="codingPgFormatCode()" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:5px 10px;color:#94a3b8;cursor:pointer;font-size:0.7rem;font-weight:600;display:flex;align-items:center;gap:4px;transition:all 0.15s;" onmouseover="this.style.background=\'rgba(34,197,94,0.15)\';this.style.color=\'#22c55e\';this.style.borderColor=\'rgba(34,197,94,0.3)\'" onmouseout="this.style.background=\'rgba(255,255,255,0.05)\';this.style.color=\'#94a3b8\';this.style.borderColor=\'rgba(255,255,255,0.1)\'" title="Format Code (Ctrl+Shift+F)"><i class="fas fa-magic"></i> Format</button>';
-  html += '    <button id="coding-pg-bottom-toggle-btn" onclick="codingPgToggleBottomPanel()" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:5px 10px;color:#94a3b8;cursor:pointer;font-size:0.7rem;font-weight:600;display:flex;align-items:center;gap:4px;transition:all 0.15s;" onmouseover="this.style.background=\'rgba(108,71,255,0.15)\';this.style.color=\'#a78bfa\';this.style.borderColor=\'rgba(108,71,255,0.3)\'" onmouseout="this.style.background=\'rgba(255,255,255,0.05)\';this.style.color=\'#94a3b8\';this.style.borderColor=\'rgba(255,255,255,0.1)\'" title="Toggle Bottom Panel"><i class="fas fa-terminal"></i> <span id="coding-pg-toggle-text">Hide Panel</span></button>';
+  html += '    <button id="coding-pg-bottom-toggle-btn" onclick="codingPgToggleBottomPanel()" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:5px 10px;color:#94a3b8;cursor:pointer;font-size:0.7rem;font-weight:600;display:flex;align-items:center;gap:4px;transition:all 0.15s;" onmouseover="this.style.background=\'rgba(108,71,255,0.15)\';this.style.color=\'#a78bfa\';this.style.borderColor=\'rgba(108,71,255,0.3)\'" onmouseout="this.style.background=\'rgba(255,255,255,0.05)\';this.style.color=\'#94a3b8\';this.style.borderColor=\'rgba(255,255,255,0.1)\'" title="Toggle Bottom Panel"><i class="fas fa-chevron-down" id="coding-pg-toggle-icon"></i> <span id="coding-pg-toggle-text">Hide Panel</span></button>';
   html += '    <button class="coding-btn coding-btn-run" id="coding-pg-run-btn" onclick="codingPgRun()"><i class="fas fa-play"></i> Run</button>';
   html += '    <button class="coding-btn coding-btn-submit" id="coding-pg-submit-btn" onclick="codingPgSubmit()"><i class="fas fa-paper-plane"></i> Submit</button>';
   html += '  </div>';
@@ -553,6 +595,8 @@ function codingPgRun() {
         }
       }
       if (outputEl) outputEl.innerHTML = h;
+      // Trigger TC/SC analysis in background (non-blocking)
+      codingPgAnalyzeComplexity(code, langId);
     } else { if (outputEl) outputEl.innerHTML = '<span class="coding-output-error"><i class="fas fa-exclamation-circle"></i> ' + sanitize(data.message) + '</span>'; }
   })
   .catch(function() { if (outputEl) outputEl.innerHTML = '<span class="coding-output-error"><i class="fas fa-exclamation-circle"></i> Connection failed.</span>'; })
@@ -583,6 +627,14 @@ function codingPgSubmit() {
   var token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
   var results = [];
   var completed = 0;
+
+  // Pre-load best solution in background (so it's instant when user clicks "View Solution")
+  _pgPreloadedSolution = null;
+  fetch(BASE_URL + '/api/coding-problems/best-solution?problemId=' + _pgActiveProblem.id, {
+    headers: token ? { 'Authorization': 'Bearer ' + token } : {},
+  }).then(function(r) { return r.json(); }).then(function(d) {
+    if (d.success && d.solution) _pgPreloadedSolution = d.solution;
+  }).catch(function() {});
 
   testCases.forEach(function(tc, i) {
     fetch(BASE_URL + '/api/code/run', {
@@ -667,6 +719,37 @@ function codingPgClearOutput() {
 }
 
 /**
+ * Analyze user's code time/space complexity using AI
+ * Appends result to output panel (non-blocking)
+ */
+function codingPgAnalyzeComplexity(code, langId) {
+  if (!code || code.trim().length < 10) return;
+  var token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+
+  // Use Gemini via backend proxy to analyze code complexity
+  fetch(BASE_URL + '/api/code/analyze-complexity', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+    body: JSON.stringify({ code: code, language: langId }),
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.success && data.timeComplexity && data.spaceComplexity) {
+      _pgUserComplexity = { tc: data.timeComplexity, sc: data.spaceComplexity };
+      var outputEl = document.getElementById('coding-pg-output');
+      if (outputEl) {
+        var badge = '<div style="display:flex;gap:10px;margin-top:8px;padding:6px 10px;background:rgba(108,71,255,0.06);border:1px solid rgba(108,71,255,0.15);border-radius:8px;">';
+        badge += '<span style="font-size:0.72rem;color:#a78bfa;font-weight:600;">📊 TC: ' + sanitize(data.timeComplexity) + '</span>';
+        badge += '<span style="font-size:0.72rem;color:#f59e0b;font-weight:600;">📊 SC: ' + sanitize(data.spaceComplexity) + '</span>';
+        badge += '</div>';
+        outputEl.innerHTML += badge;
+      }
+    }
+  })
+  .catch(function() {}); // Silently fail — non-critical feature
+}
+
+/**
  * Toggle bottom panel (Custom Input / Output / Submission History)
  * When hidden, code editor takes full height
  */
@@ -674,11 +757,15 @@ function codingPgToggleBottomPanel() {
   _pgBottomPanelVisible = !_pgBottomPanelVisible;
   var bottomPanel = document.getElementById('coding-pg-bottom-panels');
   var toggleText = document.getElementById('coding-pg-toggle-text');
+  var toggleIcon = document.getElementById('coding-pg-toggle-icon');
   if (bottomPanel) {
     bottomPanel.style.display = _pgBottomPanelVisible ? '' : 'none';
   }
   if (toggleText) {
     toggleText.textContent = _pgBottomPanelVisible ? 'Hide Panel' : 'Show Panel';
+  }
+  if (toggleIcon) {
+    toggleIcon.className = _pgBottomPanelVisible ? 'fas fa-chevron-down' : 'fas fa-chevron-up';
   }
   // Relayout Monaco editor to fill available space
   if (_pgEditorInstance) {
@@ -1301,6 +1388,12 @@ function codingPgRunCompileCheck() {
 function codingPgViewBestSolution() {
   if (!_pgActiveProblem) return;
 
+  // Use pre-loaded solution if available (instant display)
+  if (_pgPreloadedSolution) {
+    _pgRenderBestSolutionPopup(_pgPreloadedSolution);
+    return;
+  }
+
   var token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
   fetch(BASE_URL + '/api/coding-problems/best-solution?problemId=' + _pgActiveProblem.id, {
     headers: token ? { 'Authorization': 'Bearer ' + token } : {},
@@ -1308,33 +1401,127 @@ function codingPgViewBestSolution() {
   .then(function(r) { return r.json(); })
   .then(function(data) {
     if (data.success && data.solution) {
-      var s = data.solution;
-      var html = '<div style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.8);z-index:9999;display:flex;align-items:center;justify-content:center;" id="best-solution-modal" onclick="if(event.target===this)this.remove()">';
-      html += '<div style="background:#1a1a2e;border:1px solid rgba(108,71,255,0.3);border-radius:16px;padding:24px;width:600px;max-height:80vh;overflow-y:auto;">';
-      html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">';
-      html += '  <h3 style="color:#fff;font-size:1.1rem;margin:0;">🏆 Best Solution — ' + sanitize(_pgActiveProblem.title) + '</h3>';
-      html += '  <button onclick="document.getElementById(\'best-solution-modal\').remove()" style="background:rgba(255,255,255,0.1);border:none;border-radius:50%;width:28px;height:28px;color:#fff;cursor:pointer;font-size:0.9rem;">✕</button>';
-      html += '</div>';
-      // Complexity badges
-      html += '<div style="display:flex;gap:12px;margin-bottom:14px;">';
-      html += '  <span style="font-size:0.78rem;font-weight:700;background:rgba(34,197,94,0.1);color:#22c55e;padding:4px 10px;border-radius:8px;border:1px solid rgba(34,197,94,0.2);">⏱ Time: ' + sanitize(s.timeComplexity) + '</span>';
-      html += '  <span style="font-size:0.78rem;font-weight:700;background:rgba(96,165,250,0.1);color:#60a5fa;padding:4px 10px;border-radius:8px;border:1px solid rgba(96,165,250,0.2);">💾 Space: ' + sanitize(s.spaceComplexity) + '</span>';
-      html += '  <span style="font-size:0.78rem;font-weight:600;background:rgba(255,255,255,0.05);color:#94a3b8;padding:4px 10px;border-radius:8px;">' + sanitize(s.language).toUpperCase() + '</span>';
-      html += '</div>';
-      // Code block
-      html += '<pre style="background:#0d0b1e;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:16px;font-family:\'JetBrains Mono\',monospace;font-size:0.82rem;color:#c4b5fd;overflow-x:auto;white-space:pre-wrap;margin-bottom:14px;">' + sanitize(s.code) + '</pre>';
-      // Explanation
-      html += '<div style="background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.15);border-radius:10px;padding:12px 14px;font-size:0.82rem;">';
-      html += '  <div style="color:#22c55e;font-weight:700;margin-bottom:6px;font-size:0.72rem;text-transform:uppercase;">Explanation</div>';
-      html += '  <div style="color:rgba(255,255,255,0.8);line-height:1.6;">' + sanitize(s.explanation) + '</div>';
-      html += '</div>';
-      html += '</div></div>';
-      document.body.insertAdjacentHTML('beforeend', html);
+      _pgRenderBestSolutionPopup(data.solution);
     } else {
       alert('Best solution not available for this problem yet.');
     }
   })
   .catch(function() { alert('Could not load best solution.'); });
+}
+
+/**
+ * Render best solution popup (reused by pre-loaded and fetched paths)
+ */
+function _pgRenderBestSolutionPopup(s) {
+  var html = '<div style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.8);z-index:9999;display:flex;align-items:center;justify-content:center;" id="best-solution-modal" onclick="if(event.target===this)this.remove()">';
+  html += '<div style="background:#1a1a2e;border:1px solid rgba(108,71,255,0.3);border-radius:16px;padding:24px;width:650px;max-height:80vh;overflow-y:auto;">';
+  html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">';
+  html += '  <h3 style="color:#fff;font-size:1.1rem;margin:0;">🏆 Best Solution — ' + sanitize(_pgActiveProblem.title) + '</h3>';
+  html += '  <button onclick="document.getElementById(\'best-solution-modal\').remove()" style="background:rgba(255,255,255,0.1);border:none;border-radius:50%;width:28px;height:28px;color:#fff;cursor:pointer;font-size:0.9rem;">✕</button>';
+  html += '</div>';
+
+  // Multi-language tabs (if solution has multiple languages)
+  var languages = ['c', 'java', 'python', 'javascript'];
+  var activeLang = (typeof s.language === 'string') ? s.language : 'c';
+  var multiLang = (s.c || s.java || s.python || s.javascript) ? true : false;
+
+  if (multiLang) {
+    html += '<div style="display:flex;gap:4px;margin-bottom:12px;border-bottom:1px solid rgba(255,255,255,0.08);padding-bottom:8px;">';
+    languages.forEach(function(lang) {
+      var sol = s[lang];
+      if (!sol) return;
+      var isActive = lang === activeLang;
+      html += '<button onclick="codingPgSwitchSolutionLang(\'' + lang + '\')" class="sol-lang-tab" data-lang="' + lang + '" style="padding:5px 12px;border-radius:6px;font-size:0.72rem;font-weight:700;cursor:pointer;border:1px solid ' + (isActive ? 'rgba(108,71,255,0.5)' : 'rgba(255,255,255,0.1)') + ';background:' + (isActive ? 'rgba(108,71,255,0.2)' : 'rgba(255,255,255,0.03)') + ';color:' + (isActive ? '#a78bfa' : '#94a3b8') + ';">' + lang.toUpperCase() + '</button>';
+    });
+    html += '</div>';
+    // Render each language solution (hidden by default except active)
+    languages.forEach(function(lang) {
+      var sol = s[lang];
+      if (!sol) return;
+      var isActive = lang === activeLang;
+      html += '<div class="sol-lang-content" data-lang="' + lang + '" style="display:' + (isActive ? 'block' : 'none') + ';">';
+      html += '<div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;">';
+      html += '  <span style="font-size:0.72rem;font-weight:700;background:rgba(34,197,94,0.1);color:#22c55e;padding:3px 8px;border-radius:6px;border:1px solid rgba(34,197,94,0.2);">⏱ Best TC: ' + sanitize(sol.timeComplexity || sol.tc || '?') + '</span>';
+      html += '  <span style="font-size:0.72rem;font-weight:700;background:rgba(96,165,250,0.1);color:#60a5fa;padding:3px 8px;border-radius:6px;border:1px solid rgba(96,165,250,0.2);">💾 Best SC: ' + sanitize(sol.spaceComplexity || sol.sc || '?') + '</span>';
+      if (_pgUserComplexity) {
+        html += '  <span style="font-size:0.72rem;font-weight:700;background:rgba(245,158,11,0.1);color:#fbbf24;padding:3px 8px;border-radius:6px;border:1px solid rgba(245,158,11,0.2);">👤 Your TC: ' + sanitize(_pgUserComplexity.tc) + '</span>';
+        html += '  <span style="font-size:0.72rem;font-weight:700;background:rgba(245,158,11,0.1);color:#fbbf24;padding:3px 8px;border-radius:6px;border:1px solid rgba(245,158,11,0.2);">👤 Your SC: ' + sanitize(_pgUserComplexity.sc) + '</span>';
+      }
+      html += '</div>';
+      html += '<pre style="background:#0d0b1e;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:16px;font-family:\'JetBrains Mono\',monospace;font-size:0.82rem;color:#e2e8f0;overflow-x:auto;white-space:pre-wrap;margin-bottom:10px;">' + sanitize(sol.code || '') + '</pre>';
+      html += '<div style="background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.15);border-radius:10px;padding:10px 12px;font-size:0.8rem;">';
+      html += '  <div style="color:#22c55e;font-weight:700;margin-bottom:4px;font-size:0.7rem;text-transform:uppercase;">Explanation</div>';
+      html += '  <div style="color:rgba(255,255,255,0.8);line-height:1.5;">' + sanitize(sol.explanation || '') + '</div>';
+      html += '</div>';
+      html += '</div>';
+    });
+  } else {
+    // Single language (backward compatible)
+    html += '<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">';
+    html += '  <span style="font-size:0.72rem;font-weight:700;background:rgba(34,197,94,0.1);color:#22c55e;padding:3px 8px;border-radius:6px;border:1px solid rgba(34,197,94,0.2);">⏱ Best TC: ' + sanitize(s.timeComplexity) + '</span>';
+    html += '  <span style="font-size:0.72rem;font-weight:700;background:rgba(96,165,250,0.1);color:#60a5fa;padding:3px 8px;border-radius:6px;border:1px solid rgba(96,165,250,0.2);">💾 Best SC: ' + sanitize(s.spaceComplexity) + '</span>';
+    html += '  <span style="font-size:0.72rem;font-weight:600;background:rgba(255,255,255,0.05);color:#94a3b8;padding:3px 8px;border-radius:6px;">' + sanitize(s.language || 'c').toUpperCase() + '</span>';
+    if (_pgUserComplexity) {
+      html += '  <span style="font-size:0.72rem;font-weight:700;background:rgba(245,158,11,0.1);color:#fbbf24;padding:3px 8px;border-radius:6px;border:1px solid rgba(245,158,11,0.2);">👤 Your TC: ' + sanitize(_pgUserComplexity.tc) + '</span>';
+      html += '  <span style="font-size:0.72rem;font-weight:700;background:rgba(245,158,11,0.1);color:#fbbf24;padding:3px 8px;border-radius:6px;border:1px solid rgba(245,158,11,0.2);">👤 Your SC: ' + sanitize(_pgUserComplexity.sc) + '</span>';
+    }
+    html += '</div>';
+    html += '<pre style="background:#0d0b1e;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:16px;font-family:\'JetBrains Mono\',monospace;font-size:0.82rem;color:#e2e8f0;overflow-x:auto;white-space:pre-wrap;margin-bottom:14px;">' + sanitize(s.code) + '</pre>';
+    html += '<div style="background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.15);border-radius:10px;padding:12px 14px;font-size:0.82rem;">';
+    html += '  <div style="color:#22c55e;font-weight:700;margin-bottom:6px;font-size:0.72rem;text-transform:uppercase;">Explanation</div>';
+    html += '  <div style="color:rgba(255,255,255,0.8);line-height:1.6;">' + sanitize(s.explanation) + '</div>';
+    html += '</div>';
+  }
+
+  html += '</div></div>';
+  // Remove existing modal if any
+  var existing = document.getElementById('best-solution-modal');
+  if (existing) existing.remove();
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+/**
+ * Switch language tab in best solution popup
+ */
+function codingPgSwitchSolutionLang(lang) {
+  var tabs = document.querySelectorAll('.sol-lang-tab');
+  var contents = document.querySelectorAll('.sol-lang-content');
+  tabs.forEach(function(tab) {
+    var isActive = tab.getAttribute('data-lang') === lang;
+    tab.style.background = isActive ? 'rgba(108,71,255,0.2)' : 'rgba(255,255,255,0.03)';
+    tab.style.borderColor = isActive ? 'rgba(108,71,255,0.5)' : 'rgba(255,255,255,0.1)';
+    tab.style.color = isActive ? '#a78bfa' : '#94a3b8';
+  });
+  contents.forEach(function(c) {
+    c.style.display = c.getAttribute('data-lang') === lang ? 'block' : 'none';
+  });
+}
+
+/**
+ * Syntax highlight code for best solution display
+ * Makes comments grey/italic, keywords blue, strings green, numbers orange
+ */
+function _pgHighlightCode(code) {
+  if (!code) return '';
+  // Escape only < and > for safety (not quotes — we need them for display)
+  var safe = code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  // Highlight multi-line comments (/* ... */) FIRST
+  safe = safe.replace(/(\/\*[\s\S]*?\*\/)/g, '<span style="color:#6b7280;font-style:italic;">$1</span>');
+  // Highlight single-line comments (// ...)
+  safe = safe.replace(/(\/\/[^\n]*)/g, '<span style="color:#6b7280;font-style:italic;">$1</span>');
+  // Highlight Python/shell comments (# ...) — but not #include/#define
+  safe = safe.replace(/^(#(?!include|define|pragma)[^\n]*)/gm, '<span style="color:#6b7280;font-style:italic;">$1</span>');
+  // Highlight preprocessor (#include, #define)
+  safe = safe.replace(/^(#(?:include|define|pragma)[^\n]*)/gm, '<span style="color:#c084fc;">$1</span>');
+  // Highlight strings ("..." and '...')
+  safe = safe.replace(/("(?:[^"\\]|\\.)*")/g, '<span style="color:#22c55e;">$1</span>');
+  safe = safe.replace(/('(?:[^'\\]|\\.)*')/g, '<span style="color:#22c55e;">$1</span>');
+  // Highlight keywords
+  var keywords = 'int|char|float|double|void|return|if|else|for|while|do|switch|case|break|continue|struct|typedef|const|static|import|class|public|private|protected|new|this|extends|implements|try|catch|finally|throw|boolean|long|short|null|true|false|def|print|input|lambda|from|as|in|not|and|or|is|None|True|False|let|var|const|function|require|console|String|Scanner|System|println|printf|scanf|main|sizeof|malloc|free|unsigned';
+  safe = safe.replace(new RegExp('\\b(' + keywords + ')\\b', 'g'), '<span style="color:#60a5fa;font-weight:600;">$1</span>');
+  // Highlight numbers
+  safe = safe.replace(/\b(\d+)\b/g, '<span style="color:#f59e0b;">$1</span>');
+  return safe;
 }
 
 /**

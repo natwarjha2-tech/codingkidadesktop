@@ -210,6 +210,23 @@ async function loadStudentData() {
   }
 
   // Load dashboard data in background — outside loadStudentData so splash is not blocked
+  // Pre-fetch coding problems so Code Editor opens instantly (no loading spinner)
+  _preloadCodingProblems();
+}
+
+/**
+ * Pre-fetch coding problems in background after login.
+ * Stores result in _pgPreloadedData so codingPgLoadProblems() can use it instantly.
+ */
+function _preloadCodingProblems() {
+  fetch(BASE_URL + '/api/coding-problems')
+    .then(function(res) { return res.json(); })
+    .then(function(data) {
+      if (data.success && typeof _pgPreloadedData !== 'undefined') {
+        _pgPreloadedData = data;
+      }
+    })
+    .catch(function() { /* silent — coding page will fetch on its own if this fails */ });
 }
 
 // Apply cached dashboard data instantly (no shimmer flash)
