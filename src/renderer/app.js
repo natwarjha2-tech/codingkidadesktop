@@ -216,14 +216,15 @@ async function loadStudentData() {
 
 /**
  * Pre-fetch coding problems in background after login.
- * Stores result in _pgPreloadedData so codingPgLoadProblems() can use it instantly.
+ * Stores result in localStorage so codingPgLoadProblems() can use it instantly.
  */
 function _preloadCodingProblems() {
   fetch(BASE_URL + '/api/coding-problems')
     .then(function(res) { return res.json(); })
     .then(function(data) {
-      if (data.success && typeof _pgPreloadedData !== 'undefined') {
-        _pgPreloadedData = data;
+      if (data.success) {
+        // Store in localStorage — coding-playground.js will check this on init
+        try { localStorage.setItem('ck_coding_problems_cache', JSON.stringify(data)); } catch(e) {}
       }
     })
     .catch(function() { /* silent — coding page will fetch on its own if this fails */ });

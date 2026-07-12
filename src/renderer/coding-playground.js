@@ -19,7 +19,9 @@ var _pgEditorInstance = null; // Monaco editor for playground
 var _pgBottomPanelVisible = true; // Bottom panel (input/output/history) visible
 var _pgPreloadedSolution = null; // Pre-loaded best solution for instant view
 var _pgUserComplexity = null; // User's code TC/SC from AI analysis
-var _pgPreloadedData = null; // Pre-fetched problems data from dashboard load (for instant open)
+var _pgAIEnabled = true;    // AI inline suggestions toggle (saved in localStorage)
+var _pgAIAbortController = null; // AbortController for cancelling stale AI requests
+var _pgAIProviderRegistered = false; // Whether InlineCompletionsProvider is registered
 
 // ═══════════════════════════════════════════════════════
 // INITIALIZATION — called when page navigates to 'coding'
@@ -28,6 +30,10 @@ var _pgPreloadedData = null; // Pre-fetched problems data from dashboard load (f
 function codingPgInit() {
   codingPgLoadProblems();
   codingPgLoadMyProblems();
+  // Pre-load Monaco editor in background so it's instant when problem is selected
+  if (typeof loadMonacoEditor === 'function') {
+    loadMonacoEditor().catch(function() {});
+  }
 }
 
 /**
@@ -37,20 +43,26 @@ function codingPgLoadProblems() {
   var listEl = document.getElementById('coding-pg-list');
   if (!listEl) return;
 
-  // If problems were pre-fetched on dashboard load, use them instantly (no spinner)
-  if (_pgPreloadedData && _pgPreloadedData.success) {
-    _pgProblems = _pgPreloadedData.problems || [];
-    var catFilter = document.getElementById('coding-pg-cat-filter');
-    if (catFilter && _pgPreloadedData.categories) {
-      catFilter.innerHTML = '<option value="all">All Categories</option>';
-      _pgPreloadedData.categories.forEach(function(cat) {
-        catFilter.innerHTML += '<option value="' + cat + '">' + cat + '</option>';
-      });
+  // Check localStorage cache (pre-fetched on dashboard load)
+  try {
+    var cached = localStorage.getItem('ck_coding_problems_cache');
+    if (cached) {
+      var data = JSON.parse(cached);
+      if (data.success && data.problems && data.problems.length > 0) {
+        _pgProblems = data.problems;
+        var catFilter = document.getElementById('coding-pg-cat-filter');
+        if (catFilter && data.categories) {
+          catFilter.innerHTML = '<option value="all">All Categories</option>';
+          data.categories.forEach(function(cat) {
+            catFilter.innerHTML += '<option value="' + cat + '">' + cat + '</option>';
+          });
+        }
+        localStorage.removeItem('ck_coding_problems_cache'); // Clear after use
+        codingPgRenderList();
+        return;
+      }
     }
-    _pgPreloadedData = null; // Clear cache after use
-    codingPgRenderList();
-    return;
-  }
+  } catch(e) {}
 
   // Fallback: fetch from API (shows loading state)
   fetch(BASE_URL + '/api/coding-problems')
@@ -58,7 +70,6 @@ function codingPgLoadProblems() {
     .then(function(data) {
       if (data.success) {
         _pgProblems = data.problems || [];
-        // Populate category filter
         var catFilter = document.getElementById('coding-pg-cat-filter');
         if (catFilter && data.categories) {
           catFilter.innerHTML = '<option value="all">All Categories</option>';
@@ -374,6 +385,7 @@ function codingPgRenderEditor(problem) {
   html += '  </div>';
   html += '  <div class="coding-toolbar-right">';
   html += '    <button onclick="codingPgFormatCode()" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:5px 10px;color:#94a3b8;cursor:pointer;font-size:0.7rem;font-weight:600;display:flex;align-items:center;gap:4px;transition:all 0.15s;" onmouseover="this.style.background=\'rgba(34,197,94,0.15)\';this.style.color=\'#22c55e\';this.style.borderColor=\'rgba(34,197,94,0.3)\'" onmouseout="this.style.background=\'rgba(255,255,255,0.05)\';this.style.color=\'#94a3b8\';this.style.borderColor=\'rgba(255,255,255,0.1)\'" title="Format Code (Ctrl+Shift+F)"><i class="fas fa-magic"></i> Format</button>';
+  html += '    <button id="coding-pg-ai-toggle" onclick="codingPgToggleAI()" style="background:' + (_pgAIEnabled ? 'rgba(108,71,255,0.15)' : 'rgba(255,255,255,0.05)') + ';border:1px solid ' + (_pgAIEnabled ? 'rgba(108,71,255,0.3)' : 'rgba(255,255,255,0.1)') + ';border-radius:6px;padding:5px 10px;color:' + (_pgAIEnabled ? '#a78bfa' : '#94a3b8') + ';cursor:pointer;font-size:0.7rem;font-weight:600;display:flex;align-items:center;gap:4px;transition:all 0.15s;" title="Toggle AI Suggestions"><i class="fas fa-robot"></i> AI</button>';
   html += '    <button id="coding-pg-bottom-toggle-btn" onclick="codingPgToggleBottomPanel()" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:5px 10px;color:#94a3b8;cursor:pointer;font-size:0.7rem;font-weight:600;display:flex;align-items:center;gap:4px;transition:all 0.15s;" onmouseover="this.style.background=\'rgba(108,71,255,0.15)\';this.style.color=\'#a78bfa\';this.style.borderColor=\'rgba(108,71,255,0.3)\'" onmouseout="this.style.background=\'rgba(255,255,255,0.05)\';this.style.color=\'#94a3b8\';this.style.borderColor=\'rgba(255,255,255,0.1)\'" title="Toggle Bottom Panel"><i class="fas fa-chevron-down" id="coding-pg-toggle-icon"></i> <span id="coding-pg-toggle-text">Hide Panel</span></button>';
   html += '    <button class="coding-btn coding-btn-run" id="coding-pg-run-btn" onclick="codingPgRun()"><i class="fas fa-play"></i> Run</button>';
   html += '    <button class="coding-btn coding-btn-submit" id="coding-pg-submit-btn" onclick="codingPgSubmit()"><i class="fas fa-paper-plane"></i> Submit</button>';
@@ -494,6 +506,8 @@ function codingPgInitMonaco(langId, starterCode) {
       bracketPairColorization: { enabled: true },
       renderLineHighlight: 'line',
       scrollbar: { verticalScrollbarSize: 8, horizontalScrollbarSize: 8 },
+      inlineSuggest: { enabled: true },
+      quickSuggestions: false,
     });
 
     _pgEditorInstance.onDidChangeCursorPosition(function(e) {
@@ -510,6 +524,9 @@ function codingPgInitMonaco(langId, starterCode) {
       // Real-time syntax error detection (debounced)
       codingPgScheduleCompileCheck();
     });
+
+    // Register AI Inline Completions Provider (Copilot-like ghost text suggestions)
+    _pgRegisterAICompletions(monaco);
   }).catch(function() {
     container.innerHTML = '<textarea id="coding-pg-fallback" class="coding-editor-textarea" spellcheck="false" placeholder="// Write your code here...">' + sanitize(starterCode || '') + '</textarea>';
   });
@@ -670,8 +687,12 @@ function codingPgSubmit() {
         if (outputEl) outputEl.innerHTML = h;
         if (submitBtn) { submitBtn.disabled = false; submitBtn.innerHTML = '<i class="fas fa-paper-plane"></i> Submit'; }
 
+        // Trigger TC/SC analysis after every submit (shows user's complexity in output)
+        codingPgAnalyzeComplexity(code, langId);
+
         // Award points if all passed (first time only)
         if (allPassed && _pgActiveProblem) {
+
           var award = codingScoreAward(_pgActiveProblem.id, _pgActiveProblem.title, _pgActiveProblem.difficulty, langObj.id);
           if (award.awarded) {
             var toast = '<div style="margin-top:10px;padding:10px 14px;background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.3);border-radius:10px;font-size:0.82rem;color:#22c55e;font-weight:600;">🎉 +' + award.points + ' points | +' + award.coins + ' coins earned!</div>';
@@ -1669,4 +1690,145 @@ function codingPgShowLeaderboard(problemId) {
     document.body.insertAdjacentHTML('beforeend', html);
   })
   .catch(function() { alert('Could not load leaderboard.'); });
+}
+
+// ═══════════════════════════════════════════════════════
+// AI INLINE COMPLETIONS (Copilot-like ghost text)
+// ═══════════════════════════════════════════════════════
+
+/**
+ * Load AI toggle state from localStorage
+ */
+(function() {
+  var saved = localStorage.getItem('ck_ai_suggestions');
+  if (saved !== null) _pgAIEnabled = saved === 'true';
+})();
+
+/**
+ * Toggle AI suggestions on/off
+ */
+function codingPgToggleAI() {
+  _pgAIEnabled = !_pgAIEnabled;
+  localStorage.setItem('ck_ai_suggestions', _pgAIEnabled ? 'true' : 'false');
+
+  var btn = document.getElementById('coding-pg-ai-toggle');
+  if (btn) {
+    btn.style.background = _pgAIEnabled ? 'rgba(108,71,255,0.15)' : 'rgba(255,255,255,0.05)';
+    btn.style.borderColor = _pgAIEnabled ? 'rgba(108,71,255,0.3)' : 'rgba(255,255,255,0.1)';
+    btn.style.color = _pgAIEnabled ? '#a78bfa' : '#94a3b8';
+  }
+}
+
+/**
+ * Register Monaco InlineCompletionsProvider for AI suggestions.
+ * Called once after Monaco editor is created.
+ */
+function _pgRegisterAICompletions(monaco) {
+  if (_pgAIProviderRegistered) return;
+  _pgAIProviderRegistered = true;
+
+  // Register for all supported languages
+  var languages = ['c', 'java', 'python', 'javascript'];
+  languages.forEach(function(lang) {
+    monaco.languages.registerInlineCompletionsProvider(lang, {
+      provideInlineCompletions: function(model, position, context, token) {
+        return _pgFetchAISuggestion(model, position, token);
+      },
+      freeInlineCompletions: function() {}
+    });
+  });
+}
+
+/**
+ * Fetch AI suggestion from backend with debounce via AbortController.
+ * Returns InlineCompletions result for Monaco.
+ */
+function _pgFetchAISuggestion(model, position, cancellationToken) {
+  // If AI is disabled, return empty
+  if (!_pgAIEnabled) return Promise.resolve({ items: [] });
+
+  // Cancel previous request
+  if (_pgAIAbortController) {
+    _pgAIAbortController.abort();
+    _pgAIAbortController = null;
+  }
+
+  // Debounce: wait 300ms before making request
+  return new Promise(function(resolve) {
+    var debounceTimer = setTimeout(function() {
+      // Get current code up to cursor
+      var code = model.getValueInRange({
+        startLineNumber: 1,
+        startColumn: 1,
+        endLineNumber: position.lineNumber,
+        endColumn: position.column,
+      });
+
+      // Don't suggest for very short code
+      if (!code || code.trim().length < 5) {
+        resolve({ items: [] });
+        return;
+      }
+
+      // Get current language from dropdown
+      var select = document.getElementById('coding-pg-lang');
+      var langId = select ? select.value : 'c';
+
+      // Get problem context
+      var problemTitle = _pgActiveProblem ? _pgActiveProblem.title : '';
+      var problemDesc = _pgActiveProblem ? (_pgActiveProblem.description || '').slice(0, 150) : '';
+
+      // Create AbortController for this request
+      _pgAIAbortController = new AbortController();
+      var signal = _pgAIAbortController.signal;
+
+      var token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+
+      fetch(BASE_URL + '/api/code/autocomplete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+        body: JSON.stringify({
+          code: code,
+          language: langId,
+          cursorLine: position.lineNumber,
+          problemTitle: problemTitle,
+          problemDesc: problemDesc,
+        }),
+        signal: signal,
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.success && data.suggestion && data.suggestion.trim()) {
+          resolve({
+            items: [{
+              insertText: data.suggestion,
+              range: {
+                startLineNumber: position.lineNumber,
+                startColumn: position.column,
+                endLineNumber: position.lineNumber,
+                endColumn: position.column,
+              },
+            }],
+          });
+        } else {
+          resolve({ items: [] });
+        }
+      })
+      .catch(function() {
+        resolve({ items: [] });
+      });
+    }, 300);
+
+    // If Monaco cancels (user typed again), clear debounce timer
+    if (cancellationToken && cancellationToken.onCancellationRequested) {
+      cancellationToken.onCancellationRequested(function() {
+        clearTimeout(debounceTimer);
+        if (_pgAIAbortController) {
+          _pgAIAbortController.abort();
+          _pgAIAbortController = null;
+        }
+        resolve({ items: [] });
+      });
+    }
+  });
 }
