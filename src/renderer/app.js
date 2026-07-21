@@ -38,8 +38,13 @@ async function login() {
     const data = await AuthAPI.login(email, password);
     localStorage.setItem('ck_token', data.token);
     localStorage.setItem('ck_user', JSON.stringify(data.user || {}));
+    // Detect user change and handle cache
+    var newUserId = (data.user && (data.user.id || data.user.userId)) || '';
+    if (newUserId) _ckCacheDetectUserChange(newUserId);
     await loadStudentData();
     _attendanceRecordLogin();
+    // Pre-fetch all endpoints for instant subsequent loads
+    _ckCachePreFetchAll();
     navigate('dashboard');
   } catch (err) {
     showAuthError('login', err.message || 'Login failed. Try again.');
@@ -68,8 +73,13 @@ async function signup() {
     const data = await AuthAPI.signup(name, email, password);
     localStorage.setItem('ck_token', data.token);
     localStorage.setItem('ck_user', JSON.stringify(data.user || {}));
+    // Detect user change and handle cache
+    var newUserId = (data.user && (data.user.id || data.user.userId)) || '';
+    if (newUserId) _ckCacheDetectUserChange(newUserId);
     await loadStudentData();
     _attendanceRecordLogin();
+    // Pre-fetch all endpoints for instant subsequent loads
+    _ckCachePreFetchAll();
     navigate('dashboard');
   } catch (err) {
     showAuthError('signup', err.message || 'Signup failed. Try again.');
@@ -80,7 +90,17 @@ async function signup() {
 
 async function loadStudentData() {
   try {
-    const data = await StudentAPI.getProfile();
+    // Cache-first: use cached profile for instant UI, refresh in background
+    var cachedProfile = ckCacheGet('/api/student');
+    const data = cachedProfile || await StudentAPI.getProfile();
+    // Store in cache if freshly fetched
+    if (!cachedProfile && data) ckCacheSet('/api/student', data);
+    // Background refresh if we used cached data
+    if (cachedProfile) {
+      StudentAPI.getProfile().then(function(freshData) {
+        if (freshData) ckCacheSet('/api/student', freshData);
+      }).catch(function() {});
+    }
     const student = data.student || data.user || data;
     const name = sanitize(student.name || student.fullName || 'Learner');
     const email = sanitize(student.email || '');
@@ -217,13 +237,20 @@ async function loadStudentData() {
 /**
  * Pre-fetch coding problems in background after login.
  * Stores result in localStorage so codingPgLoadProblems() can use it instantly.
+ * Uses persistent cache for instant load on re-login.
  */
 function _preloadCodingProblems() {
+  // Check persistent cache first — if available, store in session cache for instant use
+  var cached = ckCacheGet('/api/coding-problems');
+  if (cached && cached.success && cached.problems && cached.problems.length > 0) {
+    try { localStorage.setItem('ck_coding_problems_cache', JSON.stringify(cached)); } catch(e) {}
+  }
+  // Always do background refresh
   fetch(BASE_URL + '/api/coding-problems')
     .then(function(res) { return res.json(); })
     .then(function(data) {
       if (data.success) {
-        // Store in localStorage — coding-playground.js will check this on init
+        ckCacheSet('/api/coding-problems', data);
         try { localStorage.setItem('ck_coding_problems_cache', JSON.stringify(data)); } catch(e) {}
       }
     })
@@ -235,11 +262,18 @@ function _applyCachedDashboard() {
   const userId = getCurrentUserId();
   const cacheKey = 'ck_dashboard_cache_' + userId;
   const cached = localStorage.getItem(cacheKey);
-  if (!cached) return;
-  try {
-    const data = JSON.parse(cached);
-    _applyDashboardData(data, true);
-  } catch {}
+  if (cached) {
+    try {
+      const data = JSON.parse(cached);
+      _applyDashboardData(data, true);
+      return;
+    } catch {}
+  }
+  // Fallback: try persistent 7-day cache
+  var pcached = ckCacheGet('/api/student/dashboard');
+  if (pcached) {
+    _applyDashboardData(pcached, true);
+  }
 }
 
 async function _applyDashboardData(data, isFromCache) {
@@ -250,6 +284,8 @@ async function _applyDashboardData(data, isFromCache) {
       const userId = getCurrentUserId();
       const cacheKey = 'ck_dashboard_cache_' + userId;
       try { localStorage.setItem(cacheKey, JSON.stringify(data)); } catch {}
+      // Also save to persistent 7-day cache
+      ckCacheSet('/api/student/dashboard', data);
     }
 
     // Dashboard stats
@@ -347,6 +383,8 @@ function logout() {
   if (userId) {
     _attendanceRecordLogout(userId);
     localStorage.removeItem('ck_dashboard_cache_' + userId);
+    // NOTE: Persistent cache (ck_pcache_*) intentionally NOT cleared on logout.
+    // Same user re-login = instant data from cache. Different user detection clears old cache.
   }
   localStorage.removeItem('ck_token');
   localStorage.removeItem('ck_user');
@@ -1594,9 +1632,26 @@ function mapCourse(c) {
 }
 
 async function loadCourses(category, search) {
+  // Cache-first: return cached data instantly if no filters applied
+  if (!category && !search) {
+    var cached = ckCacheGet('/api/courses');
+    if (cached && cached.success && cached.courses) {
+      // Background refresh (stale-while-revalidate)
+      CoursesAPI.getAll().then(function(data) {
+        if (data && data.success && data.courses) {
+          ckCacheSet('/api/courses', data);
+          // Silently update UI if data changed
+          renderCourseGrid(data.courses.map(mapCourse));
+        }
+      }).catch(function() {});
+      return cached.courses.map(mapCourse);
+    }
+  }
   try {
     const data = await CoursesAPI.getAll(category, search);
     if (data.success && data.courses) {
+      // Cache only unfiltered results
+      if (!category && !search) ckCacheSet('/api/courses', data);
       return data.courses.map(mapCourse);
     }
     return search ? [] : MOCK_COURSES;
@@ -2606,6 +2661,149 @@ async function filterCourses(category, btn) {
 function getCurrentUserId() {
   const cached = JSON.parse(localStorage.getItem('ck_user') || sessionStorage.getItem('ck_user') || '{}');
   return cached.id || cached.userId || '';
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PERSISTENT CACHE SYSTEM (userId-specific, 7-day expiry)
+// Stale-while-revalidate: show cached data instantly, refresh silently
+// ═══════════════════════════════════════════════════════════════
+
+var _CK_CACHE_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+/**
+ * Get cached data for an endpoint (userId-specific)
+ * Returns parsed data or null if expired/missing
+ */
+function ckCacheGet(endpoint) {
+  var userId = getCurrentUserId();
+  if (!userId) return null;
+  var key = 'ck_pcache_' + userId + '_' + endpoint.replace(/[^a-zA-Z0-9]/g, '_');
+  try {
+    var raw = localStorage.getItem(key);
+    if (!raw) return null;
+    var entry = JSON.parse(raw);
+    // Check expiry
+    if (Date.now() - entry.ts > _CK_CACHE_EXPIRY_MS) {
+      localStorage.removeItem(key);
+      return null;
+    }
+    return entry.data;
+  } catch(e) { return null; }
+}
+
+/**
+ * Store data in persistent cache (userId-specific)
+ */
+function ckCacheSet(endpoint, data) {
+  var userId = getCurrentUserId();
+  if (!userId || !data) return;
+  var key = 'ck_pcache_' + userId + '_' + endpoint.replace(/[^a-zA-Z0-9]/g, '_');
+  try {
+    localStorage.setItem(key, JSON.stringify({ ts: Date.now(), data: data }));
+  } catch(e) {
+    // localStorage full — remove oldest cache entries
+    _ckCacheCleanup(userId);
+    try { localStorage.setItem(key, JSON.stringify({ ts: Date.now(), data: data })); } catch(e2) {}
+  }
+}
+
+/**
+ * Remove all cache for a specific user
+ */
+function ckCacheClearUser(userId) {
+  if (!userId) return;
+  var prefix = 'ck_pcache_' + userId + '_';
+  var keysToRemove = [];
+  for (var i = 0; i < localStorage.length; i++) {
+    var k = localStorage.key(i);
+    if (k && k.startsWith(prefix)) keysToRemove.push(k);
+  }
+  keysToRemove.forEach(function(k) { localStorage.removeItem(k); });
+}
+
+/**
+ * Cleanup oldest cache entries when storage is full
+ */
+function _ckCacheCleanup(userId) {
+  var prefix = 'ck_pcache_' + userId + '_';
+  var entries = [];
+  for (var i = 0; i < localStorage.length; i++) {
+    var k = localStorage.key(i);
+    if (k && k.startsWith(prefix)) {
+      try {
+        var raw = localStorage.getItem(k);
+        var entry = JSON.parse(raw);
+        entries.push({ key: k, ts: entry.ts || 0 });
+      } catch(e) { entries.push({ key: k, ts: 0 }); }
+    }
+  }
+  // Sort oldest first, remove oldest half
+  entries.sort(function(a, b) { return a.ts - b.ts; });
+  var removeCount = Math.max(1, Math.floor(entries.length / 2));
+  for (var j = 0; j < removeCount; j++) {
+    localStorage.removeItem(entries[j].key);
+  }
+}
+
+/**
+ * Detect if a different user just logged in — clear old user's cache
+ * Called after login/signup success
+ */
+function _ckCacheDetectUserChange(newUserId) {
+  var lastUserId = localStorage.getItem('ck_pcache_last_user');
+  if (lastUserId && lastUserId !== newUserId) {
+    // Different user — clear old user's cache
+    ckCacheClearUser(lastUserId);
+  }
+  localStorage.setItem('ck_pcache_last_user', newUserId);
+}
+
+/**
+ * Pre-fetch all major endpoints and store in cache (called after login)
+ * Runs silently in background — user sees cached data immediately
+ */
+function _ckCachePreFetchAll() {
+  var token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+  if (!token) return;
+
+  // Pre-fetch dashboard
+  StudentAPI.getDashboard().then(function(data) {
+    if (data && data.success) ckCacheSet('/api/student/dashboard', data);
+  }).catch(function() {});
+
+  // Pre-fetch profile
+  StudentAPI.getProfile().then(function(data) {
+    if (data) ckCacheSet('/api/student', data);
+  }).catch(function() {});
+
+  // Pre-fetch courses list
+  CoursesAPI.getAll().then(function(data) {
+    if (data && data.success) ckCacheSet('/api/courses', data);
+  }).catch(function() {});
+
+  // Pre-fetch coding problems
+  fetch(BASE_URL + '/api/coding-problems', { headers: { Authorization: 'Bearer ' + token } })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data && data.success) {
+        ckCacheSet('/api/coding-problems', data);
+        try { localStorage.setItem('ck_coding_problems_cache', JSON.stringify(data)); } catch(e) {}
+      }
+    }).catch(function() {});
+
+  // Pre-fetch coins
+  fetch(BASE_URL + '/api/coins', { headers: { Authorization: 'Bearer ' + token } })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data) ckCacheSet('/api/coins', data);
+    }).catch(function() {});
+
+  // Pre-fetch achievements
+  fetch(BASE_URL + '/api/achievements', { headers: { Authorization: 'Bearer ' + token } })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data) ckCacheSet('/api/achievements', data);
+    }).catch(function() {});
 }
 
 // ─── Enrolled Courses Detail & Completed Videos Pages ─────────────────────────

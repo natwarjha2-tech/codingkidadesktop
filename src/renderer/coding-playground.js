@@ -19,9 +19,10 @@ var _pgEditorInstance = null; // Monaco editor for playground
 var _pgBottomPanelVisible = true; // Bottom panel (input/output/history) visible
 var _pgPreloadedSolution = null; // Pre-loaded best solution for instant view
 var _pgUserComplexity = null; // User's code TC/SC from AI analysis
-var _pgAIEnabled = true;    // AI inline suggestions toggle (saved in localStorage)
-var _pgAIAbortController = null; // AbortController for cancelling stale AI requests
-var _pgAIProviderRegistered = false; // Whether InlineCompletionsProvider is registered
+var _pgCursorWidget = null; // Monaco ContentWidget for cursor AI pop-up
+var _pgCursorWidgetTimer = null; // Timer for 2-sec pause detection
+var _pgCursorWidgetVisible = false; // Whether cursor pop-up is currently visible
+var _pgCursorWidgetMinimized = false; // Whether cursor pop-up is minimized by user
 
 // ═══════════════════════════════════════════════════════
 // INITIALIZATION — called when page navigates to 'coding'
@@ -374,8 +375,8 @@ function codingPgRenderEditor(problem) {
   // Toolbar with toggle button
   html += '<div class="coding-toolbar">';
   html += '  <div class="coding-toolbar-left">';
-  html += '    <button onclick="codingPgToggleLeftPanel()" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:5px 8px;color:#94a3b8;cursor:pointer;font-size:0.7rem;margin-right:4px;" title="Toggle Problem List (Ctrl+B)"><i class="fas fa-bars"></i></button>';
-  html += '    <button onclick="codingPgToggleDescPanel()" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:5px 8px;color:#94a3b8;cursor:pointer;font-size:0.7rem;margin-right:8px;" title="Toggle Description Panel"><i class="fas fa-file-alt" id="coding-pg-desc-toggle-icon"></i></button>';
+  html += '    <button onclick="codingPgToggleLeftPanel()" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:5px 10px;color:#94a3b8;cursor:pointer;font-size:0.7rem;font-weight:600;margin-right:4px;display:flex;align-items:center;gap:4px;transition:all 0.15s;" onmouseover="this.style.background=\'rgba(108,71,255,0.15)\';this.style.color=\'#a78bfa\';this.style.borderColor=\'rgba(108,71,255,0.3)\'" onmouseout="this.style.background=\'rgba(255,255,255,0.05)\';this.style.color=\'#94a3b8\';this.style.borderColor=\'rgba(255,255,255,0.1)\'" title="Toggle Problem List (Ctrl+B)"><i class="fas fa-bars"></i> Problems</button>';
+  html += '    <button onclick="codingPgToggleDescPanel()" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:5px 10px;color:#94a3b8;cursor:pointer;font-size:0.7rem;font-weight:600;margin-right:8px;display:flex;align-items:center;gap:4px;transition:all 0.15s;" onmouseover="this.style.background=\'rgba(108,71,255,0.15)\';this.style.color=\'#a78bfa\';this.style.borderColor=\'rgba(108,71,255,0.3)\'" onmouseout="this.style.background=\'rgba(255,255,255,0.05)\';this.style.color=\'#94a3b8\';this.style.borderColor=\'rgba(255,255,255,0.1)\'" title="Toggle Description Panel"><i class="fas fa-file-alt"></i> Desc</button>';
   html += '    <select id="coding-pg-lang" class="coding-lang-select" onchange="codingPgChangeLang()">';
   CODING_LANGUAGES.forEach(function(lang) {
     var sel = lang.id === defaultLang ? ' selected' : '';
@@ -385,7 +386,14 @@ function codingPgRenderEditor(problem) {
   html += '  </div>';
   html += '  <div class="coding-toolbar-right">';
   html += '    <button onclick="codingPgFormatCode()" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:5px 10px;color:#94a3b8;cursor:pointer;font-size:0.7rem;font-weight:600;display:flex;align-items:center;gap:4px;transition:all 0.15s;" onmouseover="this.style.background=\'rgba(34,197,94,0.15)\';this.style.color=\'#22c55e\';this.style.borderColor=\'rgba(34,197,94,0.3)\'" onmouseout="this.style.background=\'rgba(255,255,255,0.05)\';this.style.color=\'#94a3b8\';this.style.borderColor=\'rgba(255,255,255,0.1)\'" title="Format Code (Ctrl+Shift+F)"><i class="fas fa-magic"></i> Format</button>';
-  html += '    <button id="coding-pg-ai-toggle" onclick="codingPgToggleAI()" style="background:' + (_pgAIEnabled ? 'rgba(108,71,255,0.15)' : 'rgba(255,255,255,0.05)') + ';border:1px solid ' + (_pgAIEnabled ? 'rgba(108,71,255,0.3)' : 'rgba(255,255,255,0.1)') + ';border-radius:6px;padding:5px 10px;color:' + (_pgAIEnabled ? '#a78bfa' : '#94a3b8') + ';cursor:pointer;font-size:0.7rem;font-weight:600;display:flex;align-items:center;gap:4px;transition:all 0.15s;" title="Toggle AI Suggestions"><i class="fas fa-robot"></i> AI</button>';
+  html += '    <div id="coding-pg-ai-dropdown-wrap" style="position:relative;display:inline-block;">';
+  html += '      <button id="coding-pg-ai-dropdown-btn" onclick="codingPgToggleAIDropdown()" style="background:rgba(108,71,255,0.15);border:1px solid rgba(108,71,255,0.3);border-radius:6px;padding:5px 10px;color:#a78bfa;cursor:pointer;font-size:0.7rem;font-weight:600;display:flex;align-items:center;gap:4px;transition:all 0.15s;" title="AI Assist (Hints, Algorithm, Solution)"><i class="fas fa-robot"></i> AI ▾</button>';
+  html += '      <div id="coding-pg-ai-dropdown-menu" style="display:none;position:absolute;top:100%;right:0;margin-top:4px;background:#1a1a2e;border:1px solid rgba(108,71,255,0.3);border-radius:10px;min-width:180px;z-index:999;box-shadow:0 8px 24px rgba(0,0,0,0.5);overflow:hidden;">';
+  html += '        <div onclick="codingPgAIHints()" style="padding:10px 14px;color:#e2e8f0;font-size:0.78rem;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:8px;transition:background 0.15s;" onmouseover="this.style.background=\'rgba(108,71,255,0.15)\'" onmouseout="this.style.background=\'transparent\'"><i class="fas fa-lightbulb" style="color:#fbbf24;"></i> Hints</div>';
+  html += '        <div onclick="codingPgAIAlgorithm()" style="padding:10px 14px;color:#e2e8f0;font-size:0.78rem;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:8px;transition:background 0.15s;border-top:1px solid rgba(255,255,255,0.06);" onmouseover="this.style.background=\'rgba(108,71,255,0.15)\'" onmouseout="this.style.background=\'transparent\'"><i class="fas fa-project-diagram" style="color:#60a5fa;"></i> Algorithm</div>';
+  html += '        <div onclick="codingPgAIOptimalSolution()" style="padding:10px 14px;color:#e2e8f0;font-size:0.78rem;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:8px;transition:background 0.15s;border-top:1px solid rgba(255,255,255,0.06);" onmouseover="this.style.background=\'rgba(108,71,255,0.15)\'" onmouseout="this.style.background=\'transparent\'"><i class="fas fa-code" style="color:#22c55e;"></i> Optimal Solution</div>';
+  html += '      </div>';
+  html += '    </div>';
   html += '    <button id="coding-pg-bottom-toggle-btn" onclick="codingPgToggleBottomPanel()" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:5px 10px;color:#94a3b8;cursor:pointer;font-size:0.7rem;font-weight:600;display:flex;align-items:center;gap:4px;transition:all 0.15s;" onmouseover="this.style.background=\'rgba(108,71,255,0.15)\';this.style.color=\'#a78bfa\';this.style.borderColor=\'rgba(108,71,255,0.3)\'" onmouseout="this.style.background=\'rgba(255,255,255,0.05)\';this.style.color=\'#94a3b8\';this.style.borderColor=\'rgba(255,255,255,0.1)\'" title="Toggle Bottom Panel"><i class="fas fa-chevron-down" id="coding-pg-toggle-icon"></i> <span id="coding-pg-toggle-text">Hide Panel</span></button>';
   html += '    <button class="coding-btn coding-btn-run" id="coding-pg-run-btn" onclick="codingPgRun()"><i class="fas fa-play"></i> Run</button>';
   html += '    <button class="coding-btn coding-btn-submit" id="coding-pg-submit-btn" onclick="codingPgSubmit()"><i class="fas fa-paper-plane"></i> Submit</button>';
@@ -506,13 +514,7 @@ function codingPgInitMonaco(langId, starterCode) {
       bracketPairColorization: { enabled: true },
       renderLineHighlight: 'line',
       scrollbar: { verticalScrollbarSize: 8, horizontalScrollbarSize: 8 },
-      inlineSuggest: { enabled: true },
       quickSuggestions: false,
-    });
-
-    _pgEditorInstance.onDidChangeCursorPosition(function(e) {
-      var el = document.getElementById('coding-pg-cursor');
-      if (el) el.textContent = 'Ln ' + e.position.lineNumber + ', Col ' + e.position.column;
     });
 
     // Auto-save code on change + trigger compile check
@@ -523,10 +525,20 @@ function codingPgInitMonaco(langId, starterCode) {
       if (pid) pgSaveCode(pid, lid, _pgEditorInstance.getValue());
       // Real-time syntax error detection (debounced)
       codingPgScheduleCompileCheck();
+      // Reset cursor widget timer on typing (user is active)
+      _pgResetCursorWidgetTimer();
     });
 
-    // Register AI Inline Completions Provider (Copilot-like ghost text suggestions)
-    _pgRegisterAICompletions(monaco);
+    // Register cursor position change listener for AI pop-up widget
+    _pgEditorInstance.onDidChangeCursorPosition(function(e) {
+      var el = document.getElementById('coding-pg-cursor');
+      if (el) el.textContent = 'Ln ' + e.position.lineNumber + ', Col ' + e.position.column;
+      // Reset cursor widget timer when cursor moves
+      _pgResetCursorWidgetTimer();
+    });
+
+    // Pre-load best solution for this problem (so AI features are instant)
+    _pgPreloadBestSolution();
   }).catch(function() {
     container.innerHTML = '<textarea id="coding-pg-fallback" class="coding-editor-textarea" spellcheck="false" placeholder="// Write your code here...">' + sanitize(starterCode || '') + '</textarea>';
   });
@@ -703,9 +715,6 @@ function codingPgSubmit() {
               if (outputEl) outputEl.innerHTML += streakToast;
             }
           }
-          // Show "View Best Solution" button after successful submit
-          var viewBtn = '<div style="margin-top:8px;"><button onclick="codingPgViewBestSolution()" style="background:rgba(108,71,255,0.15);border:1px solid rgba(108,71,255,0.3);border-radius:8px;padding:8px 14px;color:#a78bfa;font-size:0.78rem;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px;"><i class="fas fa-eye"></i> View Best Solution</button></div>';
-          if (outputEl) outputEl.innerHTML += viewBtn;
 
           // Submit to leaderboard (non-blocking)
           codingPgSubmitToLeaderboard(_pgActiveProblem.id, _pgActiveProblem.title);
@@ -1693,142 +1702,714 @@ function codingPgShowLeaderboard(problemId) {
 }
 
 // ═══════════════════════════════════════════════════════
-// AI INLINE COMPLETIONS (Copilot-like ghost text)
+// AI DROPDOWN + CURSOR WIDGET (Pre-loaded Best Solution based)
+// Zero API calls — all derived from _pgPreloadedSolution
 // ═══════════════════════════════════════════════════════
 
 /**
- * Load AI toggle state from localStorage
+ * Pre-load best solution for current problem (called on problem select)
+ * Ensures _pgPreloadedSolution is ready for instant AI features
  */
-(function() {
-  var saved = localStorage.getItem('ck_ai_suggestions');
-  if (saved !== null) _pgAIEnabled = saved === 'true';
-})();
-
-/**
- * Toggle AI suggestions on/off
- */
-function codingPgToggleAI() {
-  _pgAIEnabled = !_pgAIEnabled;
-  localStorage.setItem('ck_ai_suggestions', _pgAIEnabled ? 'true' : 'false');
-
-  var btn = document.getElementById('coding-pg-ai-toggle');
-  if (btn) {
-    btn.style.background = _pgAIEnabled ? 'rgba(108,71,255,0.15)' : 'rgba(255,255,255,0.05)';
-    btn.style.borderColor = _pgAIEnabled ? 'rgba(108,71,255,0.3)' : 'rgba(255,255,255,0.1)';
-    btn.style.color = _pgAIEnabled ? '#a78bfa' : '#94a3b8';
-  }
+function _pgPreloadBestSolution() {
+  if (!_pgActiveProblem) return;
+  _pgPreloadedSolution = null;
+  var token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+  fetch(BASE_URL + '/api/coding-problems/best-solution?problemId=' + _pgActiveProblem.id, {
+    headers: token ? { 'Authorization': 'Bearer ' + token } : {},
+  }).then(function(r) { return r.json(); }).then(function(d) {
+    if (d.success && d.solution) _pgPreloadedSolution = d.solution;
+  }).catch(function() {});
 }
 
 /**
- * Register Monaco InlineCompletionsProvider for AI suggestions.
- * Called once after Monaco editor is created.
+ * Get the currently selected language's best solution code
+ * Returns the code string or null if not available
  */
-function _pgRegisterAICompletions(monaco) {
-  if (_pgAIProviderRegistered) return;
-  _pgAIProviderRegistered = true;
-
-  // Register for all supported languages
-  var languages = ['c', 'java', 'python', 'javascript'];
-  languages.forEach(function(lang) {
-    monaco.languages.registerInlineCompletionsProvider(lang, {
-      provideInlineCompletions: function(model, position, context, token) {
-        return _pgFetchAISuggestion(model, position, token);
-      },
-      freeInlineCompletions: function() {}
-    });
-  });
+function _pgGetCurrentLangSolution() {
+  if (!_pgPreloadedSolution) return null;
+  var select = document.getElementById('coding-pg-lang');
+  var langId = select ? select.value : 'c';
+  var sol = _pgPreloadedSolution[langId];
+  if (sol && sol.code) return sol.code;
+  // Fallback: if solution is in old single-language format
+  if (_pgPreloadedSolution.code && _pgPreloadedSolution.language === langId) return _pgPreloadedSolution.code;
+  return null;
 }
 
 /**
- * Fetch AI suggestion from backend with debounce via AbortController.
- * Returns InlineCompletions result for Monaco.
+ * Get the currently selected language's solution object (code + TC/SC + explanation)
  */
-function _pgFetchAISuggestion(model, position, cancellationToken) {
-  // If AI is disabled, return empty
-  if (!_pgAIEnabled) return Promise.resolve({ items: [] });
+function _pgGetCurrentLangSolutionObj() {
+  if (!_pgPreloadedSolution) return null;
+  var select = document.getElementById('coding-pg-lang');
+  var langId = select ? select.value : 'c';
+  var sol = _pgPreloadedSolution[langId];
+  if (sol && sol.code) return sol;
+  // Fallback single-language format
+  if (_pgPreloadedSolution.code && _pgPreloadedSolution.language === langId) return _pgPreloadedSolution;
+  return null;
+}
 
-  // Cancel previous request
-  if (_pgAIAbortController) {
-    _pgAIAbortController.abort();
-    _pgAIAbortController = null;
-  }
-
-  // Debounce: wait 300ms before making request
-  return new Promise(function(resolve) {
-    var debounceTimer = setTimeout(function() {
-      // Get current code up to cursor
-      var code = model.getValueInRange({
-        startLineNumber: 1,
-        startColumn: 1,
-        endLineNumber: position.lineNumber,
-        endColumn: position.column,
-      });
-
-      // Don't suggest for very short code
-      if (!code || code.trim().length < 5) {
-        resolve({ items: [] });
-        return;
+/**
+ * Toggle AI dropdown menu visibility
+ */
+function codingPgToggleAIDropdown() {
+  var menu = document.getElementById('coding-pg-ai-dropdown-menu');
+  if (!menu) return;
+  var isVisible = menu.style.display !== 'none';
+  menu.style.display = isVisible ? 'none' : 'block';
+  // Close dropdown when clicking outside
+  if (!isVisible) {
+    setTimeout(function() {
+      function closeHandler(e) {
+        var wrap = document.getElementById('coding-pg-ai-dropdown-wrap');
+        if (wrap && !wrap.contains(e.target)) {
+          menu.style.display = 'none';
+          document.removeEventListener('click', closeHandler);
+        }
       }
+      document.addEventListener('click', closeHandler);
+    }, 10);
+  }
+}
 
-      // Get current language from dropdown
-      var select = document.getElementById('coding-pg-lang');
-      var langId = select ? select.value : 'c';
+/**
+ * AI Dropdown → Hints
+ * Extracts key logic points from the pre-loaded optimal solution
+ * Shows hints in a popup panel below toolbar (no API call)
+ */
+function codingPgAIHints() {
+  // Close dropdown
+  var menu = document.getElementById('coding-pg-ai-dropdown-menu');
+  if (menu) menu.style.display = 'none';
 
-      // Get problem context
-      var problemTitle = _pgActiveProblem ? _pgActiveProblem.title : '';
-      var problemDesc = _pgActiveProblem ? (_pgActiveProblem.description || '').slice(0, 150) : '';
+  var sol = _pgGetCurrentLangSolutionObj();
+  if (!sol) {
+    _pgShowAIPanel('💡 Hints', '<div style="color:#f59e0b;">Best solution not loaded yet. Please wait a moment and try again.</div>');
+    return;
+  }
 
-      // Create AbortController for this request
-      _pgAIAbortController = new AbortController();
-      var signal = _pgAIAbortController.signal;
+  // Extract hints from the solution code by analyzing key patterns
+  var code = sol.code || '';
+  var hints = _pgExtractHints(code);
+  var langId = (document.getElementById('coding-pg-lang') || {}).value || 'c';
 
-      var token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
-
-      fetch(BASE_URL + '/api/code/autocomplete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-        body: JSON.stringify({
-          code: code,
-          language: langId,
-          cursorLine: position.lineNumber,
-          problemTitle: problemTitle,
-          problemDesc: problemDesc,
-        }),
-        signal: signal,
-      })
-      .then(function(r) { return r.json(); })
-      .then(function(data) {
-        if (data.success && data.suggestion && data.suggestion.trim()) {
-          resolve({
-            items: [{
-              insertText: data.suggestion,
-              range: {
-                startLineNumber: position.lineNumber,
-                startColumn: position.column,
-                endLineNumber: position.lineNumber,
-                endColumn: position.column,
-              },
-            }],
-          });
-        } else {
-          resolve({ items: [] });
-        }
-      })
-      .catch(function() {
-        resolve({ items: [] });
-      });
-    }, 300);
-
-    // If Monaco cancels (user typed again), clear debounce timer
-    if (cancellationToken && cancellationToken.onCancellationRequested) {
-      cancellationToken.onCancellationRequested(function() {
-        clearTimeout(debounceTimer);
-        if (_pgAIAbortController) {
-          _pgAIAbortController.abort();
-          _pgAIAbortController = null;
-        }
-        resolve({ items: [] });
-      });
-    }
+  var html = '';
+  html += '<div style="font-size:0.72rem;color:#94a3b8;margin-bottom:8px;">Based on optimal ' + langId.toUpperCase() + ' solution:</div>';
+  hints.forEach(function(hint, i) {
+    html += '<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:8px;padding:8px 10px;background:rgba(251,191,36,0.06);border:1px solid rgba(251,191,36,0.15);border-radius:8px;">';
+    html += '  <span style="color:#fbbf24;font-weight:800;font-size:0.75rem;min-width:18px;">' + (i + 1) + '.</span>';
+    html += '  <span style="color:#e2e8f0;font-size:0.78rem;line-height:1.5;">' + sanitize(hint) + '</span>';
+    html += '</div>';
   });
+
+  // Add TC/SC hint
+  if (sol.timeComplexity || sol.tc) {
+    html += '<div style="margin-top:10px;padding:8px 10px;background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.15);border-radius:8px;font-size:0.75rem;color:#22c55e;font-weight:600;">';
+    html += '⏱ Target TC: ' + sanitize(sol.timeComplexity || sol.tc || '?') + ' | 💾 Target SC: ' + sanitize(sol.spaceComplexity || sol.sc || '?');
+    html += '</div>';
+  }
+
+  _pgShowAIPanel('💡 Hints', html);
+}
+
+/**
+ * Extract hints from solution code (pattern-based, no API)
+ * Analyzes code structure to give useful hints without revealing full solution
+ */
+function _pgExtractHints(code) {
+  if (!code) return ['Think about the problem step by step.'];
+  var hints = [];
+  var lines = code.split('\n').map(function(l) { return l.trim(); }).filter(function(l) { return l && !l.startsWith('//') && !l.startsWith('#') && !l.startsWith('/*'); });
+
+  // Detect data structures used
+  if (/\bMap\b|\bHashMap\b|\bdict\b|\bunordered_map\b|\bmap\[/.test(code)) hints.push('Consider using a Hash Map/Dictionary for O(1) lookups.');
+  if (/\bSet\b|\bHashSet\b|\bset\(\)|\bunordered_set\b/.test(code)) hints.push('A Set can help track unique elements efficiently.');
+  if (/\bStack\b|\bstack\b|\bLifoQueue\b|\bpush\b.*\bpop\b/.test(code)) hints.push('A Stack (LIFO) structure might be useful here.');
+  if (/\bQueue\b|\bqueue\b|\bdeque\b|\bLinkedList\b/.test(code)) hints.push('Think about using a Queue (FIFO) for processing order.');
+  if (/\bPriorityQueue\b|\bheapq\b|\bheap\b/.test(code)) hints.push('A Priority Queue/Heap can optimize finding min/max efficiently.');
+
+  // Detect algorithm patterns
+  if (/\bsort\b|\bArrays\.sort\b|\bsorted\b/.test(code)) hints.push('Sorting the input first might simplify the problem.');
+  if (/while.*left.*right|while.*lo.*hi|while.*start.*end/.test(code)) hints.push('Two-pointer or Binary Search technique could work here.');
+  if (/function.*\(.*\).*\{[\s\S]*function.*\(|def.*:[\s\S]*def.*:|\brecur/.test(code) || /\(.*n\s*-\s*1\)|\(.*n\s*\/\s*2\)/.test(code)) hints.push('This problem might benefit from a recursive/divide-and-conquer approach.');
+  if (/\bdp\b|\bmemo\b|\bcache\b|\btabulation\b/.test(code)) hints.push('Dynamic Programming (memoization/tabulation) is key to optimal solution.');
+  if (/for.*for|while.*while/.test(code) && !/\bdp\b/.test(code)) hints.push('Nested iteration is used — think about optimizing inner loop.');
+  if (/Math\.max|Math\.min|max\(|min\(|fmax|fmin/.test(code)) hints.push('Track running maximum/minimum values as you iterate.');
+  if (/\bswap\b|temp\s*=/.test(code)) hints.push('In-place swapping technique is part of the solution.');
+  if (/\bXOR\b|\^=|\^\s/.test(code)) hints.push('XOR bitwise operation has a useful property here.');
+  if (/\.length|\.size|len\(/.test(code) && /\-\s*1/.test(code)) hints.push('Pay attention to array bounds (length - 1).');
+
+  // If no specific hints detected, give general structural hints
+  if (hints.length === 0) {
+    var loopCount = (code.match(/\bfor\b|\bwhile\b/g) || []).length;
+    if (loopCount === 1) hints.push('A single pass through the data is sufficient.');
+    else if (loopCount === 2) hints.push('Two passes (or a nested structure) are needed.');
+    hints.push('Break the problem into smaller sub-problems.');
+    hints.push('Think about edge cases: empty input, single element, duplicates.');
+  }
+
+  // Always add a general approach hint
+  if (hints.length < 4) {
+    hints.push('Read input carefully and handle edge cases first.');
+  }
+
+  return hints.slice(0, 5); // Max 5 hints
+}
+
+/**
+ * AI Dropdown → Algorithm
+ * Identifies and explains the algorithm used in the best solution
+ * No API call — pure code analysis of pre-loaded solution
+ */
+function codingPgAIAlgorithm() {
+  // Close dropdown
+  var menu = document.getElementById('coding-pg-ai-dropdown-menu');
+  if (menu) menu.style.display = 'none';
+
+  var sol = _pgGetCurrentLangSolutionObj();
+  if (!sol) {
+    _pgShowAIPanel('🔬 Algorithm', '<div style="color:#f59e0b;">Best solution not loaded yet. Please wait a moment and try again.</div>');
+    return;
+  }
+
+  var code = sol.code || '';
+  var algo = _pgDetectAlgorithm(code);
+  var langId = (document.getElementById('coding-pg-lang') || {}).value || 'c';
+
+  var html = '';
+  html += '<div style="font-size:0.72rem;color:#94a3b8;margin-bottom:10px;">Algorithm used in optimal ' + langId.toUpperCase() + ' solution:</div>';
+
+  // Algorithm name badge
+  html += '<div style="display:inline-block;padding:6px 14px;background:rgba(96,165,250,0.12);border:1px solid rgba(96,165,250,0.3);border-radius:8px;color:#60a5fa;font-size:0.85rem;font-weight:700;margin-bottom:12px;">' + sanitize(algo.name) + '</div>';
+
+  // Algorithm explanation
+  html += '<div style="padding:10px 12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:10px;margin-bottom:10px;">';
+  html += '  <div style="color:#e2e8f0;font-size:0.8rem;line-height:1.6;">' + sanitize(algo.explanation) + '</div>';
+  html += '</div>';
+
+  // Step-by-step breakdown
+  if (algo.steps && algo.steps.length > 0) {
+    html += '<div style="font-size:0.72rem;font-weight:700;color:#a78bfa;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px;">Step-by-Step:</div>';
+    algo.steps.forEach(function(step, i) {
+      html += '<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:6px;padding:6px 10px;background:rgba(108,71,255,0.05);border-radius:6px;">';
+      html += '  <span style="color:#a78bfa;font-weight:800;font-size:0.72rem;min-width:20px;">→</span>';
+      html += '  <span style="color:rgba(255,255,255,0.85);font-size:0.76rem;line-height:1.4;">' + sanitize(step) + '</span>';
+      html += '</div>';
+    });
+  }
+
+  // Complexity info
+  html += '<div style="margin-top:10px;display:flex;gap:10px;">';
+  html += '  <span style="font-size:0.72rem;font-weight:700;background:rgba(34,197,94,0.1);color:#22c55e;padding:4px 10px;border-radius:6px;">⏱ ' + sanitize(sol.timeComplexity || sol.tc || '?') + '</span>';
+  html += '  <span style="font-size:0.72rem;font-weight:700;background:rgba(96,165,250,0.1);color:#60a5fa;padding:4px 10px;border-radius:6px;">💾 ' + sanitize(sol.spaceComplexity || sol.sc || '?') + '</span>';
+  html += '</div>';
+
+  // Explanation from solution
+  if (sol.explanation) {
+    html += '<div style="margin-top:10px;padding:8px 12px;background:rgba(34,197,94,0.05);border:1px solid rgba(34,197,94,0.12);border-radius:8px;font-size:0.76rem;color:rgba(255,255,255,0.75);line-height:1.5;"><strong style="color:#22c55e;">Summary:</strong> ' + sanitize(sol.explanation) + '</div>';
+  }
+
+  _pgShowAIPanel('🔬 Algorithm', html);
+}
+
+/**
+ * Detect algorithm from code using pattern matching (no API)
+ * Returns { name, explanation, steps }
+ */
+function _pgDetectAlgorithm(code) {
+  if (!code) return { name: 'Unknown', explanation: 'Could not analyze.', steps: [] };
+
+  // Two Pointer
+  if (/while.*left.*right|while.*lo.*hi|while.*i.*j/.test(code) && /left\+\+|right--|lo\+\+|hi--|i\+\+|j--/.test(code)) {
+    return { name: 'Two Pointer Technique', explanation: 'Uses two pointers moving from opposite ends (or same direction) to find a solution in O(n) time without extra space. Avoids brute-force nested loops.', steps: ['Initialize two pointers (left at start, right at end)', 'Compare elements at both pointers', 'Move the pointer that helps approach the target', 'Repeat until pointers meet or condition is satisfied'] };
+  }
+
+  // Binary Search
+  if (/while.*low.*high|while.*lo.*hi|while.*left.*right/.test(code) && /mid\s*=|mid\s*\+|\/\s*2/.test(code)) {
+    return { name: 'Binary Search', explanation: 'Divides the search space in half each iteration, achieving O(log n) time complexity. Works on sorted data or monotonic conditions.', steps: ['Define search boundaries (low, high)', 'Calculate mid point', 'Compare mid with target — narrow search to left or right half', 'Repeat until element found or boundaries cross'] };
+  }
+
+  // Dynamic Programming
+  if (/\bdp\b|\bmemo\b|\btabulation\b|\bcache\b/.test(code) || (/\bnew\s+(int|Integer|Array)/.test(code) && /\[.*\+\s*1\]/.test(code) && /dp\[|memo\[/.test(code))) {
+    return { name: 'Dynamic Programming', explanation: 'Breaks problem into overlapping sub-problems and stores results to avoid recomputation. Builds solution bottom-up (tabulation) or top-down (memoization).', steps: ['Identify the state (what changes between sub-problems)', 'Define recurrence relation (how states relate)', 'Initialize base cases', 'Fill DP table iteratively or recursively with memoization', 'Return final state as answer'] };
+  }
+
+  // Recursion / Backtracking
+  if (/function\s+\w+.*\(.*\)[\s\S]{0,50}function\s+\w+.*\(/.test(code) || /def\s+\w+.*:[\s\S]{0,200}def\s+\w+/.test(code) || /\bbacktrack\b|\brecurse\b/.test(code)) {
+    return { name: 'Recursion / Backtracking', explanation: 'Explores all possible solutions by making choices and undoing them (backtracking) when they lead to dead ends. Useful for combinatorial problems.', steps: ['Define base case (when to stop)', 'Make a choice and recurse on remaining sub-problem', 'If choice leads to invalid state, undo (backtrack)', 'Collect valid solutions'] };
+  }
+
+  // Sorting + Greedy
+  if (/\bsort\b|\bArrays\.sort\b|\bsorted\b|\bCollections\.sort\b/.test(code)) {
+    if (/greedy|max.*min|min.*max/.test(code) || !/for.*for/.test(code)) {
+      return { name: 'Sorting + Greedy Approach', explanation: 'Sorts input to establish order, then makes locally optimal choices at each step. Greedy works when local optimum leads to global optimum.', steps: ['Sort the input array/list', 'Iterate through sorted data', 'At each step, make the greedy choice (pick best local option)', 'Build result incrementally'] };
+    }
+    return { name: 'Sorting-Based Approach', explanation: 'Sorts the input first to simplify the problem. After sorting, patterns become easier to detect (duplicates, pairs, ranges).', steps: ['Sort the input data', 'Use the sorted order to efficiently find answer', 'Handle edge cases (empty array, single element)'] };
+  }
+
+  // HashMap/Frequency counting
+  if (/\bMap\b|\bHashMap\b|\bdict\b|\bunordered_map\b|\bmap\[|\b{}\b/.test(code) && /\bget\b|\b\[.*\]\s*=/.test(code)) {
+    return { name: 'Hash Map / Frequency Counting', explanation: 'Uses a hash map to store values for O(1) lookup. Common for counting frequencies, finding pairs, or tracking seen elements.', steps: ['Create a hash map/dictionary', 'Iterate through input, storing relevant data in map', 'Use O(1) lookup to check conditions or find answers', 'Return result based on map contents'] };
+  }
+
+  // Sliding Window
+  if (/window|slide|shrink/.test(code) || (/while/.test(code) && /start\+\+|left\+\+|i\+\+/.test(code) && /end|right|j/.test(code) && /sum|count|max|min/.test(code))) {
+    return { name: 'Sliding Window', explanation: 'Maintains a window of elements that expands or shrinks based on conditions. Efficiently processes contiguous subarrays/substrings in O(n).', steps: ['Initialize window boundaries (start, end)', 'Expand window by moving end pointer', 'When condition violated, shrink window from start', 'Track best result (max/min) during process'] };
+  }
+
+  // Simple iteration
+  if ((code.match(/\bfor\b|\bwhile\b/g) || []).length === 1) {
+    return { name: 'Single-Pass Linear Scan', explanation: 'Solves the problem in a single pass through the data (O(n)). Maintains running state variables to track the answer.', steps: ['Initialize result/tracking variables', 'Iterate through input once', 'Update tracking variables at each step', 'Return final result after loop'] };
+  }
+
+  // Nested loops
+  if ((code.match(/\bfor\b/g) || []).length >= 2 || /for.*for/.test(code)) {
+    return { name: 'Nested Iteration', explanation: 'Uses nested loops to check all pairs or sub-problems. May be O(n²) but is sometimes the simplest correct approach for the given constraints.', steps: ['Outer loop iterates through each element', 'Inner loop checks against remaining elements', 'Track best result found', 'Optimize if possible with early termination'] };
+  }
+
+  // Fallback
+  return { name: 'Iterative Approach', explanation: 'Uses straightforward iteration to solve the problem. Focus on handling edge cases correctly.', steps: ['Read and parse input', 'Process data with appropriate logic', 'Handle edge cases', 'Output result'] };
+}
+
+/**
+ * AI Dropdown → Optimal Solution
+ * Inserts the full best solution into Monaco editor (current language)
+ */
+function codingPgAIOptimalSolution() {
+  // Close dropdown
+  var menu = document.getElementById('coding-pg-ai-dropdown-menu');
+  if (menu) menu.style.display = 'none';
+
+  var code = _pgGetCurrentLangSolution();
+  if (!code) {
+    _pgShowAIPanel('💻 Optimal Solution', '<div style="color:#f59e0b;">Best solution not loaded yet. Please wait a moment and try again.</div>');
+    return;
+  }
+
+  // Insert into Monaco editor
+  if (_pgEditorInstance) {
+    _pgEditorInstance.setValue(code);
+    // Save immediately
+    var pid = _pgActiveProblem ? _pgActiveProblem.id : '';
+    var select = document.getElementById('coding-pg-lang');
+    var lid = select ? select.value : 'c';
+    if (pid) pgSaveCode(pid, lid, code);
+  }
+
+  // Hide AI panel if open
+  _pgHideAIPanel();
+}
+
+/**
+ * Show AI panel (floating panel below toolbar, above editor)
+ * Used by Hints and Algorithm features
+ */
+function _pgShowAIPanel(title, contentHtml) {
+  // Remove existing panel if any
+  _pgHideAIPanel();
+
+  var panel = document.createElement('div');
+  panel.id = 'coding-pg-ai-panel';
+  panel.style.cssText = 'position:absolute;top:38px;right:8px;width:380px;max-height:55vh;overflow-y:auto;background:#12101f;border:1px solid rgba(108,71,255,0.3);border-radius:12px;padding:16px;z-index:998;box-shadow:0 12px 40px rgba(0,0,0,0.6);';
+
+  var html = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">';
+  html += '  <span style="font-size:0.88rem;font-weight:700;color:#fff;">' + title + '</span>';
+  html += '  <button onclick="_pgHideAIPanel()" style="background:rgba(255,255,255,0.1);border:none;border-radius:50%;width:24px;height:24px;color:#fff;cursor:pointer;font-size:0.8rem;display:flex;align-items:center;justify-content:center;">✕</button>';
+  html += '</div>';
+  html += '<div>' + contentHtml + '</div>';
+
+  panel.innerHTML = html;
+
+  // Insert into the editor area (relative positioned parent)
+  var editorWrap = document.getElementById('coding-pg-editor-area');
+  if (editorWrap) {
+    editorWrap.style.position = 'relative';
+    editorWrap.appendChild(panel);
+  }
+}
+
+/**
+ * Hide AI panel
+ */
+function _pgHideAIPanel() {
+  var panel = document.getElementById('coding-pg-ai-panel');
+  if (panel) panel.remove();
+}
+
+// ═══════════════════════════════════════════════════════
+// CURSOR AI POP-UP WIDGET (shows after 2 sec pause)
+// Uses Monaco ContentWidget API
+// ═══════════════════════════════════════════════════════
+
+/**
+ * Reset the cursor widget timer (called on typing/cursor move)
+ * After 2 seconds of inactivity, shows the AI pop-up at cursor position
+ * Respects minimized state — if user minimized, re-shows in minimized form
+ */
+function _pgResetCursorWidgetTimer() {
+  // Hide existing widget on any activity
+  _pgHideCursorWidget();
+  clearTimeout(_pgCursorWidgetTimer);
+  _pgCursorWidgetTimer = setTimeout(function() {
+    _pgShowCursorWidget();
+  }, 2000);
+}
+
+/**
+ * Show cursor AI pop-up widget at current cursor position
+ * Uses Monaco ContentWidget for proper editor integration
+ * Features: equal-sized buttons + minimize/maximize controls
+ */
+function _pgShowCursorWidget() {
+  if (!_pgEditorInstance || !window.monaco) return;
+  if (!_pgPreloadedSolution) return; // No solution loaded, don't show
+  if (_pgCursorWidgetVisible) return; // Already showing
+
+  var position = _pgEditorInstance.getPosition();
+  if (!position) return;
+
+  // Don't show if editor is empty or has very little code
+  var code = _pgEditorInstance.getValue();
+  if (!code || code.trim().length < 3) return;
+
+  _pgCursorWidgetVisible = true;
+
+  // Create ContentWidget
+  _pgCursorWidget = {
+    getId: function() { return 'pg-ai-cursor-widget'; },
+    getDomNode: function() {
+      if (!this._domNode) {
+        this._domNode = document.createElement('div');
+        this._domNode.id = 'pg-ai-cursor-widget-dom';
+        this._domNode.style.cssText = 'background:#1a1a2e;border:1px solid rgba(108,71,255,0.4);border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,0.5);z-index:999;cursor:default;white-space:nowrap;overflow:hidden;';
+
+        // Control bar (minimize/maximize)
+        var controlBar = document.createElement('div');
+        controlBar.style.cssText = 'display:flex;align-items:center;justify-content:flex-end;padding:3px 6px 0;gap:4px;';
+
+        var minBtn = document.createElement('button');
+        minBtn.innerHTML = '−';
+        minBtn.title = 'Minimize';
+        minBtn.style.cssText = 'background:rgba(255,255,255,0.08);border:none;border-radius:3px;width:16px;height:16px;color:#94a3b8;font-size:0.7rem;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;transition:background 0.15s;';
+        minBtn.onmouseover = function() { minBtn.style.background = 'rgba(239,68,68,0.3)'; minBtn.style.color = '#fca5a5'; };
+        minBtn.onmouseout = function() { minBtn.style.background = 'rgba(255,255,255,0.08)'; minBtn.style.color = '#94a3b8'; };
+        minBtn.onclick = function(e) { e.stopPropagation(); _pgMinimizeCursorWidget(); };
+
+        controlBar.appendChild(minBtn);
+
+        // Buttons container
+        var btnContainer = document.createElement('div');
+        btnContainer.id = 'pg-ai-cursor-btns';
+        btnContainer.style.cssText = 'display:flex;gap:4px;align-items:center;padding:4px 6px 6px;';
+
+        var btnStyle = 'width:72px;height:26px;border-radius:6px;font-size:0.63rem;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:3px;transition:background 0.15s;';
+
+        var btn1 = document.createElement('button');
+        btn1.innerHTML = '<i class="fas fa-step-forward"></i> Next';
+        btn1.style.cssText = btnStyle + 'background:rgba(34,197,94,0.12);border:1px solid rgba(34,197,94,0.3);color:#22c55e;';
+        btn1.onmouseover = function() { btn1.style.background = 'rgba(34,197,94,0.25)'; };
+        btn1.onmouseout = function() { btn1.style.background = 'rgba(34,197,94,0.12)'; };
+        btn1.onclick = function(e) { e.stopPropagation(); codingPgNextStep(); };
+
+        var btn2 = document.createElement('button');
+        btn2.innerHTML = '<i class="fas fa-search"></i> Analyze';
+        btn2.style.cssText = btnStyle + 'background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.3);color:#fbbf24;';
+        btn2.onmouseover = function() { btn2.style.background = 'rgba(245,158,11,0.25)'; };
+        btn2.onmouseout = function() { btn2.style.background = 'rgba(245,158,11,0.12)'; };
+        btn2.onclick = function(e) { e.stopPropagation(); codingPgAnalyzeMistake(); };
+
+        var btn3 = document.createElement('button');
+        btn3.innerHTML = '<i class="fas fa-code"></i> Solution';
+        btn3.style.cssText = btnStyle + 'background:rgba(108,71,255,0.12);border:1px solid rgba(108,71,255,0.3);color:#a78bfa;';
+        btn3.onmouseover = function() { btn3.style.background = 'rgba(108,71,255,0.25)'; };
+        btn3.onmouseout = function() { btn3.style.background = 'rgba(108,71,255,0.12)'; };
+        btn3.onclick = function(e) { e.stopPropagation(); codingPgAIOptimalSolution(); };
+
+        btnContainer.appendChild(btn1);
+        btnContainer.appendChild(btn2);
+        btnContainer.appendChild(btn3);
+
+        this._domNode.appendChild(controlBar);
+        this._domNode.appendChild(btnContainer);
+
+        // If user previously minimized, show in minimized state
+        if (_pgCursorWidgetMinimized) {
+          btnContainer.style.display = 'none';
+          controlBar.style.padding = '4px 6px';
+          _pgAddMaximizeBtn(controlBar, btnContainer);
+        }
+      }
+      return this._domNode;
+    },
+    getPosition: function() {
+      return {
+        position: position,
+        preference: [window.monaco.editor.ContentWidgetPositionPreference.BELOW]
+      };
+    }
+  };
+
+  _pgEditorInstance.addContentWidget(_pgCursorWidget);
+}
+
+/**
+ * Minimize the cursor widget — hides buttons, shows only a small restore icon
+ */
+function _pgMinimizeCursorWidget() {
+  _pgCursorWidgetMinimized = true;
+  var dom = document.getElementById('pg-ai-cursor-widget-dom');
+  if (!dom) return;
+  var btnContainer = document.getElementById('pg-ai-cursor-btns');
+  var controlBar = dom.firstChild;
+  if (btnContainer) btnContainer.style.display = 'none';
+  if (controlBar) {
+    controlBar.style.padding = '4px 6px';
+    // Replace minimize btn with maximize btn
+    controlBar.innerHTML = '';
+    _pgAddMaximizeBtn(controlBar, btnContainer);
+  }
+}
+
+/**
+ * Add maximize (restore) button to control bar
+ */
+function _pgAddMaximizeBtn(controlBar, btnContainer) {
+  var maxBtn = document.createElement('button');
+  maxBtn.innerHTML = '<i class="fas fa-robot" style="font-size:0.6rem;margin-right:3px;"></i>□';
+  maxBtn.title = 'Restore AI Assist';
+  maxBtn.style.cssText = 'background:rgba(108,71,255,0.15);border:1px solid rgba(108,71,255,0.3);border-radius:4px;padding:3px 8px;color:#a78bfa;font-size:0.63rem;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background 0.15s;';
+  maxBtn.onmouseover = function() { maxBtn.style.background = 'rgba(108,71,255,0.3)'; };
+  maxBtn.onmouseout = function() { maxBtn.style.background = 'rgba(108,71,255,0.15)'; };
+  maxBtn.onclick = function(e) { e.stopPropagation(); _pgMaximizeCursorWidget(); };
+  controlBar.appendChild(maxBtn);
+}
+
+/**
+ * Maximize (restore) the cursor widget — shows all buttons again
+ */
+function _pgMaximizeCursorWidget() {
+  _pgCursorWidgetMinimized = false;
+  // Remove and re-add widget to rebuild DOM cleanly
+  _pgHideCursorWidget();
+  // Show immediately (don't wait 2 sec)
+  setTimeout(function() { _pgShowCursorWidget(); }, 10);
+}
+
+/**
+ * Hide cursor AI pop-up widget
+ */
+function _pgHideCursorWidget() {
+  if (!_pgCursorWidgetVisible || !_pgCursorWidget || !_pgEditorInstance) return;
+  try {
+    _pgEditorInstance.removeContentWidget(_pgCursorWidget);
+  } catch(e) {}
+  _pgCursorWidget = null;
+  _pgCursorWidgetVisible = false;
+}
+
+/**
+ * Cursor Pop-up → Next Step
+ * Inserts the next solution line AFTER cursor position.
+/**
+ * Cursor Pop-up → Next Step  (Industry-level, all user scenarios handled)
+ *
+ * DESIGN:
+ * - Normalize all code lines for comparison (removes spacing/brace-style differences)
+ * - Walk ALL user code (not just up to cursor) to find how far they've progressed
+ * - Use a greedy sequential match: for each solution line, check if user has it
+ *   in order — advancing user pointer only on match
+ * - "Next" = first solution line NOT yet matched in that sequence
+ * - Insert after cursor line, move cursor there so chain Next-Next works
+ *
+ * NORMALIZATION handles:
+ *   "#include<stdio.h>"  ==  "#include <stdio.h>"
+ *   "int main(){"        ==  "int main() {"
+ *   "scanf("%d",&n);"    ==  "scanf( "%d", &n );"
+ *   Tabs vs spaces, trailing whitespace, double spaces
+ */
+function codingPgNextStep() {
+  _pgHideCursorWidget();
+
+  var solutionCode = _pgGetCurrentLangSolution();
+  if (!solutionCode) {
+    _pgShowAIPanel('➡️ Next Step', '<div style="color:#f59e0b;">Best solution not loaded yet. Please wait a moment.</div>');
+    return;
+  }
+  if (!_pgEditorInstance || !window.monaco) return;
+
+  var userCode = _pgEditorInstance.getValue();
+  var position = _pgEditorInstance.getPosition();
+  var cursorLine = position ? position.lineNumber : 1;
+
+  /**
+   * Normalize a code line for fuzzy comparison:
+   * - Lowercase
+   * - Collapse all whitespace (tabs, multi-spaces) to single space
+   * - Remove spaces around common operators/brackets so style differences vanish
+   * - Trim
+   */
+  function normalize(line) {
+    // Strip inline comments (// ...) before comparing — code logic matters, not comments
+    var noComment = line.replace(/\/\/.*$/, '').replace(/\/\*.*?\*\//g, '');
+    return noComment
+      .replace(/\t/g, ' ')          // tabs → space
+      .replace(/\s+/g, ' ')         // multi-space → single space
+      .replace(/\s*\(\s*/g, '(')    // spaces inside ( )
+      .replace(/\s*\)\s*/g, ')')
+      .replace(/\s*\{\s*/g, '{')    // spaces before {
+      .replace(/\s*\}\s*/g, '}')
+      .replace(/\s*,\s*/g, ',')     // spaces around ,
+      .replace(/\s*;\s*/g, ';')     // spaces before ;
+      .replace(/\s*<\s*/g, '<')     // spaces inside < >
+      .replace(/\s*>\s*/g, '>')
+      .replace(/\s*=\s*/g, '=')     // spaces around =
+      .trim()
+      .toLowerCase();
+  }
+
+  // Build solution line list (non-blank only, keep original for insertion)
+  var solItems = solutionCode.split('\n')
+    .map(function(l) { return { original: l, norm: normalize(l) }; })
+    .filter(function(item) { return item.norm.length > 0; });
+
+  // Build user line list (ALL lines, non-blank, normalized)
+  var userNorms = userCode.split('\n')
+    .map(function(l) { return normalize(l); })
+    .filter(function(n) { return n.length > 0; });
+
+  // Greedy sequential match:
+  // For each solution line in order, check if the user has it (anywhere from
+  // current userIdx forward). This is tolerant of extra user lines in between.
+  var userIdx = 0;
+  var matchedSolCount = 0;
+
+  for (var si = 0; si < solItems.length; si++) {
+    // Search for this sol line in user lines starting from userIdx
+    var found = false;
+    for (var ui = userIdx; ui < userNorms.length; ui++) {
+      if (solItems[si].norm === userNorms[ui]) {
+        matchedSolCount = si + 1;
+        userIdx = ui + 1; // advance user pointer past this match
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      // This solution line not found — this is the next step
+      break;
+    }
+  }
+
+  // Next step = solution line at matchedSolCount index
+  var nextItem = solItems[matchedSolCount] || null;
+
+  if (!nextItem) {
+    _pgShowAIPanel('➡️ Next Step',
+      '<div style="color:#22c55e;font-weight:600;font-size:0.82rem;">✅ Your code already covers all steps of the optimal solution! Try running or submitting.</div>');
+    return;
+  }
+
+  // Insert after cursor line, preserving solution's original indentation
+  var nextLine = nextItem.original;
+  var insertAfterLine = cursorLine;
+
+  // Always insert at the END of user code (last non-blank line)
+  // This prevents mid-code insertions when cursor is in the middle
+  var allUserLines = userCode.split('\n');
+  var lastNonBlankLine = 0;
+  for (var lb = allUserLines.length - 1; lb >= 0; lb--) {
+    if (allUserLines[lb].trim().length > 0) { lastNonBlankLine = lb + 1; break; }
+  }
+  // Insert after the last non-blank line (regardless of cursor position)
+  insertAfterLine = lastNonBlankLine;
+
+  // Insert as new line after last code line
+  var edit = {
+    range: new window.monaco.Range(insertAfterLine + 1, 1, insertAfterLine + 1, 1),
+    text: nextLine + '\n',
+    forceMoveMarkers: true
+  };
+  _pgEditorInstance.executeEdits('ai-next-step', [edit]);
+  _pgEditorInstance.setPosition({ lineNumber: insertAfterLine + 1, column: nextLine.length + 1 });
+
+  _pgEditorInstance.focus();
+  // Scroll inserted line into view
+  _pgEditorInstance.revealLineInCenter(insertAfterLine + 1);
+}
+
+/**
+ * Cursor Pop-up → Analyze Mistake
+ * Compares user code with best solution and highlights differences
+ */
+function codingPgAnalyzeMistake() {
+  _pgHideCursorWidget();
+
+  var solutionCode = _pgGetCurrentLangSolution();
+  if (!solutionCode) {
+    _pgShowAIPanel('🔍 Analyze', '<div style="color:#f59e0b;">Best solution not loaded yet.</div>');
+    return;
+  }
+
+  if (!_pgEditorInstance) return;
+  var userCode = _pgEditorInstance.getValue();
+
+  if (!userCode || userCode.trim().length < 5) {
+    _pgShowAIPanel('🔍 Analyze', '<div style="color:#f59e0b;">Write some code first, then analyze.</div>');
+    return;
+  }
+
+  // Compare user code lines vs solution lines
+  var solLines = solutionCode.split('\n').map(function(l) { return l.trim(); }).filter(function(l) { return l; });
+  var userLines = userCode.split('\n').map(function(l) { return l.trim(); }).filter(function(l) { return l; });
+
+  // Build set of solution key lines (ignore braces-only lines)
+  var solKeyLines = solLines.filter(function(l) { return l.length > 2 && l !== '{' && l !== '}' && l !== '};'; });
+  var userKeyLines = userLines.filter(function(l) { return l.length > 2 && l !== '{' && l !== '}' && l !== '};'; });
+
+  // Find missing lines (in solution but not in user code)
+  var missing = [];
+  solKeyLines.forEach(function(sl) {
+    var found = userKeyLines.some(function(ul) {
+      return ul === sl || ul.replace(/\s+/g, '') === sl.replace(/\s+/g, '');
+    });
+    if (!found) missing.push(sl);
+  });
+
+  // Find extra lines (in user code but not in solution)
+  var extra = [];
+  userKeyLines.forEach(function(ul) {
+    var found = solKeyLines.some(function(sl) {
+      return sl === ul || sl.replace(/\s+/g, '') === ul.replace(/\s+/g, '');
+    });
+    if (!found) extra.push(ul);
+  });
+
+  var html = '';
+
+  if (missing.length === 0 && extra.length === 0) {
+    html += '<div style="color:#22c55e;font-weight:600;font-size:0.82rem;">✅ Your code structure matches the optimal solution! Check logic/variable names if output differs.</div>';
+  } else {
+    // Coverage percentage
+    var coverage = Math.round(((solKeyLines.length - missing.length) / Math.max(solKeyLines.length, 1)) * 100);
+    html += '<div style="margin-bottom:10px;padding:8px 10px;background:rgba(108,71,255,0.08);border:1px solid rgba(108,71,255,0.2);border-radius:8px;font-size:0.76rem;color:#a78bfa;font-weight:600;">📊 Solution coverage: ' + coverage + '%</div>';
+
+    if (missing.length > 0) {
+      html += '<div style="font-size:0.72rem;font-weight:700;color:#ef4444;margin-bottom:6px;text-transform:uppercase;">❌ Missing Logic (' + missing.length + ' lines):</div>';
+      missing.slice(0, 6).forEach(function(line) {
+        html += '<div style="padding:4px 8px;margin-bottom:3px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.15);border-radius:6px;font-family:\'JetBrains Mono\',monospace;font-size:0.7rem;color:#fca5a5;white-space:pre-wrap;overflow-x:auto;">' + sanitize(line) + '</div>';
+      });
+      if (missing.length > 6) html += '<div style="font-size:0.68rem;color:#94a3b8;margin-top:4px;">... and ' + (missing.length - 6) + ' more lines</div>';
+    }
+
+    if (extra.length > 0) {
+      html += '<div style="font-size:0.72rem;font-weight:700;color:#f59e0b;margin:10px 0 6px;text-transform:uppercase;">⚠️ Extra/Different Lines (' + extra.length + '):</div>';
+      extra.slice(0, 4).forEach(function(line) {
+        html += '<div style="padding:4px 8px;margin-bottom:3px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.15);border-radius:6px;font-family:\'JetBrains Mono\',monospace;font-size:0.7rem;color:#fde68a;white-space:pre-wrap;overflow-x:auto;">' + sanitize(line) + '</div>';
+      });
+      if (extra.length > 4) html += '<div style="font-size:0.68rem;color:#94a3b8;margin-top:4px;">... and ' + (extra.length - 4) + ' more lines</div>';
+    }
+  }
+
+  _pgShowAIPanel('🔍 Analyze Mistakes', html);
 }
