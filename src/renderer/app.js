@@ -298,9 +298,10 @@ async function _applyDashboardData(data, isFromCache) {
     const enrolledCompletedCount = (data.enrolledCourses || []).reduce((sum, c) => sum + (c.completedLessons || 0), 0);
     if (completedEl) completedEl.innerHTML = String(enrolledCompletedCount);
 
-    // Certificates = courses where progressPercent is 100
-    const certCount = (data.enrolledCourses || []).filter(c => c.progressPercent === 100).length;
-    if (certEl) certEl.innerHTML = String(certCount);
+    // Achievements count — from cached /api/achievements data
+    var achCached = ckCacheGet('/api/achievements');
+    var achCount = (achCached && achCached.success && achCached.achievements) ? achCached.achievements.length : 0;
+    if (certEl) certEl.innerHTML = String(achCount);
 
     // Weekly streak count — fetched separately (not in polling)
     // Streak is loaded once on dashboard navigate, not every 5s
@@ -2367,7 +2368,6 @@ async function showWeeklyStreakHistory() {
   navigate('streak-history');
   const container = document.getElementById('streak-history-list');
   if (!container) return;
-  container.innerHTML = '<p style="color:var(--muted)">Loading...</p>';
 
   const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
   if (!token) {
@@ -2375,47 +2375,73 @@ async function showWeeklyStreakHistory() {
     return;
   }
 
+  // Cache-first: show cached streak data instantly
+  var cached = ckCacheGet('/api/weekly-streak-all');
+  if (cached !== null) {
+    _renderStreakHistory(container, cached);
+  } else {
+    container.innerHTML = '<p style="color:var(--muted)">Loading...</p>';
+  }
+
+  // Background refresh
   try {
-    // Get all enrolled courses first
-    const dashData = await StudentAPI.getDashboard();
-    if (!dashData.success || !dashData.enrolledCourses || dashData.enrolledCourses.length === 0) {
-      container.innerHTML = '<div style="text-align:center;padding:40px"><i class="fas fa-fire" style="font-size:2rem;color:var(--muted);margin-bottom:12px;display:block"></i><p style="color:var(--muted)">No streak challenges available yet.</p></div>';
-      return;
-    }
+    var allStreaks = await _fetchAllStreakData(token);
+    ckCacheSet('/api/weekly-streak-all', allStreaks);
+    _renderStreakHistory(container, allStreaks);
+  } catch {
+    if (!cached) container.innerHTML = '<p style="color:var(--danger)">Failed to load streak history.</p>';
+  }
+}
 
-    let allStreaks = [];
-    for (const course of dashData.enrolledCourses) {
-      try {
-        const res = await fetch(BASE_URL + '/api/weekly-streak?courseId=' + course.id, {
-          headers: { Authorization: 'Bearer ' + token },
+/**
+ * Fetch all streak data across enrolled courses (shared by history + count)
+ */
+async function _fetchAllStreakData(token) {
+  // Use cached dashboard to get enrolled courses (avoid extra API call)
+  var dashData = ckCacheGet('/api/student/dashboard');
+  if (!dashData || !dashData.success) {
+    dashData = await StudentAPI.getDashboard();
+  }
+  if (!dashData || !dashData.success || !dashData.enrolledCourses || dashData.enrolledCourses.length === 0) {
+    return [];
+  }
+
+  var allStreaks = [];
+  for (var ci = 0; ci < dashData.enrolledCourses.length; ci++) {
+    var course = dashData.enrolledCourses[ci];
+    try {
+      var res = await fetch(BASE_URL + '/api/weekly-streak?courseId=' + course.id, {
+        headers: { Authorization: 'Bearer ' + token },
+      });
+      var data = await res.json();
+      if (data.success && data.streaks) {
+        data.streaks.forEach(function(s) {
+          allStreaks.push({ weekNumber: s.weekNumber, title: s.title, completed: s.completed, courseTitle: course.title });
         });
-        const data = await res.json();
-        if (data.success && data.streaks) {
-          data.streaks.forEach(s => {
-            allStreaks.push({ ...s, courseTitle: course.title });
-          });
-        }
-      } catch {}
-    }
+      }
+    } catch {}
+  }
+  return allStreaks;
+}
 
-    if (allStreaks.length === 0) {
-      container.innerHTML = '<div style="text-align:center;padding:40px"><i class="fas fa-fire" style="font-size:2rem;color:var(--muted);margin-bottom:12px;display:block"></i><p style="color:var(--muted)">No weekly challenges created yet. Complete lessons to unlock!</p></div>';
-      return;
-    }
-
-    container.innerHTML = allStreaks.map(s =>
-      '<div style="background:rgba(255,255,255,0.03);border:1px solid ' + (s.completed ? 'rgba(34,197,94,0.3)' : 'rgba(245,158,11,0.2)') + ';border-radius:12px;padding:16px;display:flex;align-items:center;gap:14px">' +
+/**
+ * Render streak history list (reused by cached + fresh paths)
+ */
+function _renderStreakHistory(container, allStreaks) {
+  if (!allStreaks || allStreaks.length === 0) {
+    container.innerHTML = '<div style="text-align:center;padding:40px"><i class="fas fa-fire" style="font-size:2rem;color:var(--muted);margin-bottom:12px;display:block"></i><p style="color:var(--muted)">No weekly challenges created yet. Complete lessons to unlock!</p></div>';
+    return;
+  }
+  container.innerHTML = allStreaks.map(function(s) {
+    return '<div style="background:rgba(255,255,255,0.03);border:1px solid ' + (s.completed ? 'rgba(34,197,94,0.3)' : 'rgba(245,158,11,0.2)') + ';border-radius:12px;padding:16px;display:flex;align-items:center;gap:14px">' +
       '<div style="width:40px;height:40px;border-radius:10px;background:' + (s.completed ? 'rgba(34,197,94,0.15)' : 'rgba(245,158,11,0.15)') + ';display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="fas ' + (s.completed ? 'fa-check' : 'fa-fire') + '" style="color:' + (s.completed ? '#22c55e' : '#f59e0b') + '"></i></div>' +
       '<div style="flex:1">' +
       '<p style="color:#fff;font-weight:600;font-size:0.9rem;margin:0">Week ' + s.weekNumber + ': ' + sanitize(s.title) + '</p>' +
       '<p style="color:var(--muted);font-size:0.75rem;margin:2px 0 0">' + sanitize(s.courseTitle) + '</p>' +
       '</div>' +
       '<span style="font-size:0.75rem;font-weight:700;padding:4px 10px;border-radius:20px;background:' + (s.completed ? 'rgba(34,197,94,0.15)' : 'rgba(245,158,11,0.15)') + ';color:' + (s.completed ? '#22c55e' : '#f59e0b') + '">' + (s.completed ? '✅ PASS' : '⏳ Pending') + '</span>' +
-      '</div>'
-    ).join('');
-  } catch {
-    container.innerHTML = '<p style="color:var(--danger)">Failed to load streak history.</p>';
-  }
+      '</div>';
+  }).join('');
 }
 
 // Load weekly streak count — called once on dashboard navigate (not in polling)
@@ -2425,26 +2451,23 @@ async function loadWeeklyStreakCount() {
   const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
   if (!token) { streakEl.textContent = '0'; return; }
 
+  // Cache-first: show cached count instantly
+  var cached = ckCacheGet('/api/weekly-streak-all');
+  if (cached !== null) {
+    var count = cached.filter(function(s) { return s.completed; }).length;
+    streakEl.textContent = String(count);
+    streakEl.dataset.loaded = 'true';
+  }
+
+  // Background refresh
   try {
-    const dashData = await StudentAPI.getDashboard();
-    if (!dashData.success || !dashData.enrolledCourses || dashData.enrolledCourses.length === 0) {
-      streakEl.textContent = '0';
-      return;
-    }
-    let totalCompleted = 0;
-    for (const course of dashData.enrolledCourses) {
-      try {
-        const sRes = await fetch(BASE_URL + '/api/weekly-streak?courseId=' + course.id, { headers: { Authorization: 'Bearer ' + token } });
-        if (sRes.ok) {
-          const sData = await sRes.json();
-          if (sData.success) totalCompleted += (sData.completedCount || 0);
-        }
-      } catch {}
-    }
-    streakEl.textContent = totalCompleted;
+    var allStreaks = await _fetchAllStreakData(token);
+    ckCacheSet('/api/weekly-streak-all', allStreaks);
+    var totalCompleted = allStreaks.filter(function(s) { return s.completed; }).length;
+    streakEl.textContent = String(totalCompleted);
     streakEl.dataset.loaded = 'true';
   } catch {
-    streakEl.textContent = '0';
+    if (!cached) streakEl.textContent = '0';
   }
 }
 
@@ -2804,6 +2827,41 @@ function _ckCachePreFetchAll() {
     .then(function(data) {
       if (data) ckCacheSet('/api/achievements', data);
     }).catch(function() {});
+
+  // Pre-fetch orders
+  fetch(BASE_URL + '/api/student/orders', { headers: { Authorization: 'Bearer ' + token } })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data && data.success) ckCacheSet('/api/student/orders', data);
+    }).catch(function() {});
+
+  // Pre-fetch mall
+  fetch(BASE_URL + '/api/mall', { headers: { Authorization: 'Bearer ' + token } })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data && data.success) ckCacheSet('/api/mall', data);
+    }).catch(function() {});
+
+  // Pre-fetch student progress
+  fetch(BASE_URL + '/api/student/progress', { headers: { Authorization: 'Bearer ' + token } })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data && data.success) ckCacheSet('/api/student/progress', data);
+    }).catch(function() {});
+
+  // Pre-fetch app ratings
+  fetch(BASE_URL + '/api/feedback/lesson?lessonId=app_rating')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data && data.success) ckCacheSet('/api/feedback/app_rating', data);
+    }).catch(function() {});
+
+  // Pre-fetch weekly streak data (runs after small delay to let dashboard cache first)
+  setTimeout(function() {
+    _fetchAllStreakData(token).then(function(allStreaks) {
+      if (allStreaks) ckCacheSet('/api/weekly-streak-all', allStreaks);
+    }).catch(function() {});
+  }, 2000);
 }
 
 // ─── Enrolled Courses Detail & Completed Videos Pages ─────────────────────────
@@ -3343,7 +3401,12 @@ async function loadParentReport() {
   if (dashData && dashData.success) {
     loading.style.display = 'none';
     content.style.display = 'block';
-    _renderParentReport(dashData, [], _userCoinsCache || 0);
+    // Use cached coins/achievements for instant render
+    var cachedCoins = ckCacheGet('/api/coins');
+    var cachedAch = ckCacheGet('/api/achievements');
+    var instantCoins = (cachedCoins && cachedCoins.success) ? cachedCoins.totalCoins : (_userCoinsCache || 0);
+    var instantAch = (cachedAch && cachedAch.success && cachedAch.achievements) ? cachedAch.achievements : [];
+    _renderParentReport(dashData, instantAch, instantCoins);
   } else {
     loading.style.display = 'block';
     content.style.display = 'none';
@@ -3384,7 +3447,6 @@ function _renderParentReport(dashData, achievements, totalCoins) {
   const enrolledCourses = dashData.enrolledCourses || [];
   const totalEnrolled = dashData.enrolledCount || enrolledCourses.length;
   const totalCompleted = enrolledCourses.reduce(function(s, c) { return s + (c.completedLessons || 0); }, 0);
-  const certCount = enrolledCourses.filter(function(c) { return c.progressPercent === 100; }).length;
   const superMasterCount = achievements.filter(function(a) { return a.badgeType === 'super-master'; }).length;
   const masterCount = achievements.filter(function(a) { return a.badgeType === 'master'; }).length;
   const proCount = achievements.filter(function(a) { return a.badgeType === 'pro'; }).length;
@@ -3439,10 +3501,9 @@ function _renderParentReport(dashData, achievements, totalCoins) {
       }).join('')
     : '<p style="color:var(--muted);font-size:0.85rem;">No courses enrolled yet.</p>';
 
-  // Stats row
+  // Stats row (3 cards — no Certificates)
   document.getElementById('pr-stats-row').innerHTML = [
     { icon: 'fa-fire',   color: '#ef4444', label: 'Weekly Streak', value: streakCount,         sub: 'lessons this week' },
-    { icon: 'fa-trophy', color: '#f59e0b', label: 'Certificates',  value: certCount,           sub: 'courses finished' },
     { icon: 'fa-coins',  color: '#ec4899', label: 'Coins Earned',  value: totalCoins,          sub: 'total' },
     { icon: 'fa-medal',  color: '#a78bfa', label: 'Achievements',  value: achievements.length, sub: 'badges earned' },
   ].map(function(c) {
@@ -3455,21 +3516,25 @@ function _renderParentReport(dashData, achievements, totalCoins) {
       '</div>';
   }).join('');
 
-  // Achievements badges
-  const earnedBadges = [
-    { icon: '🏆', color: '#fbbf24', label: 'Super Master', count: superMasterCount },
-    { icon: '🥈', color: '#a78bfa', label: 'Master',       count: masterCount },
-    { icon: '⭐', color: '#22c55e', label: 'Pro',          count: proCount },
-  ].filter(function(b) { return b.count > 0; });
-  document.getElementById('pr-achievements').innerHTML = earnedBadges.length === 0
-    ? '<p style="color:var(--muted);font-size:0.85rem;">No achievements yet. Complete quizzes to earn badges!</p>'
-    : earnedBadges.map(function(b) {
-        return '<div style="display:flex;align-items:center;gap:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:12px 16px;">' +
-          '<span style="font-size:1.5rem;">' + b.icon + '</span>' +
-          '<div><div style="font-size:0.88rem;font-weight:700;color:#fff;">' + b.label + '</div>' +
-          '<div style="font-size:0.75rem;color:' + b.color + ';font-weight:600;">' + b.count + ' earned</div></div>' +
-          '</div>';
-      }).join('');
+  // Achievements badges — always show all 3 types (clickable to view list below)
+  const badgeTypes = [
+    { icon: '🏆', color: '#fbbf24', label: 'Super Master', type: 'super-master', count: superMasterCount },
+    { icon: '🥈', color: '#a78bfa', label: 'Master',       type: 'master',       count: masterCount },
+    { icon: '⭐', color: '#22c55e', label: 'Pro',          type: 'pro',          count: proCount },
+  ];
+  var achHtml = '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:16px;">';
+  achHtml += badgeTypes.map(function(b) {
+    var isActive = b.count > 0;
+    return '<div onclick="_prShowBadgeList(\'' + b.type + '\')" style="cursor:pointer;background:' + (isActive ? b.color + '10' : 'rgba(255,255,255,0.02)') + ';border:1px solid ' + (isActive ? b.color + '40' : 'rgba(255,255,255,0.06)') + ';border-radius:16px;padding:20px 16px;text-align:center;transition:all 0.2s;" onmouseover="this.style.transform=\'translateY(-2px)\';this.style.boxShadow=\'0 6px 20px rgba(0,0,0,0.3)\'" onmouseout="this.style.transform=\'none\';this.style.boxShadow=\'none\'">' +
+      '<div style="font-size:2.2rem;margin-bottom:10px;">' + b.icon + '</div>' +
+      '<div style="font-size:0.85rem;font-weight:700;color:#fff;margin-bottom:6px;">' + b.label + '</div>' +
+      '<div style="font-size:1.6rem;font-weight:800;color:' + b.color + ';">' + b.count + '</div>' +
+      '<div style="font-size:0.7rem;color:var(--muted);margin-top:4px;">' + (isActive ? 'earned · tap to view' : 'not yet earned') + '</div>' +
+      '</div>';
+  }).join('');
+  achHtml += '</div>';
+  achHtml += '<div id="pr-badge-detail-list"></div>';
+  document.getElementById('pr-achievements').innerHTML = achHtml;
 
   // Recent achievements
   const recentEl = document.getElementById('pr-recent-achievements');
@@ -3488,7 +3553,46 @@ function _renderParentReport(dashData, achievements, totalCoins) {
   }
 
   // Store for share
-  window._prReportData = { studentName, totalEnrolled, totalCompleted, certCount, totalCoins, streakCount, superMasterCount, masterCount, proCount, enrolledCourses, achievements, att };
+  window._prReportData = { studentName, totalEnrolled, totalCompleted, totalCoins, streakCount, superMasterCount, masterCount, proCount, enrolledCourses, achievements, att };
+}
+
+/**
+ * Show filtered achievements list when a badge type card is clicked in Parent Report
+ */
+function _prShowBadgeList(badgeType) {
+  var container = document.getElementById('pr-badge-detail-list');
+  if (!container) return;
+
+  var achievements = (window._prReportData && window._prReportData.achievements) || [];
+  var filtered = achievements.filter(function(a) { return a.badgeType === badgeType; });
+
+  var badgeLabels = { 'super-master': '🏆 Super Master', 'master': '🥈 Master', 'pro': '⭐ Pro' };
+  var badgeColors = { 'super-master': '#fbbf24', 'master': '#a78bfa', 'pro': '#22c55e' };
+  var label = badgeLabels[badgeType] || badgeType;
+  var color = badgeColors[badgeType] || '#fff';
+
+  if (filtered.length === 0) {
+    container.innerHTML = '<div style="padding:14px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:12px;text-align:center;">' +
+      '<div style="font-size:0.85rem;color:var(--muted);">No ' + label + ' badges earned yet.</div>' +
+      '<div style="font-size:0.75rem;color:var(--muted);margin-top:4px;">Score 90%+ and rank in top 3 to earn!</div></div>';
+    return;
+  }
+
+  var html = '<div style="padding:14px;background:rgba(255,255,255,0.02);border:1px solid ' + color + '30;border-radius:12px;">';
+  html += '<div style="font-size:0.85rem;font-weight:700;color:' + color + ';margin-bottom:10px;">' + label + ' Badges (' + filtered.length + ')</div>';
+  filtered.forEach(function(a) {
+    var date = new Date(a.earnedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+    html += '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.04);">';
+    html += '  <div style="width:36px;height:36px;border-radius:10px;background:' + color + '20;border:1px solid ' + color + '40;display:flex;align-items:center;justify-content:center;font-size:1rem;flex-shrink:0;">' + (badgeType === 'super-master' ? '🏆' : badgeType === 'master' ? '🥈' : '⭐') + '</div>';
+    html += '  <div style="flex:1;">';
+    html += '    <div style="font-size:0.82rem;font-weight:600;color:#fff;">' + sanitize(a.title || a.lessonTitle || 'Achievement') + '</div>';
+    html += '    <div style="font-size:0.7rem;color:var(--muted);">' + sanitize(a.courseTitle || '') + (a.score ? ' · Score: ' + a.score + '%' : '') + (a.rank ? ' · Rank #' + a.rank : '') + '</div>';
+    html += '  </div>';
+    html += '  <div style="font-size:0.68rem;color:var(--muted);">' + date + '</div>';
+    html += '</div>';
+  });
+  html += '</div>';
+  container.innerHTML = html;
 }
 
 // ─── Network Diagnostics ──────────────────────────────────────────────────────
@@ -3560,43 +3664,57 @@ async function loadOrdersPage() {
   var loading = document.getElementById('orders-loading');
   var content = document.getElementById('orders-content');
   if (!loading || !content) return;
-  loading.style.display = 'block'; content.style.display = 'none';
 
   var token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+
+  // Cache-first: show cached orders instantly
+  var cached = ckCacheGet('/api/student/orders');
+  if (cached && cached.success) {
+    loading.style.display = 'none'; content.style.display = 'block';
+    _renderOrdersPage(content, cached);
+  } else {
+    loading.style.display = 'block'; content.style.display = 'none';
+  }
+
+  // Background refresh
   try {
     var res = await fetch(BASE_URL + '/api/student/orders', { headers: { Authorization: 'Bearer ' + token } });
     var data = await res.json();
-    if (!data.success) throw new Error(data.message);
-
-    loading.style.display = 'none'; content.style.display = 'block';
-    var orders = data.orders || [];
-
-    if (orders.length === 0) {
-      content.innerHTML = '<div class="card" style="text-align:center;padding:40px;"><i class="fas fa-shopping-bag" style="font-size:2rem;color:var(--muted);margin-bottom:12px;display:block;"></i><p style="color:var(--muted);">No orders yet. Enroll in a course to get started!</p></div>';
-      return;
+    if (data.success) {
+      ckCacheSet('/api/student/orders', data);
+      loading.style.display = 'none'; content.style.display = 'block';
+      _renderOrdersPage(content, data);
+    } else if (!cached) {
+      throw new Error(data.message);
     }
-
-    var html = '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:20px;">' +
-      '<div class="card" style="text-align:center;padding:16px;"><div style="font-size:1.6rem;font-weight:800;color:#6c47ff;">' + data.totalOrders + '</div><div style="font-size:0.75rem;color:var(--muted);">Total Orders</div></div>' +
-      '<div class="card" style="text-align:center;padding:16px;"><div style="font-size:1.6rem;font-weight:800;color:#22c55e;">₹' + data.totalSpent + '</div><div style="font-size:0.75rem;color:var(--muted);">Total Spent</div></div>' +
-      '<div class="card" style="text-align:center;padding:16px;"><div style="font-size:1.6rem;font-weight:800;color:#f59e0b;">' + orders.filter(function(o){return o.status==='success';}).length + '</div><div style="font-size:0.75rem;color:var(--muted);">Successful</div></div>' +
-      '</div>';
-
-    html += '<div style="display:flex;flex-direction:column;gap:12px;">';
-    orders.forEach(function(o) {
-      var statusColor = o.status === 'success' ? '#22c55e' : o.status === 'failed' ? '#ef4444' : '#f59e0b';
-      var date = new Date(o.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
-      html += '<div class="card" style="display:flex;align-items:center;gap:16px;padding:16px;">' +
-        '<div style="width:42px;height:42px;border-radius:12px;background:rgba(108,71,255,0.15);display:flex;align-items:center;justify-content:center;font-size:1.2rem;">📚</div>' +
-        '<div style="flex:1;"><div style="font-size:0.9rem;font-weight:700;color:#fff;">' + sanitize(o.courseTitle) + '</div><div style="font-size:0.75rem;color:var(--muted);">' + date + '</div></div>' +
-        '<div style="text-align:right;"><div style="font-size:1rem;font-weight:800;color:#fff;">₹' + o.amount + '</div><div style="font-size:0.72rem;font-weight:600;color:' + statusColor + ';text-transform:capitalize;">' + o.status + '</div></div>' +
-        '</div>';
-    });
-    html += '</div>';
-    content.innerHTML = html;
   } catch (err) {
-    loading.innerHTML = '<p style="color:var(--muted);">Failed to load orders.</p>';
+    if (!cached) loading.innerHTML = '<p style="color:var(--muted);">Failed to load orders.</p>';
   }
+}
+
+function _renderOrdersPage(content, data) {
+  var orders = data.orders || [];
+  if (orders.length === 0) {
+    content.innerHTML = '<div class="card" style="text-align:center;padding:40px;"><i class="fas fa-shopping-bag" style="font-size:2rem;color:var(--muted);margin-bottom:12px;display:block;"></i><p style="color:var(--muted);">No orders yet. Enroll in a course to get started!</p></div>';
+    return;
+  }
+  var html = '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:20px;">' +
+    '<div class="card" style="text-align:center;padding:16px;"><div style="font-size:1.6rem;font-weight:800;color:#6c47ff;">' + data.totalOrders + '</div><div style="font-size:0.75rem;color:var(--muted);">Total Orders</div></div>' +
+    '<div class="card" style="text-align:center;padding:16px;"><div style="font-size:1.6rem;font-weight:800;color:#22c55e;">₹' + data.totalSpent + '</div><div style="font-size:0.75rem;color:var(--muted);">Total Spent</div></div>' +
+    '<div class="card" style="text-align:center;padding:16px;"><div style="font-size:1.6rem;font-weight:800;color:#f59e0b;">' + orders.filter(function(o){return o.status==='success';}).length + '</div><div style="font-size:0.75rem;color:var(--muted);">Successful</div></div>' +
+    '</div>';
+  html += '<div style="display:flex;flex-direction:column;gap:12px;">';
+  orders.forEach(function(o) {
+    var statusColor = o.status === 'success' ? '#22c55e' : o.status === 'failed' ? '#ef4444' : '#f59e0b';
+    var date = new Date(o.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+    html += '<div class="card" style="display:flex;align-items:center;gap:16px;padding:16px;">' +
+      '<div style="width:42px;height:42px;border-radius:12px;background:rgba(108,71,255,0.15);display:flex;align-items:center;justify-content:center;font-size:1.2rem;">📚</div>' +
+      '<div style="flex:1;"><div style="font-size:0.9rem;font-weight:700;color:#fff;">' + sanitize(o.courseTitle) + '</div><div style="font-size:0.75rem;color:var(--muted);">' + date + '</div></div>' +
+      '<div style="text-align:right;"><div style="font-size:1rem;font-weight:800;color:#fff;">₹' + o.amount + '</div><div style="font-size:0.72rem;font-weight:600;color:' + statusColor + ';text-transform:capitalize;">' + o.status + '</div></div>' +
+      '</div>';
+  });
+  html += '</div>';
+  content.innerHTML = html;
 }
 
 // ─── CK Mall ──────────────────────────────────────────────────────────────────
@@ -3605,43 +3723,55 @@ async function loadMallPage() {
   var loading = document.getElementById('mall-loading');
   var content = document.getElementById('mall-content');
   if (!loading || !content) return;
-  loading.style.display = 'block'; content.style.display = 'none';
 
   var token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+
+  // Cache-first: show cached mall data instantly
+  var cached = ckCacheGet('/api/mall');
+  if (cached && cached.success) {
+    loading.style.display = 'none'; content.style.display = 'block';
+    _renderMallPage(content, cached);
+  } else {
+    loading.style.display = 'block'; content.style.display = 'none';
+  }
+
+  // Background refresh
   try {
     var res = await fetch(BASE_URL + '/api/mall', { headers: { Authorization: 'Bearer ' + token } });
     var data = await res.json();
-    if (!data.success) throw new Error(data.message);
-
-    loading.style.display = 'none'; content.style.display = 'block';
-
-    var html = '<div class="card" style="text-align:center;padding:20px;margin-bottom:20px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);">' +
-      '<div style="font-size:2rem;font-weight:800;color:#fbbf24;">🪙 ' + data.balance + '</div><div style="font-size:0.8rem;color:var(--muted);">Your Coin Balance</div></div>';
-
-    // Coupon input
-    html += '<div class="card" style="margin-bottom:20px;padding:20px;">' +
-      '<div style="font-weight:700;color:#fff;margin-bottom:12px;display:flex;align-items:center;gap:8px;"><i class="fas fa-tag" style="color:#6c47ff;"></i> Apply Coupon Code</div>' +
-      '<div style="display:flex;gap:10px;"><input id="mall-coupon-input" type="text" placeholder="Enter coupon code" style="flex:1;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:10px 14px;color:#fff;font-size:0.88rem;outline:none;text-transform:uppercase;" />' +
-      '<button onclick="applyCoupon()" style="background:linear-gradient(135deg,#6c47ff,#b251ff);border:none;border-radius:8px;padding:10px 20px;color:#fff;font-weight:700;cursor:pointer;">Apply</button></div>' +
-      '<div id="mall-coupon-msg" style="display:none;margin-top:8px;font-size:0.82rem;"></div></div>';
-
-    // Offers grid
-    html += '<div style="font-weight:700;color:#fff;margin-bottom:14px;display:flex;align-items:center;gap:8px;"><i class="fas fa-gift" style="color:#f59e0b;"></i> Redeem with Coins</div>';
-    html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">';
-    (data.offers || []).forEach(function(offer) {
-      var opacity = offer.available ? '1' : '0.5';
-      html += '<div class="card" style="padding:16px;opacity:' + opacity + ';">' +
-        '<div style="font-size:1.5rem;margin-bottom:8px;">' + offer.icon + '</div>' +
-        '<div style="font-size:0.88rem;font-weight:700;color:#fff;margin-bottom:4px;">' + offer.title + '</div>' +
-        '<div style="font-size:0.75rem;color:var(--muted);margin-bottom:12px;">' + offer.description + '</div>' +
-        '<button onclick="redeemOffer(\'' + offer.id + '\')" ' + (offer.available ? '' : 'disabled') + ' style="background:' + (offer.available ? 'linear-gradient(135deg,#f59e0b,#fbbf24)' : 'rgba(255,255,255,0.1)') + ';border:none;border-radius:8px;padding:8px 14px;color:' + (offer.available ? '#000' : 'var(--muted)') + ';font-size:0.78rem;font-weight:700;cursor:' + (offer.available ? 'pointer' : 'not-allowed') + ';width:100%;">🪙 ' + offer.coinsRequired + ' Coins</button>' +
-        '</div>';
-    });
-    html += '</div>';
-    content.innerHTML = html;
+    if (data.success) {
+      ckCacheSet('/api/mall', data);
+      loading.style.display = 'none'; content.style.display = 'block';
+      _renderMallPage(content, data);
+    } else if (!cached) {
+      throw new Error(data.message);
+    }
   } catch (err) {
-    loading.innerHTML = '<p style="color:var(--muted);">Failed to load mall.</p>';
+    if (!cached) loading.innerHTML = '<p style="color:var(--muted);">Failed to load mall.</p>';
   }
+}
+
+function _renderMallPage(content, data) {
+  var html = '<div class="card" style="text-align:center;padding:20px;margin-bottom:20px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);">' +
+    '<div style="font-size:2rem;font-weight:800;color:#fbbf24;">🪙 ' + data.balance + '</div><div style="font-size:0.8rem;color:var(--muted);">Your Coin Balance</div></div>';
+  html += '<div class="card" style="margin-bottom:20px;padding:20px;">' +
+    '<div style="font-weight:700;color:#fff;margin-bottom:12px;display:flex;align-items:center;gap:8px;"><i class="fas fa-tag" style="color:#6c47ff;"></i> Apply Coupon Code</div>' +
+    '<div style="display:flex;gap:10px;"><input id="mall-coupon-input" type="text" placeholder="Enter coupon code" style="flex:1;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:10px 14px;color:#fff;font-size:0.88rem;outline:none;text-transform:uppercase;" />' +
+    '<button onclick="applyCoupon()" style="background:linear-gradient(135deg,#6c47ff,#b251ff);border:none;border-radius:8px;padding:10px 20px;color:#fff;font-weight:700;cursor:pointer;">Apply</button></div>' +
+    '<div id="mall-coupon-msg" style="display:none;margin-top:8px;font-size:0.82rem;"></div></div>';
+  html += '<div style="font-weight:700;color:#fff;margin-bottom:14px;display:flex;align-items:center;gap:8px;"><i class="fas fa-gift" style="color:#f59e0b;"></i> Redeem with Coins</div>';
+  html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">';
+  (data.offers || []).forEach(function(offer) {
+    var opacity = offer.available ? '1' : '0.5';
+    html += '<div class="card" style="padding:16px;opacity:' + opacity + ';">' +
+      '<div style="font-size:1.5rem;margin-bottom:8px;">' + offer.icon + '</div>' +
+      '<div style="font-size:0.88rem;font-weight:700;color:#fff;margin-bottom:4px;">' + offer.title + '</div>' +
+      '<div style="font-size:0.75rem;color:var(--muted);margin-bottom:12px;">' + offer.description + '</div>' +
+      '<button onclick="redeemOffer(\'' + offer.id + '\')" ' + (offer.available ? '' : 'disabled') + ' style="background:' + (offer.available ? 'linear-gradient(135deg,#f59e0b,#fbbf24)' : 'rgba(255,255,255,0.1)') + ';border:none;border-radius:8px;padding:8px 14px;color:' + (offer.available ? '#000' : 'var(--muted)') + ';font-size:0.78rem;font-weight:700;cursor:' + (offer.available ? 'pointer' : 'not-allowed') + ';width:100%;">🪙 ' + offer.coinsRequired + ' Coins</button>' +
+      '</div>';
+  });
+  html += '</div>';
+  content.innerHTML = html;
 }
 
 async function applyCoupon() {
@@ -3719,52 +3849,66 @@ async function _loadAppRatings() {
     reviewsDiv.style.cssText = 'margin-top:20px;max-width:500px;';
     content.appendChild(reviewsDiv);
   }
-  reviewsDiv.innerHTML = '<div style="text-align:center;color:var(--muted);font-size:0.82rem;padding:12px;"><i class="fas fa-spinner fa-spin"></i> Loading reviews...</div>';
 
+  // Cache-first: show cached ratings instantly
+  var cached = ckCacheGet('/api/feedback/app_rating');
+  if (cached && cached.success) {
+    _renderAppRatings(reviewsDiv, cached);
+  } else {
+    reviewsDiv.innerHTML = '<div style="text-align:center;color:var(--muted);font-size:0.82rem;padding:12px;"><i class="fas fa-spinner fa-spin"></i> Loading reviews...</div>';
+  }
+
+  // Background refresh
   try {
     var res = await fetch(BASE_URL + '/api/feedback/lesson?lessonId=app_rating');
     var data = await res.json();
-    if (!data.success || data.totalReviews === 0) {
+    if (data.success) {
+      ckCacheSet('/api/feedback/app_rating', data);
+      _renderAppRatings(reviewsDiv, data);
+    } else if (!cached) {
       reviewsDiv.innerHTML = '<div class="card" style="text-align:center;padding:20px;color:var(--muted);font-size:0.85rem;">No reviews yet. Be the first to rate!</div>';
-      return;
     }
+  } catch { if (!cached) reviewsDiv.innerHTML = ''; }
+}
 
-    var html = '<div class="card" style="padding:20px;">';
-    html += '<div style="display:flex;align-items:center;gap:16px;margin-bottom:16px;">';
-    html += '<div style="text-align:center;"><div style="font-size:2.2rem;font-weight:800;color:#fbbf24;">' + data.avgRating + '</div><div style="font-size:0.72rem;color:var(--muted);">' + data.totalReviews + ' review' + (data.totalReviews > 1 ? 's' : '') + '</div></div>';
-    html += '<div style="flex:1;">';
-    for (var s = 5; s >= 1; s--) {
-      var count = data.ratingCounts[s] || 0;
-      var pct = data.totalReviews > 0 ? Math.round(count / data.totalReviews * 100) : 0;
-      html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">';
-      html += '<span style="font-size:0.7rem;color:var(--muted);width:14px;">' + s + '★</span>';
-      html += '<div style="flex:1;height:5px;background:rgba(255,255,255,0.08);border-radius:3px;overflow:hidden;"><div style="width:' + pct + '%;height:100%;background:#fbbf24;border-radius:3px;"></div></div>';
-      html += '<span style="font-size:0.68rem;color:var(--muted);width:20px;text-align:right;">' + count + '</span>';
-      html += '</div>';
-    }
-    html += '</div></div>';
-
-    // Show recent reviews
-    if (data.reviews && data.reviews.length > 0) {
-      html += '<div style="border-top:1px solid rgba(255,255,255,0.06);margin-top:14px;padding-top:14px;">';
-      html += '<div style="font-weight:700;font-size:0.85rem;color:#fff;margin-bottom:10px;">Recent Reviews</div>';
-      data.reviews.slice(0, 8).forEach(function(r) {
-        var stars = '';
-        for (var i = 1; i <= 5; i++) stars += i <= r.rating ? '★' : '☆';
-        var date = new Date(r.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
-        html += '<div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.04);">';
-        html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">';
-        html += '<span style="font-size:0.8rem;font-weight:600;color:#fff;">' + sanitize(r.studentName) + '</span>';
-        html += '<span style="font-size:0.7rem;color:var(--muted);">' + date + '</span></div>';
-        html += '<div style="font-size:0.75rem;color:#fbbf24;margin-bottom:3px;">' + stars + '</div>';
-        if (r.feedback) html += '<div style="font-size:0.78rem;color:rgba(255,255,255,0.6);">' + sanitize(r.feedback) + '</div>';
-        html += '</div>';
-      });
-      html += '</div>';
-    }
+function _renderAppRatings(reviewsDiv, data) {
+  if (!data.success || data.totalReviews === 0) {
+    reviewsDiv.innerHTML = '<div class="card" style="text-align:center;padding:20px;color:var(--muted);font-size:0.85rem;">No reviews yet. Be the first to rate!</div>';
+    return;
+  }
+  var html = '<div class="card" style="padding:20px;">';
+  html += '<div style="display:flex;align-items:center;gap:16px;margin-bottom:16px;">';
+  html += '<div style="text-align:center;"><div style="font-size:2.2rem;font-weight:800;color:#fbbf24;">' + data.avgRating + '</div><div style="font-size:0.72rem;color:var(--muted);">' + data.totalReviews + ' review' + (data.totalReviews > 1 ? 's' : '') + '</div></div>';
+  html += '<div style="flex:1;">';
+  for (var s = 5; s >= 1; s--) {
+    var count = data.ratingCounts[s] || 0;
+    var pct = data.totalReviews > 0 ? Math.round(count / data.totalReviews * 100) : 0;
+    html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">';
+    html += '<span style="font-size:0.7rem;color:var(--muted);width:14px;">' + s + '★</span>';
+    html += '<div style="flex:1;height:5px;background:rgba(255,255,255,0.08);border-radius:3px;overflow:hidden;"><div style="width:' + pct + '%;height:100%;background:#fbbf24;border-radius:3px;"></div></div>';
+    html += '<span style="font-size:0.68rem;color:var(--muted);width:20px;text-align:right;">' + count + '</span>';
     html += '</div>';
-    reviewsDiv.innerHTML = html;
-  } catch { reviewsDiv.innerHTML = ''; }
+  }
+  html += '</div></div>';
+  if (data.reviews && data.reviews.length > 0) {
+    html += '<div style="border-top:1px solid rgba(255,255,255,0.06);margin-top:14px;padding-top:14px;">';
+    html += '<div style="font-weight:700;font-size:0.85rem;color:#fff;margin-bottom:10px;">Recent Reviews</div>';
+    data.reviews.slice(0, 8).forEach(function(r) {
+      var stars = '';
+      for (var i = 1; i <= 5; i++) stars += i <= r.rating ? '★' : '☆';
+      var date = new Date(r.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+      html += '<div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.04);">';
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">';
+      html += '<span style="font-size:0.8rem;font-weight:600;color:#fff;">' + sanitize(r.studentName) + '</span>';
+      html += '<span style="font-size:0.7rem;color:var(--muted);">' + date + '</span></div>';
+      html += '<div style="font-size:0.75rem;color:#fbbf24;margin-bottom:3px;">' + stars + '</div>';
+      if (r.feedback) html += '<div style="font-size:0.78rem;color:rgba(255,255,255,0.6);">' + sanitize(r.feedback) + '</div>';
+      html += '</div>';
+    });
+    html += '</div>';
+  }
+  html += '</div>';
+  reviewsDiv.innerHTML = html;
 }
 
 async function submitRating() {
@@ -3926,7 +4070,6 @@ function _buildReportText() {
     '  Active Days (30d): ' + (att.activeDays || 0) + '/30\n\n' +
     '📚 Courses Enrolled: ' + d.totalEnrolled + '\n' +
     '✅ Lessons Completed: ' + d.totalCompleted + '\n' +
-    '🎓 Certificates: ' + d.certCount + '\n' +
     '🔥 Weekly Streak: ' + d.streakCount + '\n' +
     '🪙 Coins Earned: ' + d.totalCoins + '\n\n' +
     '📈 Course Progress:\n' + courseLines + '\n\n' +
@@ -4130,12 +4273,23 @@ var _userCoinsCache = 0;
 async function loadUserCoins() {
   const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
   if (!token) return;
+  // Cache-first: show cached coins instantly
+  var cached = ckCacheGet('/api/coins');
+  if (cached && cached.success) {
+    _userCoinsCache = cached.totalCoins || 0;
+    var el = document.getElementById('coins-count');
+    if (el) el.textContent = String(_userCoinsCache);
+    var welcomeEl = document.getElementById('welcome-coins-count');
+    if (welcomeEl) welcomeEl.textContent = String(_userCoinsCache);
+  }
+  // Background refresh
   try {
     const res = await fetch(BASE_URL + '/api/coins', {
       headers: { Authorization: 'Bearer ' + token },
     });
     const data = await res.json();
     if (data.success) {
+      ckCacheSet('/api/coins', data);
       _userCoinsCache = data.totalCoins || 0;
       const el = document.getElementById('coins-count');
       if (el) el.textContent = String(_userCoinsCache);
@@ -4213,31 +4367,42 @@ setTimeout(_initWelcomeCoinsBadge, 1000); // Fallback after 1s
 async function _loadCoinsPopupData() {
   const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
   if (!token) return;
+  // Cache-first: show cached coins popup data instantly
+  var cached = ckCacheGet('/api/coins');
+  if (cached && cached.success) {
+    _renderCoinsPopup(cached);
+  }
+  // Background refresh
   try {
     const res = await fetch(BASE_URL + '/api/coins', {
       headers: { Authorization: 'Bearer ' + token },
     });
     const data = await res.json();
     if (data.success) {
-      const totalEl = document.getElementById('coins-popup-total');
-      if (totalEl) totalEl.textContent = String(data.totalCoins || 0);
-
-      const txEl = document.getElementById('coins-popup-transactions');
-      if (txEl) {
-        if (data.transactions && data.transactions.length > 0) {
-          txEl.innerHTML = data.transactions.slice(0, 8).map(function(tx) {
-            const isEarned = tx.type === 'EARNED';
-            return '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;background:rgba(255,255,255,0.02);border-radius:8px;">' +
-              '<span style="font-size:0.78rem;color:rgba(255,255,255,0.7);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + sanitize(tx.reason) + '</span>' +
-              '<span style="font-size:0.78rem;font-weight:700;color:' + (isEarned ? '#22c55e' : '#ef4444') + ';margin-left:8px;">' + (isEarned ? '+' : '-') + tx.coins + '</span>' +
-              '</div>';
-          }).join('');
-        } else {
-          txEl.innerHTML = '<div style="color:var(--muted);font-size:0.8rem;text-align:center;padding:12px;">Complete quizzes to earn coins!</div>';
-        }
-      }
+      ckCacheSet('/api/coins', data);
+      _renderCoinsPopup(data);
     }
   } catch {}
+}
+
+function _renderCoinsPopup(data) {
+  const totalEl = document.getElementById('coins-popup-total');
+  if (totalEl) totalEl.textContent = String(data.totalCoins || 0);
+
+  const txEl = document.getElementById('coins-popup-transactions');
+  if (txEl) {
+    if (data.transactions && data.transactions.length > 0) {
+      txEl.innerHTML = data.transactions.slice(0, 8).map(function(tx) {
+        const isEarned = tx.type === 'EARNED';
+        return '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;background:rgba(255,255,255,0.02);border-radius:8px;">' +
+          '<span style="font-size:0.78rem;color:rgba(255,255,255,0.7);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + sanitize(tx.reason) + '</span>' +
+          '<span style="font-size:0.78rem;font-weight:700;color:' + (isEarned ? '#22c55e' : '#ef4444') + ';margin-left:8px;">' + (isEarned ? '+' : '-') + tx.coins + '</span>' +
+          '</div>';
+      }).join('');
+    } else {
+      txEl.innerHTML = '<div style="color:var(--muted);font-size:0.8rem;text-align:center;padding:12px;">Complete quizzes to earn coins!</div>';
+    }
+  }
 }
 
 // Topbar profile dropdown
@@ -4567,7 +4732,6 @@ async function showAchievements() {
   navigate('achievements');
   const container = document.getElementById('achievements-list');
   if (!container) return;
-  container.innerHTML = '<p style="color:var(--muted)">Loading achievements...</p>';
 
   const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
   if (!token) {
@@ -4575,38 +4739,57 @@ async function showAchievements() {
     return;
   }
 
+  // Cache-first: show cached data instantly (no loading spinner)
+  var cached = ckCacheGet('/api/achievements');
+  if (cached && cached.success) {
+    _renderAchievements(container, cached);
+  } else {
+    container.innerHTML = '<p style="color:var(--muted)">Loading achievements...</p>';
+  }
+
+  // Background refresh
   try {
     const res = await fetch(BASE_URL + '/api/achievements', {
       headers: { Authorization: 'Bearer ' + token },
     });
     const data = await res.json();
-    if (data.success && data.achievements && data.achievements.length > 0) {
-      container.innerHTML = data.achievements.map(function(a) {
-        const badgeIcon = a.badgeType === 'super-master' ? '🏆' : a.badgeType === 'master' ? '🥈' : '⭐';
-        const badgeColor = a.badgeType === 'super-master' ? '#fbbf24' : a.badgeType === 'master' ? '#a78bfa' : '#22c55e';
-        const date = new Date(a.earnedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
-        return '<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:16px;padding:24px;position:relative;overflow:hidden;">' +
-          '<div style="position:absolute;top:0;right:0;width:100px;height:100px;background:radial-gradient(circle,' + badgeColor + '20,transparent);border-radius:50%;filter:blur(20px);"></div>' +
-          '<div style="display:flex;align-items:flex-start;gap:16px;">' +
-          '<div style="width:50px;height:50px;border-radius:14px;background:' + badgeColor + '20;border:1px solid ' + badgeColor + '40;display:flex;align-items:center;justify-content:center;font-size:1.5rem;flex-shrink:0;">' + badgeIcon + '</div>' +
-          '<div style="flex:1;">' +
-          '<div style="font-size:1rem;font-weight:700;color:#fff;margin-bottom:4px;">' + sanitize(a.title) + ' Certificate</div>' +
-          '<div style="font-size:0.82rem;color:var(--muted);margin-bottom:8px;">' + sanitize(a.lessonTitle) + ' · ' + sanitize(a.courseTitle) + '</div>' +
-          '<div style="font-size:0.8rem;color:rgba(255,255,255,0.6);line-height:1.6;">' +
-          'Score: <strong style="color:#4ade80;">' + a.score + '%</strong> · Rank: <strong style="color:' + badgeColor + ';">#' + a.rank + '</strong><br/>' +
-          'Awarded to: <strong style="color:#fff;">' + sanitize(a.studentName) + '</strong><br/>' +
-          'Instructor: ' + sanitize(a.instructor) + '<br/>' +
-          'Issued by: CodingKida Team · ' + date +
-          '</div>' +
-          '</div>' +
-          '</div>' +
-          '</div>';
-      }).join('');
-    } else {
-      container.innerHTML = '<div style="text-align:center;padding:40px;"><i class="fas fa-trophy" style="font-size:2.5rem;color:var(--muted);margin-bottom:12px;display:block;"></i><p style="color:var(--muted);font-size:0.9rem;">No achievements yet. Complete quizzes and rank in top 10 to earn certificates!</p></div>';
+    if (data.success) {
+      ckCacheSet('/api/achievements', data);
+      _renderAchievements(container, data);
+      // Update dashboard achievement count
+      var certEl = document.getElementById('stat-certificates');
+      if (certEl) certEl.innerHTML = String((data.achievements || []).length);
     }
   } catch {
-    container.innerHTML = '<p style="color:var(--danger)">Failed to load achievements.</p>';
+    if (!cached) container.innerHTML = '<p style="color:var(--danger)">Failed to load achievements.</p>';
+  }
+}
+
+function _renderAchievements(container, data) {
+  if (data.achievements && data.achievements.length > 0) {
+    container.innerHTML = data.achievements.map(function(a) {
+      const badgeIcon = a.badgeType === 'super-master' ? '🏆' : a.badgeType === 'master' ? '🥈' : '⭐';
+      const badgeColor = a.badgeType === 'super-master' ? '#fbbf24' : a.badgeType === 'master' ? '#a78bfa' : '#22c55e';
+      const date = new Date(a.earnedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+      return '<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:16px;padding:24px;position:relative;overflow:hidden;">' +
+        '<div style="position:absolute;top:0;right:0;width:100px;height:100px;background:radial-gradient(circle,' + badgeColor + '20,transparent);border-radius:50%;filter:blur(20px);"></div>' +
+        '<div style="display:flex;align-items:flex-start;gap:16px;">' +
+        '<div style="width:50px;height:50px;border-radius:14px;background:' + badgeColor + '20;border:1px solid ' + badgeColor + '40;display:flex;align-items:center;justify-content:center;font-size:1.5rem;flex-shrink:0;">' + badgeIcon + '</div>' +
+        '<div style="flex:1;">' +
+        '<div style="font-size:1rem;font-weight:700;color:#fff;margin-bottom:4px;">' + sanitize(a.title) + ' Certificate</div>' +
+        '<div style="font-size:0.82rem;color:var(--muted);margin-bottom:8px;">' + sanitize(a.lessonTitle) + ' · ' + sanitize(a.courseTitle) + '</div>' +
+        '<div style="font-size:0.8rem;color:rgba(255,255,255,0.6);line-height:1.6;">' +
+        'Score: <strong style="color:#4ade80;">' + a.score + '%</strong> · Rank: <strong style="color:' + badgeColor + ';">#' + a.rank + '</strong><br/>' +
+        'Awarded to: <strong style="color:#fff;">' + sanitize(a.studentName) + '</strong><br/>' +
+        'Instructor: ' + sanitize(a.instructor) + '<br/>' +
+        'Issued by: CodingKida Team · ' + date +
+        '</div>' +
+        '</div>' +
+        '</div>' +
+        '</div>';
+    }).join('');
+  } else {
+    container.innerHTML = '<div style="text-align:center;padding:40px;"><i class="fas fa-trophy" style="font-size:2.5rem;color:var(--muted);margin-bottom:12px;display:block;"></i><p style="color:var(--muted);font-size:0.9rem;">No achievements yet. Complete quizzes and rank in top 10 to earn certificates!</p></div>';
   }
 }
 
@@ -4617,30 +4800,42 @@ async function loadStudentProgress() {
   var content = document.getElementById('student-progress-content');
   if (!loading || !content) return;
 
-  loading.style.display = 'block';
-  content.style.display = 'none';
-
   var token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
   if (!token) {
     loading.innerHTML = '<p style="color:var(--muted)">Please log in to view progress.</p>';
+    loading.style.display = 'block'; content.style.display = 'none';
     return;
   }
 
+  // Cache-first: show cached progress instantly
+  var cached = ckCacheGet('/api/student/progress');
+  if (cached && cached.success) {
+    loading.style.display = 'none'; content.style.display = 'block';
+    _renderStudentProgress(cached);
+  } else {
+    loading.style.display = 'block'; content.style.display = 'none';
+  }
+
+  // Background refresh
   try {
     var res = await fetch(BASE_URL + '/api/student/progress', {
       headers: { Authorization: 'Bearer ' + token },
     });
     var data = await res.json();
-    if (!data.success) throw new Error(data.message || 'Failed to load progress.');
-
-    loading.style.display = 'none';
-    content.style.display = 'block';
-    _renderStudentProgress(data);
+    if (data.success) {
+      ckCacheSet('/api/student/progress', data);
+      loading.style.display = 'none'; content.style.display = 'block';
+      _renderStudentProgress(data);
+    } else if (!cached) {
+      throw new Error(data.message || 'Failed to load progress.');
+    }
   } catch (err) {
-    loading.innerHTML = '<div style="text-align:center;padding:40px;">' +
-      '<i class="fas fa-exclamation-circle" style="font-size:2rem;color:var(--danger);margin-bottom:12px;display:block;"></i>' +
-      '<p style="color:var(--muted)">' + sanitize(err.message || 'Failed to load progress.') + '</p>' +
-      '<button class="btn btn-outline btn-sm" onclick="loadStudentProgress()" style="margin-top:12px;">Retry</button></div>';
+    if (!cached) {
+      loading.innerHTML = '<div style="text-align:center;padding:40px;">' +
+        '<i class="fas fa-exclamation-circle" style="font-size:2rem;color:var(--danger);margin-bottom:12px;display:block;"></i>' +
+        '<p style="color:var(--muted)">' + sanitize(err.message || 'Failed to load progress.') + '</p>' +
+        '<button class="btn btn-outline btn-sm" onclick="loadStudentProgress()" style="margin-top:12px;">Retry</button></div>';
+    }
   }
 }
 
