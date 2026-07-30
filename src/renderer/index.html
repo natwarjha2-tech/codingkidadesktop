@@ -1321,6 +1321,21 @@
 <script src="services/api.js"></script>
 <script src="coding-editor.js"></script>
 <script src="coding-playground.js"></script>
-<script src="app.js"></script>
+<!-- Split app.js into feature modules (load order matters) -->
+<script src="app/utils.js"></script>
+<script src="app/cache.js"></script>
+<script src="app/attendance.js"></script>
+<script src="app/navigation.js"></script>
+<script src="app/auth.js"></script>
+<script src="app/profile.js"></script>
+<script src="app/courses.js"></script>
+<script src="app/video-player.js"></script>
+<script src="app/lesson-tabs.js"></script>
+<script src="app/ai-chat.js"></script>
+<script src="app/downloads.js"></script>
+<script src="app/pdf-viewer.js"></script>
+<script src="app/pages.js"></script>
+<script src="app/coins.js"></script>
+<script src="app/init.js"></script>
 </body>
 </html>
