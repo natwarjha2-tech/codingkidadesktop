@@ -14,6 +14,64 @@
   --danger: #ef4444;
   --radius: 12px;
   --sidebar-width: 220px;
+
+  /* ═══ Code Editor Theme Variables (Dark - Default) ═══ */
+  --ce-bg: #000000;
+  --ce-panel-bg: #000000;
+  --ce-toolbar-bg: rgba(255,255,255,0.05);
+  --ce-toolbar-border: rgba(255,255,255,0.10);
+  --ce-btn-bg: rgba(255,255,255,0.08);
+  --ce-btn-border: rgba(255,255,255,0.15);
+  --ce-btn-text: #94a3b8;
+  --ce-btn-hover-bg: rgba(108,71,255,0.15);
+  --ce-btn-hover-border: rgba(108,71,255,0.3);
+  --ce-btn-hover-text: #a78bfa;
+  --ce-card-bg: rgba(255,255,255,0.03);
+  --ce-card-border: rgba(255,255,255,0.06);
+  --ce-text: #e2e8f0;
+  --ce-text-muted: #94a3b8;
+  --ce-input-bg: rgba(0,0,0,0.3);
+  --ce-console-bg: rgba(0,0,0,0.5);
+  --ce-editor-header-bg: rgba(0,0,0,0.4);
+  --ce-dropdown-bg: #0a0a0a;
+  --ce-resize-bg: rgba(255,255,255,0.04);
+  --ce-monaco-theme: vs-dark;
+}
+
+/* ═══ Code Editor Light Mode ═══ */
+[data-ce-theme="light"] {
+  --ce-bg: #ffffff;
+  --ce-panel-bg: #ffffff;
+  --ce-toolbar-bg: #f1f3f5;
+  --ce-toolbar-border: #dee2e6;
+  --ce-btn-bg: #e9ecef;
+  --ce-btn-border: #ced4da;
+  --ce-btn-text: #495057;
+  --ce-btn-hover-bg: rgba(108,71,255,0.1);
+  --ce-btn-hover-border: rgba(108,71,255,0.3);
+  --ce-btn-hover-text: #6c47ff;
+  --ce-card-bg: #f8f9fa;
+  --ce-card-border: #e9ecef;
+  --ce-text: #212529;
+  --ce-text-muted: #6c757d;
+  --ce-input-bg: #f8f9fa;
+  --ce-console-bg: #f1f3f5;
+  --ce-editor-header-bg: #e9ecef;
+  --ce-dropdown-bg: #ffffff;
+  --ce-resize-bg: #dee2e6;
+  --ce-monaco-theme: vs;
+}
+
+/* Force dark background on all native <option> dropdowns in code editor area */
+#page-coding select option,
+.coding-toolbar select option {
+  background: #0a0a0a;
+  color: #e2e8f0;
+}
+[data-ce-theme="light"] #page-coding select option,
+[data-ce-theme="light"] .coding-toolbar select option {
+  background: #ffffff;
+  color: #212529;
 }
 
 body {

@@ -18,7 +18,7 @@
 .coding-title {
   font-size: 1.1rem;
   font-weight: 800;
-  color: #fff;
+  color: var(--ce-text);
 }
 
 .coding-difficulty {
@@ -32,8 +32,8 @@
 
 /* Problem Description */
 .coding-description {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--ce-card-bg);
+  border: 1px solid var(--ce-card-border);
   border-radius: 12px;
   padding: 16px;
   margin-bottom: 14px;
@@ -42,7 +42,7 @@
 .coding-description-label {
   font-size: 0.78rem;
   font-weight: 700;
-  color: var(--muted);
+  color: var(--ce-text-muted);
   margin-bottom: 10px;
   display: flex;
   align-items: center;
@@ -51,7 +51,7 @@
 
 .coding-description-text {
   font-size: 0.88rem;
-  color: rgba(255, 255, 255, 0.85);
+  color: var(--ce-text);
   line-height: 1.7;
   white-space: pre-wrap;
   cursor: text;
@@ -81,43 +81,191 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 8px;
   margin-bottom: 0;
-  padding: 10px 14px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 8px 12px;
+  background: var(--ce-toolbar-bg);
+  border: 1px solid var(--ce-toolbar-border);
   border-radius: 12px 12px 0 0;
   border-bottom: none;
+  flex-wrap: wrap;
+}
+
+/* ═══ Unified Toolbar Button (consistent size + style) ═══ */
+.coding-toolbar-btn {
+  background: var(--ce-btn-bg);
+  border: 1px solid var(--ce-btn-border);
+  border-radius: 8px;
+  padding: 7px 12px;
+  color: var(--ce-btn-text);
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+  line-height: 1;
+}
+.coding-toolbar-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+.coding-toolbar-btn:active {
+  transform: translateY(0);
+}
+
+/* Variant: Problems — Blue accent */
+.coding-toolbar-btn--problems {
+  background: rgba(96,165,250,0.12);
+  border-color: rgba(96,165,250,0.3);
+  color: #60a5fa;
+}
+.coding-toolbar-btn--problems:hover {
+  background: rgba(96,165,250,0.22);
+  color: #93c5fd;
+}
+
+/* Variant: Desc — Teal/Cyan accent */
+.coding-toolbar-btn--desc {
+  background: rgba(45,212,191,0.12);
+  border-color: rgba(45,212,191,0.3);
+  color: #2dd4bf;
+}
+.coding-toolbar-btn--desc:hover {
+  background: rgba(45,212,191,0.22);
+  color: #5eead4;
+}
+
+/* Variant: Format — Green accent */
+.coding-toolbar-btn--format {
+  background: rgba(34,197,94,0.12);
+  border-color: rgba(34,197,94,0.3);
+  color: #22c55e;
+}
+.coding-toolbar-btn--format:hover {
+  background: rgba(34,197,94,0.22);
+  color: #4ade80;
+}
+
+/* Variant: AI accent — Purple */
+.coding-toolbar-btn--ai {
+  background: rgba(108,71,255,0.12);
+  border-color: rgba(108,71,255,0.3);
+  color: #a78bfa;
+}
+.coding-toolbar-btn--ai:hover {
+  background: rgba(108,71,255,0.22);
+  color: #c4b5fd;
+}
+
+/* Variant: Hide Panel — Slate/Indigo accent */
+.coding-toolbar-btn--panel {
+  background: rgba(129,140,248,0.12);
+  border-color: rgba(129,140,248,0.3);
+  color: #818cf8;
+}
+.coding-toolbar-btn--panel:hover {
+  background: rgba(129,140,248,0.22);
+  color: #a5b4fc;
+}
+
+/* Variant: Mode toggle — Amber accent */
+.coding-toolbar-btn--mode {
+  background: rgba(245,158,11,0.12);
+  border-color: rgba(245,158,11,0.3);
+  color: #fbbf24;
+}
+.coding-toolbar-btn--mode:hover {
+  background: rgba(245,158,11,0.22);
+  color: #fcd34d;
+}
+
+/* Light mode overrides for colored buttons */
+[data-ce-theme="light"] .coding-toolbar-btn--problems {
+  background: rgba(37,99,235,0.08);
+  border-color: rgba(37,99,235,0.25);
+  color: #2563eb;
+}
+[data-ce-theme="light"] .coding-toolbar-btn--problems:hover {
+  background: rgba(37,99,235,0.15);
+}
+[data-ce-theme="light"] .coding-toolbar-btn--desc {
+  background: rgba(13,148,136,0.08);
+  border-color: rgba(13,148,136,0.25);
+  color: #0d9488;
+}
+[data-ce-theme="light"] .coding-toolbar-btn--desc:hover {
+  background: rgba(13,148,136,0.15);
+}
+[data-ce-theme="light"] .coding-toolbar-btn--format {
+  background: rgba(22,163,74,0.08);
+  border-color: rgba(22,163,74,0.25);
+  color: #16a34a;
+}
+[data-ce-theme="light"] .coding-toolbar-btn--format:hover {
+  background: rgba(22,163,74,0.15);
+}
+[data-ce-theme="light"] .coding-toolbar-btn--ai {
+  background: rgba(108,71,255,0.08);
+  border-color: rgba(108,71,255,0.25);
+  color: #6c47ff;
+}
+[data-ce-theme="light"] .coding-toolbar-btn--ai:hover {
+  background: rgba(108,71,255,0.15);
+}
+[data-ce-theme="light"] .coding-toolbar-btn--panel {
+  background: rgba(79,70,229,0.08);
+  border-color: rgba(79,70,229,0.25);
+  color: #4f46e5;
+}
+[data-ce-theme="light"] .coding-toolbar-btn--panel:hover {
+  background: rgba(79,70,229,0.15);
+}
+[data-ce-theme="light"] .coding-toolbar-btn--mode {
+  background: rgba(217,119,6,0.08);
+  border-color: rgba(217,119,6,0.25);
+  color: #d97706;
+}
+[data-ce-theme="light"] .coding-toolbar-btn--mode:hover {
+  background: rgba(217,119,6,0.15);
 }
 
 .coding-toolbar-left {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
 .coding-toolbar-right {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
 .coding-lang-select {
-  background: rgba(0, 0, 0, 0.4);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--ce-btn-bg);
+  border: 1px solid var(--ce-btn-border);
   border-radius: 8px;
   padding: 7px 12px;
-  color: #fff;
-  font-size: 0.82rem;
+  color: var(--ce-text);
+  font-size: 0.78rem;
   font-weight: 600;
   outline: none;
   cursor: pointer;
-  min-width: 140px;
+  min-width: 100px;
+  max-width: 160px;
+  flex-shrink: 1;
 }
 
 .coding-lang-select option {
-  background: #1a1a2e;
-  color: #fff;
+  background: #0a0a0a;
+  color: #e2e8f0;
 }
 
 .coding-lang-badge {
@@ -128,14 +276,15 @@
 .coding-btn {
   border: none;
   border-radius: 8px;
-  padding: 8px 16px;
-  font-size: 0.82rem;
+  padding: 7px 14px;
+  font-size: 0.78rem;
   font-weight: 700;
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   transition: all 0.15s ease;
+  line-height: 1;
 }
 
 .coding-btn:hover {
@@ -168,7 +317,7 @@
 
 /* Code Editor Area */
 .coding-editor-wrap {
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--ce-toolbar-border);
   border-radius: 0 0 12px 12px;
   overflow: hidden;
   margin-bottom: 12px;
@@ -179,14 +328,14 @@
   align-items: center;
   justify-content: space-between;
   padding: 8px 14px;
-  background: rgba(0, 0, 0, 0.4);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--ce-editor-header-bg);
+  border-bottom: 1px solid var(--ce-card-border);
 }
 
 .coding-editor-filename {
   font-size: 0.75rem;
   font-weight: 600;
-  color: var(--muted);
+  color: var(--ce-text-muted);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -194,13 +343,18 @@
 
 .coding-editor-info {
   font-size: 0.72rem;
-  color: rgba(255, 255, 255, 0.4);
+  color: var(--ce-text-muted);
+  opacity: 0.6;
 }
 
 .coding-monaco-container {
   width: 100%;
   height: 320px;
-  background: #1e1e1e;
+  background: #000000;
+}
+
+[data-ce-theme="light"] .coding-monaco-container {
+  background: #ffffff;
 }
 
 .coding-editor-textarea {
@@ -237,12 +391,12 @@
   align-items: center;
   justify-content: space-between;
   padding: 8px 14px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--ce-card-bg);
+  border: 1px solid var(--ce-card-border);
   border-radius: 10px 10px 0 0;
   font-size: 0.78rem;
   font-weight: 600;
-  color: var(--muted);
+  color: var(--ce-text-muted);
 }
 
 .coding-input-header span {
@@ -254,7 +408,7 @@
 .coding-input-toggle {
   background: none;
   border: none;
-  color: var(--muted);
+  color: var(--ce-text-muted);
   cursor: pointer;
   font-size: 0.7rem;
   padding: 4px 8px;
@@ -268,12 +422,12 @@
 .coding-input-textarea {
   width: 100%;
   height: 60px;
-  background: rgba(0, 0, 0, 0.3);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--ce-input-bg);
+  border: 1px solid var(--ce-card-border);
   border-top: none;
   border-radius: 0 0 10px 10px;
   padding: 10px 14px;
-  color: #fff;
+  color: var(--ce-text);
   font-size: 0.82rem;
   font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
   resize: vertical;
@@ -294,12 +448,12 @@
   align-items: center;
   justify-content: space-between;
   padding: 8px 14px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--ce-card-bg);
+  border: 1px solid var(--ce-card-border);
   border-radius: 10px 10px 0 0;
   font-size: 0.78rem;
   font-weight: 600;
-  color: var(--muted);
+  color: var(--ce-text-muted);
 }
 
 .coding-output-header span {
@@ -324,8 +478,8 @@
 }
 
 .coding-output-console {
-  background: rgba(0, 0, 0, 0.5);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--ce-console-bg);
+  border: 1px solid var(--ce-card-border);
   border-top: none;
   border-radius: 0 0 10px 10px;
   padding: 14px 16px;
@@ -433,9 +587,9 @@
   gap: 16px;
   margin-top: 10px;
   padding-top: 8px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-top: 1px solid var(--ce-card-border);
   font-size: 0.75rem;
-  color: var(--muted);
+  color: var(--ce-text-muted);
 }
 
 /* Test Case Results */
@@ -471,13 +625,13 @@
 
 .coding-tc-time {
   font-weight: 500;
-  color: var(--muted);
+  color: var(--ce-text-muted);
   font-size: 0.72rem;
 }
 
 .coding-tc-detail {
   font-size: 0.75rem;
-  color: var(--muted);
+  color: var(--ce-text-muted);
   display: flex;
   flex-direction: column;
   gap: 3px;
@@ -506,8 +660,8 @@
    ═══════════════════════════════════════════════════════ */
 
 .coding-samples {
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--ce-card-bg);
+  border: 1px solid var(--ce-card-border);
   border-radius: 12px;
   padding: 14px;
   margin-bottom: 14px;
@@ -516,7 +670,7 @@
 .coding-samples-header {
   font-size: 0.8rem;
   font-weight: 700;
-  color: var(--muted);
+  color: var(--ce-text-muted);
   margin-bottom: 10px;
   display: flex;
   align-items: center;
@@ -526,7 +680,7 @@
 .coding-sample-case {
   margin-bottom: 10px;
   padding-bottom: 10px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid var(--ce-card-border);
 }
 
 .coding-sample-case:last-child {
@@ -553,14 +707,14 @@
 .coding-sample-col-label {
   font-size: 0.7rem;
   font-weight: 600;
-  color: rgba(255, 255, 255, 0.4);
+  color: var(--ce-text-muted);
   margin-bottom: 4px;
   display: block;
 }
 
 .coding-sample-pre {
-  background: rgba(0, 0, 0, 0.35);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--ce-input-bg);
+  border: 1px solid var(--ce-card-border);
   border-radius: 6px;
   padding: 8px 10px;
   font-family: 'JetBrains Mono', monospace;
@@ -580,7 +734,7 @@
 .coding-output-tab {
   font-size: 0.75rem;
   font-weight: 600;
-  color: var(--muted);
+  color: var(--ce-text-muted);
   padding: 4px 10px;
   border-radius: 6px;
   cursor: pointer;
@@ -588,8 +742,8 @@
 }
 
 .coding-output-tab:hover {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.05);
+  color: var(--ce-text);
+  background: var(--ce-btn-bg);
 }
 
 .coding-output-tab.active {
@@ -633,18 +787,18 @@
   align-items: center;
   justify-content: space-between;
   padding: 10px 14px;
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--ce-card-bg);
+  border: 1px solid var(--ce-card-border);
   border-radius: 10px;
   font-size: 0.8rem;
   font-weight: 700;
-  color: var(--muted);
+  color: var(--ce-text-muted);
   cursor: pointer;
   transition: background 0.15s;
 }
 
 .coding-history-header:hover {
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--ce-btn-bg);
 }
 
 .coding-history-header span {
@@ -655,15 +809,15 @@
 
 .coding-history-toggle {
   font-size: 0.7rem;
-  color: var(--muted);
+  color: var(--ce-text-muted);
 }
 
 .coding-history-body {
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--ce-card-border);
   border-top: none;
   border-radius: 0 0 10px 10px;
   padding: 12px;
-  background: rgba(0, 0, 0, 0.2);
+  background: var(--ce-input-bg);
 }
 
 .coding-history-list {
@@ -697,7 +851,7 @@
   align-items: center;
   gap: 12px;
   font-size: 0.72rem;
-  color: var(--muted);
+  color: var(--ce-text-muted);
 }
 
 .coding-history-lang {
@@ -711,4 +865,85 @@
 
 .coding-history-time {
   color: rgba(255, 255, 255, 0.35);
+}
+
+/* ═══════════════════════════════════════════════════════
+   Light Mode Overrides (Code Editor Section Only)
+   ═══════════════════════════════════════════════════════ */
+
+[data-ce-theme="light"] .coding-sample-pre {
+  color: #5b21b6;
+  background: #e9ecef;
+}
+
+[data-ce-theme="light"] .coding-samples {
+  background: #ffffff;
+  border-color: #dee2e6;
+}
+
+[data-ce-theme="light"] .coding-description {
+  background: #ffffff;
+  border-color: #dee2e6;
+}
+
+[data-ce-theme="light"] .coding-output-console {
+  color: #166534;
+}
+
+[data-ce-theme="light"] .coding-history-time {
+  color: rgba(0, 0, 0, 0.4);
+}
+
+[data-ce-theme="light"] .coding-hint {
+  background: rgba(245, 158, 11, 0.08);
+  border-color: rgba(245, 158, 11, 0.25);
+  color: #b45309;
+}
+
+[data-ce-theme="light"] .coding-output-placeholder {
+  color: rgba(0, 0, 0, 0.35);
+}
+
+[data-ce-theme="light"] .coding-editor-textarea {
+  background: #f8f9fa;
+  color: #1e1e1e;
+}
+
+[data-ce-theme="light"] .coding-editor-textarea:focus {
+  background: #ffffff;
+}
+
+[data-ce-theme="light"] .coding-input-textarea::placeholder,
+[data-ce-theme="light"] .coding-editor-textarea::placeholder {
+  color: rgba(0, 0, 0, 0.3);
+}
+
+[data-ce-theme="light"] .coding-btn-run {
+  background: rgba(34, 197, 94, 0.1);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  color: #15803d;
+}
+
+[data-ce-theme="light"] .coding-btn-run:hover {
+  background: rgba(34, 197, 94, 0.2);
+}
+
+[data-ce-theme="light"] .coding-output-clear {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.2);
+  color: #dc2626;
+}
+
+[data-ce-theme="light"] .coding-tc-detail code {
+  background: #e9ecef;
+  color: #5b21b6;
+}
+
+[data-ce-theme="light"] .coding-history-item {
+  background: #f8f9fa;
+  border-color: #e9ecef;
+}
+
+[data-ce-theme="light"] .coding-history-item:hover {
+  background: #e9ecef;
 }

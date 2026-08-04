@@ -283,6 +283,30 @@ function initMonacoForExercise(exIndex) {
     // Clear loading state
     container.innerHTML = '';
 
+    // Define custom themes (only once)
+    if (!window._ckMonacoThemesDefined) {
+      monaco.editor.defineTheme('ck-dark', {
+        base: 'vs-dark',
+        inherit: true,
+        rules: [],
+        colors: {
+          'editor.background': '#000000',
+          'editorGutter.background': '#000000',
+          'editorLineNumber.foreground': '#555555',
+          'editorLineNumber.activeForeground': '#888888',
+        }
+      });
+      monaco.editor.defineTheme('ck-light', {
+        base: 'vs',
+        inherit: true,
+        rules: [],
+        colors: {
+          'editor.background': '#ffffff',
+        }
+      });
+      window._ckMonacoThemesDefined = true;
+    }
+
     // Restore saved code if available, otherwise use starter
     var exerciseId = (function() {
       var cards = document.querySelectorAll('.exercise-card');
@@ -295,7 +319,7 @@ function initMonacoForExercise(exIndex) {
     var editor = monaco.editor.create(container, {
       value: initialCode,
       language: langObj.monacoId,
-      theme: 'vs-dark',
+      theme: document.documentElement.getAttribute('data-ce-theme') === 'light' ? 'ck-light' : 'ck-dark',
       fontSize: 14,
       fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
       minimap: { enabled: false },
