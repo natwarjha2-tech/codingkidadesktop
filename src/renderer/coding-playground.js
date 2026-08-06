@@ -19,10 +19,7 @@ var _pgEditorInstance = null; // Monaco editor for playground
 var _pgBottomPanelVisible = true; // Bottom panel (input/output/history) visible
 var _pgPreloadedSolution = null; // Pre-loaded best solution for instant view
 var _pgUserComplexity = null; // User's code TC/SC from AI analysis
-var _pgCursorWidget = null; // Monaco ContentWidget for cursor AI pop-up
-var _pgCursorWidgetTimer = null; // Timer for 2-sec pause detection
-var _pgCursorWidgetVisible = false; // Whether cursor pop-up is currently visible
-var _pgCursorWidgetMinimized = false; // Whether cursor pop-up is minimized by user
+// (Cursor AI widget removed — AI accessed via Right-Click or Ctrl+I only)
 
 // ═══════════════════════════════════════════════════════
 // CODE EDITOR THEME — Dark/Light Mode Toggle
@@ -608,17 +605,16 @@ function codingPgInitMonaco(langId, starterCode) {
       if (pid) pgSaveCode(pid, lid, _pgEditorInstance.getValue());
       // Real-time syntax error detection (debounced)
       codingPgScheduleCompileCheck();
-      // Reset cursor widget timer on typing (user is active)
-      _pgResetCursorWidgetTimer();
     });
 
-    // Register cursor position change listener for AI pop-up widget
+    // Register cursor position change listener
     _pgEditorInstance.onDidChangeCursorPosition(function(e) {
       var el = document.getElementById('coding-pg-cursor');
       if (el) el.textContent = 'Ln ' + e.position.lineNumber + ', Col ' + e.position.column;
-      // Reset cursor widget timer when cursor moves
-      _pgResetCursorWidgetTimer();
     });
+
+    // Register right-click context menu actions + Ctrl+I shortcut
+    _pgRegisterEditorActions(_pgEditorInstance);
 
     // Pre-load best solution for this problem (so AI features are instant)
     _pgPreloadBestSolution();
@@ -2121,107 +2117,125 @@ function _pgHideAIPanel() {
 }
 
 // ═══════════════════════════════════════════════════════
-// CURSOR AI POP-UP WIDGET (shows after 2 sec pause)
-// Uses Monaco ContentWidget API
+// RIGHT-CLICK CONTEXT MENU + CTRL+I (Monaco Editor Actions)
+// Registered once per editor instance — zero API, uses pre-loaded solution
 // ═══════════════════════════════════════════════════════
 
 /**
- * Reset the cursor widget timer (called on typing/cursor move)
- * After 2 seconds of inactivity, shows the AI pop-up at cursor position
- * Respects minimized state — if user minimized, re-shows in minimized form
+ * Register Monaco editor actions for right-click context menu and Ctrl+I.
+ * Context menu group: "CodingKida AI" with 3 sub-items.
+ * Ctrl+I: opens a quick-pick popup with the same 3 options.
  */
-function _pgResetCursorWidgetTimer() {
-  // Hide existing widget on any activity
-  _pgHideCursorWidget();
-  clearTimeout(_pgCursorWidgetTimer);
-  _pgCursorWidgetTimer = setTimeout(function() {
-    _pgShowCursorWidget();
-  }, 2000);
+function _pgRegisterEditorActions(editor) {
+  if (!editor || !window.monaco) return;
+
+  // Right-click context menu actions (grouped under "CodingKida AI")
+  editor.addAction({
+    id: 'ck-ai-next-step',
+    label: '💡 Next Step',
+    contextMenuGroupId: '9_codingkida',
+    contextMenuOrder: 1,
+    run: function() { codingPgNextStep(); }
+  });
+
+  editor.addAction({
+    id: 'ck-ai-analyze',
+    label: '🔍 Analyze Code',
+    contextMenuGroupId: '9_codingkida',
+    contextMenuOrder: 2,
+    run: function() { codingPgAnalyzeMistake(); }
+  });
+
+  editor.addAction({
+    id: 'ck-ai-solution',
+    label: '</> Show Solution',
+    contextMenuGroupId: '9_codingkida',
+    contextMenuOrder: 3,
+    run: function() { codingPgAIOptimalSolution(); }
+  });
+
+  // Ctrl+I keybinding — show a floating 3-option popup at cursor
+  editor.addAction({
+    id: 'ck-ai-popup',
+    label: 'CodingKida AI Assist',
+    keybindings: [window.monaco.KeyMod.CtrlCmd | window.monaco.KeyCode.KeyI],
+    run: function() { _pgShowCtrlIPopup(); }
+  });
 }
 
 /**
- * Show cursor AI pop-up widget at current cursor position
- * Uses Monaco ContentWidget for proper editor integration
- * Features: equal-sized buttons + minimize/maximize controls
+ * Show Ctrl+I popup: a small floating panel near the cursor with 3 options.
+ * Uses Monaco's ContentWidget for proper positioning.
  */
-function _pgShowCursorWidget() {
+var _pgCtrlIWidget = null;
+var _pgCtrlIWidgetVisible = false;
+
+function _pgShowCtrlIPopup() {
   if (!_pgEditorInstance || !window.monaco) return;
-  if (!_pgPreloadedSolution) return; // No solution loaded, don't show
-  if (_pgCursorWidgetVisible) return; // Already showing
+
+  // If already visible, hide it (toggle behavior)
+  if (_pgCtrlIWidgetVisible) {
+    _pgHideCtrlIPopup();
+    return;
+  }
+
+  if (!_pgPreloadedSolution) {
+    _pgShowAIPanel('🤖 AI Assist', '<div style="color:#f59e0b;">Best solution not loaded yet. Please wait a moment.</div>');
+    return;
+  }
 
   var position = _pgEditorInstance.getPosition();
   if (!position) return;
 
-  // Don't show if editor is empty or has very little code
-  var code = _pgEditorInstance.getValue();
-  if (!code || code.trim().length < 3) return;
+  _pgCtrlIWidgetVisible = true;
 
-  _pgCursorWidgetVisible = true;
-
-  // Create ContentWidget
-  _pgCursorWidget = {
-    getId: function() { return 'pg-ai-cursor-widget'; },
+  _pgCtrlIWidget = {
+    getId: function() { return 'pg-ai-ctrlI-widget'; },
     getDomNode: function() {
       if (!this._domNode) {
         this._domNode = document.createElement('div');
-        this._domNode.id = 'pg-ai-cursor-widget-dom';
-        this._domNode.style.cssText = 'background:#1a1a2e;border:1px solid rgba(108,71,255,0.4);border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,0.5);z-index:999;cursor:default;white-space:nowrap;overflow:hidden;';
+        this._domNode.id = 'pg-ai-ctrlI-dom';
+        this._domNode.style.cssText = 'background:#1a1a2e;border:1px solid rgba(108,71,255,0.4);border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,0.5);z-index:999;cursor:default;white-space:nowrap;overflow:hidden;padding:4px;';
 
-        // Control bar (minimize/maximize)
-        var controlBar = document.createElement('div');
-        controlBar.style.cssText = 'display:flex;align-items:center;justify-content:flex-end;padding:3px 6px 0;gap:4px;';
-
-        var minBtn = document.createElement('button');
-        minBtn.innerHTML = '−';
-        minBtn.title = 'Minimize';
-        minBtn.style.cssText = 'background:rgba(255,255,255,0.08);border:none;border-radius:3px;width:16px;height:16px;color:#94a3b8;font-size:0.7rem;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;transition:background 0.15s;';
-        minBtn.onmouseover = function() { minBtn.style.background = 'rgba(239,68,68,0.3)'; minBtn.style.color = '#fca5a5'; };
-        minBtn.onmouseout = function() { minBtn.style.background = 'rgba(255,255,255,0.08)'; minBtn.style.color = '#94a3b8'; };
-        minBtn.onclick = function(e) { e.stopPropagation(); _pgMinimizeCursorWidget(); };
-
-        controlBar.appendChild(minBtn);
-
-        // Buttons container
         var btnContainer = document.createElement('div');
-        btnContainer.id = 'pg-ai-cursor-btns';
-        btnContainer.style.cssText = 'display:flex;gap:4px;align-items:center;padding:4px 6px 6px;';
+        btnContainer.style.cssText = 'display:flex;gap:4px;align-items:center;padding:4px 4px;';
 
-        var btnStyle = 'width:72px;height:26px;border-radius:6px;font-size:0.63rem;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:3px;transition:background 0.15s;';
+        var btnStyle = 'height:28px;padding:0 12px;border-radius:6px;font-size:0.68rem;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:4px;transition:background 0.15s;white-space:nowrap;';
 
         var btn1 = document.createElement('button');
-        btn1.innerHTML = '<i class="fas fa-step-forward"></i> Next';
+        btn1.innerHTML = '<i class="fas fa-step-forward"></i> Next Step';
         btn1.style.cssText = btnStyle + 'background:rgba(34,197,94,0.12);border:1px solid rgba(34,197,94,0.3);color:#22c55e;';
         btn1.onmouseover = function() { btn1.style.background = 'rgba(34,197,94,0.25)'; };
         btn1.onmouseout = function() { btn1.style.background = 'rgba(34,197,94,0.12)'; };
-        btn1.onclick = function(e) { e.stopPropagation(); codingPgNextStep(); };
+        btn1.onclick = function(e) { e.stopPropagation(); _pgHideCtrlIPopup(); codingPgNextStep(); };
 
         var btn2 = document.createElement('button');
         btn2.innerHTML = '<i class="fas fa-search"></i> Analyze';
         btn2.style.cssText = btnStyle + 'background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.3);color:#fbbf24;';
         btn2.onmouseover = function() { btn2.style.background = 'rgba(245,158,11,0.25)'; };
         btn2.onmouseout = function() { btn2.style.background = 'rgba(245,158,11,0.12)'; };
-        btn2.onclick = function(e) { e.stopPropagation(); codingPgAnalyzeMistake(); };
+        btn2.onclick = function(e) { e.stopPropagation(); _pgHideCtrlIPopup(); codingPgAnalyzeMistake(); };
 
         var btn3 = document.createElement('button');
         btn3.innerHTML = '<i class="fas fa-code"></i> Solution';
         btn3.style.cssText = btnStyle + 'background:rgba(108,71,255,0.12);border:1px solid rgba(108,71,255,0.3);color:#a78bfa;';
         btn3.onmouseover = function() { btn3.style.background = 'rgba(108,71,255,0.25)'; };
         btn3.onmouseout = function() { btn3.style.background = 'rgba(108,71,255,0.12)'; };
-        btn3.onclick = function(e) { e.stopPropagation(); codingPgAIOptimalSolution(); };
+        btn3.onclick = function(e) { e.stopPropagation(); _pgHideCtrlIPopup(); codingPgAIOptimalSolution(); };
+
+        // Close button
+        var closeBtn = document.createElement('button');
+        closeBtn.innerHTML = '✕';
+        closeBtn.style.cssText = 'background:rgba(255,255,255,0.08);border:none;border-radius:4px;width:22px;height:22px;color:#94a3b8;font-size:0.7rem;cursor:pointer;display:flex;align-items:center;justify-content:center;margin-left:2px;transition:background 0.15s;';
+        closeBtn.onmouseover = function() { closeBtn.style.background = 'rgba(239,68,68,0.3)'; closeBtn.style.color = '#fca5a5'; };
+        closeBtn.onmouseout = function() { closeBtn.style.background = 'rgba(255,255,255,0.08)'; closeBtn.style.color = '#94a3b8'; };
+        closeBtn.onclick = function(e) { e.stopPropagation(); _pgHideCtrlIPopup(); };
 
         btnContainer.appendChild(btn1);
         btnContainer.appendChild(btn2);
         btnContainer.appendChild(btn3);
-
-        this._domNode.appendChild(controlBar);
+        btnContainer.appendChild(closeBtn);
         this._domNode.appendChild(btnContainer);
-
-        // If user previously minimized, show in minimized state
-        if (_pgCursorWidgetMinimized) {
-          btnContainer.style.display = 'none';
-          controlBar.style.padding = '4px 6px';
-          _pgAddMaximizeBtn(controlBar, btnContainer);
-        }
       }
       return this._domNode;
     },
@@ -2233,69 +2247,29 @@ function _pgShowCursorWidget() {
     }
   };
 
-  _pgEditorInstance.addContentWidget(_pgCursorWidget);
+  _pgEditorInstance.addContentWidget(_pgCtrlIWidget);
+
+  // Auto-hide when user starts typing
+  var disposable = _pgEditorInstance.onDidChangeModelContent(function() {
+    _pgHideCtrlIPopup();
+    disposable.dispose();
+  });
 }
 
 /**
- * Minimize the cursor widget — hides buttons, shows only a small restore icon
+ * Hide Ctrl+I popup widget
  */
-function _pgMinimizeCursorWidget() {
-  _pgCursorWidgetMinimized = true;
-  var dom = document.getElementById('pg-ai-cursor-widget-dom');
-  if (!dom) return;
-  var btnContainer = document.getElementById('pg-ai-cursor-btns');
-  var controlBar = dom.firstChild;
-  if (btnContainer) btnContainer.style.display = 'none';
-  if (controlBar) {
-    controlBar.style.padding = '4px 6px';
-    // Replace minimize btn with maximize btn
-    controlBar.innerHTML = '';
-    _pgAddMaximizeBtn(controlBar, btnContainer);
-  }
-}
-
-/**
- * Add maximize (restore) button to control bar
- */
-function _pgAddMaximizeBtn(controlBar, btnContainer) {
-  var maxBtn = document.createElement('button');
-  maxBtn.innerHTML = '<i class="fas fa-robot" style="font-size:0.6rem;margin-right:3px;"></i>□';
-  maxBtn.title = 'Restore AI Assist';
-  maxBtn.style.cssText = 'background:rgba(108,71,255,0.15);border:1px solid rgba(108,71,255,0.3);border-radius:4px;padding:3px 8px;color:#a78bfa;font-size:0.63rem;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background 0.15s;';
-  maxBtn.onmouseover = function() { maxBtn.style.background = 'rgba(108,71,255,0.3)'; };
-  maxBtn.onmouseout = function() { maxBtn.style.background = 'rgba(108,71,255,0.15)'; };
-  maxBtn.onclick = function(e) { e.stopPropagation(); _pgMaximizeCursorWidget(); };
-  controlBar.appendChild(maxBtn);
-}
-
-/**
- * Maximize (restore) the cursor widget — shows all buttons again
- */
-function _pgMaximizeCursorWidget() {
-  _pgCursorWidgetMinimized = false;
-  // Remove and re-add widget to rebuild DOM cleanly
-  _pgHideCursorWidget();
-  // Show immediately (don't wait 2 sec)
-  setTimeout(function() { _pgShowCursorWidget(); }, 10);
-}
-
-/**
- * Hide cursor AI pop-up widget
- */
-function _pgHideCursorWidget() {
-  if (!_pgCursorWidgetVisible || !_pgCursorWidget || !_pgEditorInstance) return;
+function _pgHideCtrlIPopup() {
+  if (!_pgCtrlIWidgetVisible || !_pgCtrlIWidget || !_pgEditorInstance) return;
   try {
-    _pgEditorInstance.removeContentWidget(_pgCursorWidget);
+    _pgEditorInstance.removeContentWidget(_pgCtrlIWidget);
   } catch(e) {}
-  _pgCursorWidget = null;
-  _pgCursorWidgetVisible = false;
+  _pgCtrlIWidget = null;
+  _pgCtrlIWidgetVisible = false;
 }
 
 /**
- * Cursor Pop-up → Next Step
- * Inserts the next solution line AFTER cursor position.
-/**
- * Cursor Pop-up → Next Step  (Industry-level, all user scenarios handled)
+ * Next Step — inserts the next unwritten solution line (Industry-level)
  *
  * DESIGN:
  * - Normalize all code lines for comparison (removes spacing/brace-style differences)
@@ -2312,7 +2286,7 @@ function _pgHideCursorWidget() {
  *   Tabs vs spaces, trailing whitespace, double spaces
  */
 function codingPgNextStep() {
-  _pgHideCursorWidget();
+  _pgHideCtrlIPopup();
 
   var solutionCode = _pgGetCurrentLangSolution();
   if (!solutionCode) {
@@ -2426,7 +2400,7 @@ function codingPgNextStep() {
  * Compares user code with best solution and highlights differences
  */
 function codingPgAnalyzeMistake() {
-  _pgHideCursorWidget();
+  _pgHideCtrlIPopup();
 
   var solutionCode = _pgGetCurrentLangSolution();
   if (!solutionCode) {
