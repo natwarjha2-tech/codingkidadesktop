@@ -438,13 +438,48 @@
         <!-- LEFT/CENTER: Video + Tabs below -->
         <div class="vp-center">
           <!-- Video -->
-          <div class="vp-video-wrap" style="position:relative;">
-            <iframe id="video-iframe" src="" allowfullscreen sandbox="allow-scripts allow-same-origin allow-presentation" style="display:block;"></iframe>
-            <video id="video-player" controls controlsList="nodownload" style="display:none;width:100%;height:100%;"></video>
-            <!-- Quality selector overlay — shown only for HLS videos -->
-            <div id="video-quality-controls" style="display:none;position:absolute;bottom:54px;right:12px;z-index:20;"></div>
-            <!-- HLS status message (processing, buffering) -->
-            <div id="video-hls-status" style="display:none;position:absolute;top:12px;left:12px;z-index:20;padding:6px 12px;border-radius:8px;background:rgba(0,0,0,0.7);color:#fff;font-size:0.78rem;backdrop-filter:blur(8px);"></div>
+          <div class="vp-video-wrap" style="position:relative;background:#000;border-radius:12px;overflow:hidden;">
+            <iframe id="video-iframe" src="" allowfullscreen sandbox="allow-scripts allow-same-origin allow-presentation" style="display:block;width:100%;aspect-ratio:16/9;border:none;"></iframe>
+            <div id="custom-video-player" style="display:none;position:relative;background:#000;width:100%;cursor:pointer;" onclick="_vpClickVideo(event)">
+              <style>
+                #video-player::-webkit-media-controls{opacity:0!important;pointer-events:none!important;height:0!important;overflow:hidden!important;}
+                #video-player::-webkit-media-controls-enclosure{display:none!important;}
+                #custom-video-player:hover #vp-controls{opacity:1!important;}
+                #custom-video-player.vp-idle #vp-controls{opacity:0;}
+              </style>
+              <video id="video-player" controls controlsList="nodownload" style="width:100%;display:block;" preload="auto"></video>
+              <!-- HLS status -->
+              <div id="video-hls-status" style="display:none;position:absolute;top:12px;left:12px;z-index:8;padding:6px 12px;border-radius:8px;background:rgba(0,0,0,0.7);color:#fff;font-size:0.78rem;backdrop-filter:blur(8px);"></div>
+              <!-- Custom Controls Overlay -->
+              <div id="vp-controls" style="position:absolute;bottom:0;left:0;right:0;z-index:10;background:linear-gradient(transparent,rgba(0,0,0,0.9));padding:10px 14px 12px;transition:opacity 0.3s;">
+                <!-- Progress Bar -->
+                <div id="vp-progress-bar-wrap" style="height:5px;background:rgba(255,255,255,0.2);border-radius:4px;cursor:pointer;margin-bottom:10px;position:relative;" onclick="_vpSeek(event)" onmousemove="_vpHoverProgress(event)" onmouseleave="_vpLeaveProgress()">
+                  <div id="vp-buf-bar" style="position:absolute;height:100%;background:rgba(255,255,255,0.3);border-radius:4px;width:0%;pointer-events:none;"></div>
+                  <div id="vp-prog-bar" style="position:absolute;height:100%;background:linear-gradient(90deg,#6c47ff,#ec4899);border-radius:4px;width:0%;pointer-events:none;"></div>
+                  <div id="vp-hover-time" style="display:none;position:absolute;bottom:12px;background:rgba(0,0,0,0.85);color:#fff;font-size:0.7rem;padding:2px 7px;border-radius:4px;transform:translateX(-50%);pointer-events:none;white-space:nowrap;"></div>
+                </div>
+                <!-- Buttons Row -->
+                <div style="display:flex;align-items:center;gap:6px;">
+                  <button onclick="_vpTogglePlay(event)" style="background:none;border:none;color:#fff;cursor:pointer;width:30px;height:30px;display:flex;align-items:center;justify-content:center;border-radius:6px;" title="Play/Pause"><i id="vp-play-icon" class="fas fa-play" style="font-size:1rem;"></i></button>
+                  <button onclick="_vpSkip(event,-10)" style="background:none;border:none;color:#fff;cursor:pointer;width:28px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:6px;font-size:0.75rem;" title="-10s"><i class="fas fa-undo"></i></button>
+                  <button onclick="_vpSkip(event,10)" style="background:none;border:none;color:#fff;cursor:pointer;width:28px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:6px;font-size:0.75rem;" title="+10s"><i class="fas fa-redo"></i></button>
+                  <button onclick="_vpMute(event)" style="background:none;border:none;color:#fff;cursor:pointer;width:28px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:6px;font-size:0.75rem;" title="Mute"><i id="vp-vol-icon" class="fas fa-volume-up"></i></button>
+                  <input id="vp-vol-range" type="range" min="0" max="1" step="0.05" value="1" oninput="_vpVolChange(this.value)" style="width:55px;accent-color:#6c47ff;cursor:pointer;height:4px;"/>
+                  <span id="vp-time" style="font-size:0.72rem;color:rgba(255,255,255,0.8);margin-left:4px;font-variant-numeric:tabular-nums;white-space:nowrap;">0:00 / 0:00</span>
+                  <div style="flex:1;"></div>
+                  <!-- Quality -->
+                  <div style="position:relative;" id="vp-quality-wrap">
+                    <button onclick="_vpToggleQualityMenu(event)" style="background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);color:#fff;cursor:pointer;height:26px;padding:0 8px;border-radius:6px;font-size:0.72rem;font-weight:700;" title="Quality"><i class="fas fa-cog" style="margin-right:3px;font-size:0.7rem;"></i><span id="vp-quality-label">Auto</span></button>
+                    <div id="vp-quality-menu" style="display:none;position:absolute;bottom:34px;right:0;background:#1a1a2e;border:1px solid rgba(255,255,255,0.15);border-radius:10px;padding:6px 0;min-width:120px;box-shadow:0 8px 24px rgba(0,0,0,0.6);z-index:20;"></div>
+                  </div>
+                  <!-- PiP -->
+                  <button onclick="_vpPiP(event)" style="background:none;border:none;color:#fff;cursor:pointer;width:28px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:6px;font-size:0.75rem;" title="PiP"><i class="fas fa-clone"></i></button>
+                  <!-- Fullscreen -->
+                  <button onclick="_vpFS(event)" style="background:none;border:none;color:#fff;cursor:pointer;width:28px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:6px;font-size:0.75rem;" title="Fullscreen"><i id="vp-fs-icon" class="fas fa-expand"></i></button>
+                </div>
+              </div>
+            </div>
+            <div id="video-quality-controls" style="display:none;"></div>
           </div>
 
           <!-- Tabs (Udemy style underline) -->
