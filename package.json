@@ -23,6 +23,7 @@
       "preload.js",
       "src/renderer/**/*"
     ],
+    "icon": "src/renderer/assets/logo.png",
     "publish": {
       "provider": "github",
       "owner": "natwarjha2-tech",
