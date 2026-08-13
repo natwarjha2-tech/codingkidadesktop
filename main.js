@@ -46,6 +46,8 @@ function createWindow() {
     height: 800,
     minWidth: 1024,
     minHeight: 600,
+    title: 'CodingKida',
+    icon: path.join(__dirname, 'src/renderer/assets/logo.png'),
     backgroundColor: '#0f0f1a',
     webPreferences: {
       nodeIntegration: false,
