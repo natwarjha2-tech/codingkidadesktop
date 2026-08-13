@@ -30,10 +30,12 @@
       "repo": "codingkidadesktop"
     },
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "icon": "src/renderer/assets/logo.png"
     },
     "mac": {
-      "target": "dmg"
+      "target": "dmg",
+      "icon": "src/renderer/assets/logo.png"
     },
     "linux": {
       "target": "AppImage"
