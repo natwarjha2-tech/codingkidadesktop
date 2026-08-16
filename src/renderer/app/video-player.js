@@ -232,6 +232,100 @@ async function loadVideo(url, hlsMasterUrl, hlsQualities) {
   if (ql) ql.textContent = Object.keys(_vpQualityUrls).length > 0 ? 'Original' : 'Auto';
 }
 
+// ─── Engagement: Like/Dislike/Views ─────────────────────────────────────────
+var _vpCurrentReaction = null; // 'like', 'dislike', or null
+
+async function _vpLoadReactions(lessonId) {
+  var bar = document.getElementById('vp-engagement-bar');
+  if (bar) bar.style.display = 'flex';
+  var token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+  try {
+    var res = await fetch(BASE_URL + '/api/lessons/' + lessonId + '/reaction', {
+      headers: token ? { Authorization: 'Bearer ' + token } : {},
+    });
+    var data = await res.json();
+    if (data.success) {
+      document.getElementById('vp-like-count').textContent = data.likes || 0;
+      document.getElementById('vp-dislike-count').textContent = data.dislikes || 0;
+      document.getElementById('vp-view-count').textContent = data.views || 0;
+      _vpCurrentReaction = data.userReaction;
+      _vpUpdateReactionUI();
+    }
+  } catch {}
+}
+
+function _vpUpdateReactionUI() {
+  var likeBtn = document.getElementById('vp-like-btn');
+  var dislikeBtn = document.getElementById('vp-dislike-btn');
+  if (likeBtn) {
+    if (_vpCurrentReaction === 'like') {
+      likeBtn.style.background = 'rgba(34,197,94,0.2)';
+      likeBtn.style.borderColor = 'rgba(34,197,94,0.5)';
+      likeBtn.style.color = '#4ade80';
+      likeBtn.classList.add('active');
+    } else {
+      likeBtn.style.background = 'rgba(255,255,255,0.05)';
+      likeBtn.style.borderColor = 'rgba(255,255,255,0.1)';
+      likeBtn.style.color = '#fff';
+      likeBtn.classList.remove('active');
+    }
+  }
+  if (dislikeBtn) {
+    if (_vpCurrentReaction === 'dislike') {
+      dislikeBtn.style.background = 'rgba(239,68,68,0.2)';
+      dislikeBtn.style.borderColor = 'rgba(239,68,68,0.5)';
+      dislikeBtn.style.color = '#f87171';
+      dislikeBtn.classList.add('active');
+    } else {
+      dislikeBtn.style.background = 'rgba(255,255,255,0.05)';
+      dislikeBtn.style.borderColor = 'rgba(255,255,255,0.1)';
+      dislikeBtn.style.color = '#fff';
+      dislikeBtn.classList.remove('active');
+    }
+  }
+}
+
+async function _vpReact(type) {
+  var token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+  if (!token || !_currentVideoData || !_currentVideoData.lessonId) return;
+  try {
+    var res = await fetch(BASE_URL + '/api/lessons/' + _currentVideoData.lessonId + '/reaction', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      body: JSON.stringify({ type: type }),
+    });
+    var data = await res.json();
+    if (data.success) {
+      document.getElementById('vp-like-count').textContent = data.likes || 0;
+      document.getElementById('vp-dislike-count').textContent = data.dislikes || 0;
+      _vpCurrentReaction = data.userReaction;
+      _vpUpdateReactionUI();
+    }
+  } catch {}
+}
+
+async function _vpRecordView(lessonId) {
+  // Count view after 30 seconds of watch time (like YouTube)
+  var videoEl = document.getElementById('video-player');
+  if (!videoEl) return;
+  var _viewRecorded = false;
+  var _watchStart = 0;
+  var _totalWatched = 0;
+  var _checkInterval = setInterval(function() {
+    if (_viewRecorded) { clearInterval(_checkInterval); return; }
+    if (!videoEl.paused && videoEl.currentTime > 0) {
+      _totalWatched++;
+      if (_totalWatched >= 30) {
+        _viewRecorded = true;
+        clearInterval(_checkInterval);
+        fetch(BASE_URL + '/api/lessons/' + lessonId + '/view', { method: 'POST' }).catch(function(){});
+      }
+    }
+  }, 1000);
+  // Cleanup if user navigates away
+  videoEl._viewInterval = _checkInterval;
+}
+
 async function openVideoFromBackend(courseId, moduleId, lessonId) {
   try {
     const data = await CoursesAPI.getByIdSigned(courseId);
@@ -254,6 +348,9 @@ async function openVideoFromBackend(courseId, moduleId, lessonId) {
     _currentVideoData = { lessonId: lesson.id, title: lesson.title, courseTitle: course.title || '', moduleTitle: mod.title, videoUrl: lesson.videoUrl, notesUrl: lesson.notes || '', qualityUrls: lesson.qualityUrls || null };
 
     await loadVideo(lesson.videoUrl || '', lesson.hlsMasterUrl || null, lesson.hlsQualities || []);
+    // Record view + load reactions (non-blocking)
+    _vpRecordView(lesson.id);
+    _vpLoadReactions(lesson.id);
     // Video completion: mark complete only when 90%+ watched (handled by video player event)
     _pendingLessonComplete = lesson.id;
     // Reset AI mentor chat for new lesson
