@@ -346,6 +346,8 @@ async function _vpRecordView(lessonId) {
 }
 
 async function openVideoFromBackend(courseId, moduleId, lessonId) {
+  // Restore online UI (in case we came from offline playback)
+  _restoreOnlineVideoUI();
   try {
     // Cache signed course data for 45 minutes (signed URLs valid for 1 hour)
     var signedCacheKey = '/api/courses/' + courseId + '_signed';
@@ -376,7 +378,14 @@ async function openVideoFromBackend(courseId, moduleId, lessonId) {
     }
 
     document.getElementById('video-title').textContent = lesson.title || '';
-    document.getElementById('video-meta').textContent = mod.title + ' - ' + (lesson.duration || '');
+    document.getElementById('video-meta').textContent = mod.title;
+    // Async update meta with real duration after video loads
+    if(lesson.videoUrl) {
+      detectVideoDuration(lesson.videoUrl).then(function(sec) {
+        var metaEl = document.getElementById('video-meta');
+        if(metaEl) metaEl.textContent = mod.title + ' - ' + formatDuration(sec);
+      });
+    }
     _currentVideoData = { lessonId: lesson.id, title: lesson.title, courseTitle: course.title || '', moduleTitle: mod.title, videoUrl: lesson.videoUrl, notesUrl: lesson.notes || '', qualityUrls: lesson.qualityUrls || null };
 
     await loadVideo(lesson.videoUrl || '', lesson.hlsMasterUrl || null, lesson.hlsQualities || []);
@@ -443,6 +452,11 @@ async function openVideoFromBackend(courseId, moduleId, lessonId) {
 
     // Store context for next lesson CTA
     _currentLessonContext = { courseId, moduleId, lessons: mod.lessons, currentLessonId: lessonId };
+
+    // Mark lesson as started in localStorage for Watchlist "In Progress" tracking
+    var _startedKey = getCurrentUserId() ? 'ck_started_' + getCurrentUserId() : 'ck_started';
+    var _startedSet = JSON.parse(localStorage.getItem(_startedKey) || '[]');
+    if(_startedSet.indexOf(lessonId) === -1) { _startedSet.push(lessonId); localStorage.setItem(_startedKey, JSON.stringify(_startedSet)); }
     const idx = mod.lessons.findIndex(l => l.id === lessonId);
     const nextLesson = mod.lessons[idx + 1];
     const floatBtn = document.getElementById('next-lesson-float');
@@ -459,9 +473,14 @@ async function openVideoFromBackend(courseId, moduleId, lessonId) {
     // Cleanup any previous Monaco editor instances
     if (typeof codingCleanupEditors === 'function') codingCleanupEditors();
 
-    // Show placeholder in tabs (will be replaced on tab click)
-    renderQuizTab(null);
-    renderExerciseTab(null);
+    // Eagerly load Quiz + Exercise + Homework so they're ready when user clicks tab
+    const _eagToken = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+    _tabDataLoaded.quiz = true;
+    _lazyLoadQuiz(lesson.id, _eagToken);
+    _tabDataLoaded.exercise = true;
+    _lazyLoadExercise(lesson.id, _eagToken);
+    _tabDataLoaded.homework = true;
+    _lazyLoadHomework(lesson.id, _eagToken);
     // Remove old streak tab if exists
     const oldStreakTab = document.getElementById('streak-tab-btn');
     if (oldStreakTab) oldStreakTab.remove();
@@ -503,7 +522,16 @@ async function openVideoFromBackend(courseId, moduleId, lessonId) {
         item.innerHTML =
           '<i class="fas ' + (isCompleted ? 'fa-check-circle' : (canAccess ? 'fa-play-circle' : 'fa-lock')) + '" style="color:' + (isCompleted ? 'var(--success)' : (canAccess ? (isActive ? '#a78bfa' : 'var(--muted)') : 'var(--danger)')) + ';font-size:0.8rem;flex-shrink:0;"></i>' +
           '<span class="item-title">' + sanitize(l.title) + '</span>' +
-          '<span class="item-duration">' + (l.duration || '') + '</span>';
+          '<span class="item-duration" data-vp-lesson-id="' + l.id + '">--</span>';
+        // Async detect duration for this lesson
+        if(l.videoUrl) {
+          (function(lessonId, url) {
+            detectVideoDuration(url).then(function(sec) {
+              var durEl = document.querySelector('[data-vp-lesson-id="' + lessonId + '"]');
+              if(durEl) durEl.textContent = formatDuration(sec);
+            });
+          })(l.id, l.videoUrl);
+        }
         playlist.appendChild(item);
       });
     });

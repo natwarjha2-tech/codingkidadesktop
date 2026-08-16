@@ -1381,6 +1381,20 @@ async function submitLessonRating() {
       body: JSON.stringify({ rating: _lessonRating, feedback: feedback, lessonId: lessonId, lessonTitle: lessonTitle }),
     });
     var data = await res.json();
+    if (data.success) {
+      // Show success state on button
+      var btn = document.getElementById('vp-rate-submit-btn');
+      if(btn) {
+        btn.textContent = '✓ Submitted';
+        btn.style.background = '#22c55e';
+        btn.style.boxShadow = '0 0 12px rgba(34,197,94,0.3)';
+        setTimeout(function() {
+          btn.textContent = 'Submit';
+          btn.style.background = 'linear-gradient(135deg,#6c47ff,#ec4899)';
+          btn.style.boxShadow = 'none';
+        }, 500);
+      }
+    }
     if (msg) {
       msg.style.display = 'block';
       msg.style.color = data.success ? '#22c55e' : '#ef4444';

@@ -18,8 +18,10 @@ function renderNotesTab(pdfUrl, notePoints) {
   const el = document.getElementById('vp-notes');
   if (!el) return;
 
-  let html = '<div class="tab-card">';
+  let html = '<div class="tab-card notes-card">';
+  html += '<div class="notes-card-content">';
   html += '<div class="tab-card-title"><i class="fas fa-file-alt"></i> Lesson Notes</div>';
+  html += '<p class="notes-card-desc">Access detailed notes for this lesson.</p>';
 
   if (notePoints && notePoints.length > 0) {
     html += '<ul class="notes-list">';
@@ -30,7 +32,7 @@ function renderNotesTab(pdfUrl, notePoints) {
   }
 
   if (pdfUrl) {
-    html += '<div style="margin-top:16px; padding-top:16px; border-top:1px solid rgba(255,255,255,0.06); display:flex; gap:10px;">';
+    html += '<div style="margin-top:16px; display:flex; gap:10px;">';
     html += '<button class="btn btn-outline btn-sm" style="padding:10px 20px; border-radius:10px; display:flex; align-items:center; gap:8px;" onclick="openPdfInApp(\'' + pdfUrl + '\')">';
     html += '<i class="fas fa-file-pdf" style="color:#ef4444;"></i> View PDF Notes</button>';
     html += '<button id="pdf-download-btn" class="btn btn-outline btn-sm" style="padding:10px 20px; border-radius:10px; display:flex; align-items:center; gap:8px; border-color:rgba(34,197,94,0.4); color:#22c55e;" onclick="downloadPdfOffline(\'' + pdfUrl + '\')">';
@@ -45,7 +47,9 @@ function renderNotesTab(pdfUrl, notePoints) {
     html += '</div>';
   }
 
-  html += '</div>';
+  html += '</div>'; // close notes-card-content
+  html += '<img src="assets/lesson-notes-book-pen.png" alt="" class="notes-card-illus" draggable="false"/>';
+  html += '</div>'; // close notes-card
   el.innerHTML = html;
 
   // Check if PDF already downloaded — update button state
@@ -82,6 +86,7 @@ function renderQuizTab(quizData) {
 
   let html = '<div class="tab-card">';
   html += '<div class="tab-card-title"><i class="fas fa-tasks"></i> Quiz</div>';
+  html += '<p style="font-size:0.76rem;color:var(--muted);margin:-8px 0 16px 0;">Test what you\'ve learned</p>';
 
   if (!quizData) {
     html += '<div style="text-align:center; padding:30px 20px;">';
