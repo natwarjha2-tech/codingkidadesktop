@@ -631,13 +631,70 @@
         <!-- LEFT/CENTER: Video + Tabs below -->
         <div class="vp-center">
           <!-- Video -->
-          <div class="vp-video-wrap" style="position:relative;">
-            <iframe id="video-iframe" src="" allowfullscreen sandbox="allow-scripts allow-same-origin allow-presentation" style="display:block;"></iframe>
-            <video id="video-player" controls controlsList="nodownload" style="display:none;width:100%;height:100%;"></video>
-            <!-- Quality selector overlay — shown only for HLS videos -->
-            <div id="video-quality-controls" style="display:none;position:absolute;bottom:54px;right:12px;z-index:20;"></div>
-            <!-- HLS status message (processing, buffering) -->
-            <div id="video-hls-status" style="display:none;position:absolute;top:12px;left:12px;z-index:20;padding:6px 12px;border-radius:8px;background:rgba(0,0,0,0.7);color:#fff;font-size:0.78rem;backdrop-filter:blur(8px);"></div>
+          <div class="vp-video-wrap" style="position:relative;background:#000;border-radius:12px;overflow:hidden;">
+            <iframe id="video-iframe" src="" allowfullscreen sandbox="allow-scripts allow-same-origin allow-presentation" style="display:block;width:100%;aspect-ratio:16/9;border:none;"></iframe>
+            <div id="custom-video-player" style="display:none;position:relative;background:#000;width:100%;cursor:pointer;" onclick="_vpClickVideo(event)">
+              <style>
+                #video-player::-webkit-media-controls{opacity:0!important;pointer-events:none!important;height:0!important;overflow:hidden!important;}
+                #video-player::-webkit-media-controls-enclosure{display:none!important;}
+                #custom-video-player:hover #vp-controls{opacity:1!important;}
+                #custom-video-player.vp-idle #vp-controls{opacity:0;}
+              </style>
+              <video id="video-player" controls controlsList="nodownload" style="width:100%;display:block;" preload="auto"></video>
+              <!-- HLS status -->
+              <div id="video-hls-status" style="display:none;position:absolute;top:12px;left:12px;z-index:8;padding:6px 12px;border-radius:8px;background:rgba(0,0,0,0.7);color:#fff;font-size:0.78rem;backdrop-filter:blur(8px);"></div>
+              <!-- Custom Controls Overlay -->
+              <div id="vp-controls" style="position:absolute;bottom:0;left:0;right:0;z-index:10;background:linear-gradient(transparent,rgba(0,0,0,0.9));padding:10px 14px 12px;transition:opacity 0.3s;">
+                <!-- Progress Bar -->
+                <div id="vp-progress-bar-wrap" style="height:5px;background:rgba(255,255,255,0.2);border-radius:4px;cursor:pointer;margin-bottom:10px;position:relative;" onclick="_vpSeek(event)" onmousemove="_vpHoverProgress(event)" onmouseleave="_vpLeaveProgress()">
+                  <div id="vp-buf-bar" style="position:absolute;height:100%;background:rgba(255,255,255,0.3);border-radius:4px;width:0%;pointer-events:none;"></div>
+                  <div id="vp-prog-bar" style="position:absolute;height:100%;background:linear-gradient(90deg,#6c47ff,#ec4899);border-radius:4px;width:0%;pointer-events:none;"></div>
+                  <div id="vp-hover-time" style="display:none;position:absolute;bottom:12px;background:rgba(0,0,0,0.85);color:#fff;font-size:0.7rem;padding:2px 7px;border-radius:4px;transform:translateX(-50%);pointer-events:none;white-space:nowrap;"></div>
+                </div>
+                <!-- Buttons Row -->
+                <div style="display:flex;align-items:center;gap:6px;">
+                  <button onclick="_vpTogglePlay(event)" style="background:none;border:none;color:#fff;cursor:pointer;width:30px;height:30px;display:flex;align-items:center;justify-content:center;border-radius:6px;" title="Play/Pause"><i id="vp-play-icon" class="fas fa-play" style="font-size:1rem;"></i></button>
+                  <button onclick="_vpSkip(event,-10)" style="background:none;border:none;color:#fff;cursor:pointer;width:28px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:6px;font-size:0.75rem;" title="-10s"><i class="fas fa-undo"></i></button>
+                  <button onclick="_vpSkip(event,10)" style="background:none;border:none;color:#fff;cursor:pointer;width:28px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:6px;font-size:0.75rem;" title="+10s"><i class="fas fa-redo"></i></button>
+                  <button onclick="_vpMute(event)" style="background:none;border:none;color:#fff;cursor:pointer;width:28px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:6px;font-size:0.75rem;" title="Mute"><i id="vp-vol-icon" class="fas fa-volume-up"></i></button>
+                  <input id="vp-vol-range" type="range" min="0" max="1" step="0.05" value="1" oninput="_vpVolChange(this.value)" style="width:55px;accent-color:#6c47ff;cursor:pointer;height:4px;"/>
+                  <span id="vp-time" style="font-size:0.72rem;color:rgba(255,255,255,0.8);margin-left:4px;font-variant-numeric:tabular-nums;white-space:nowrap;">0:00 / 0:00</span>
+                  <div style="flex:1;"></div>
+                  <!-- Quality -->
+                  <div style="position:relative;" id="vp-quality-wrap">
+                    <button onclick="_vpToggleQualityMenu(event)" style="background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);color:#fff;cursor:pointer;height:26px;padding:0 8px;border-radius:6px;font-size:0.72rem;font-weight:700;" title="Quality"><i class="fas fa-cog" style="margin-right:3px;font-size:0.7rem;"></i><span id="vp-quality-label">Auto</span></button>
+                    <div id="vp-quality-menu" style="display:none;position:absolute;bottom:34px;right:0;background:#1a1a2e;border:1px solid rgba(255,255,255,0.15);border-radius:10px;padding:6px 0;min-width:120px;box-shadow:0 8px 24px rgba(0,0,0,0.6);z-index:20;"></div>
+                  </div>
+                  <!-- PiP -->
+                  <button onclick="_vpPiP(event)" style="background:none;border:none;color:#fff;cursor:pointer;width:28px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:6px;font-size:0.75rem;" title="PiP"><i class="fas fa-clone"></i></button>
+                  <!-- Fullscreen -->
+                  <button onclick="_vpFS(event)" style="background:none;border:none;color:#fff;cursor:pointer;width:28px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:6px;font-size:0.75rem;" title="Fullscreen"><i id="vp-fs-icon" class="fas fa-expand"></i></button>
+                </div>
+              </div>
+            </div>
+            <div id="video-quality-controls" style="display:none;"></div>
+          </div>
+
+          <!-- Engagement Bar: Like/Dislike, Views, Subscribe -->
+          <div id="vp-engagement-bar" style="display:none;padding:10px 0;display:flex;align-items:center;gap:12px;margin-bottom:4px;">
+            <!-- Like -->
+            <button id="vp-like-btn" onclick="_vpReact('like')" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:#fff;cursor:pointer;height:32px;padding:0 12px;border-radius:20px;font-size:0.78rem;font-weight:600;display:flex;align-items:center;gap:6px;transition:all 0.2s;" onmouseover="this.style.background='rgba(34,197,94,0.15)';this.style.borderColor='rgba(34,197,94,0.4)'" onmouseout="if(!this.classList.contains('active')){this.style.background='rgba(255,255,255,0.05)';this.style.borderColor='rgba(255,255,255,0.1)'}">
+              <i class="fas fa-thumbs-up"></i> <span id="vp-like-count">0</span>
+            </button>
+            <!-- Dislike -->
+            <button id="vp-dislike-btn" onclick="_vpReact('dislike')" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:#fff;cursor:pointer;height:32px;padding:0 12px;border-radius:20px;font-size:0.78rem;font-weight:600;display:flex;align-items:center;gap:6px;transition:all 0.2s;" onmouseover="this.style.background='rgba(239,68,68,0.15)';this.style.borderColor='rgba(239,68,68,0.4)'" onmouseout="if(!this.classList.contains('active')){this.style.background='rgba(255,255,255,0.05)';this.style.borderColor='rgba(255,255,255,0.1)'}">
+              <i class="fas fa-thumbs-down"></i> <span id="vp-dislike-count">0</span>
+            </button>
+            <!-- Views -->
+            <span style="font-size:0.75rem;color:var(--muted);display:flex;align-items:center;gap:5px;margin-left:4px;">
+              <i class="fas fa-eye" style="font-size:0.7rem;"></i> <span id="vp-view-count">0</span> views
+            </span>
+            <!-- Spacer -->
+            <div style="flex:1;"></div>
+            <!-- Subscribe -->
+            <button onclick="window.open('https://youtube.com/@codingkida4u?si=j2TyDfmXcw201zEe','_blank')" style="background:linear-gradient(135deg,#ef4444,#dc2626);border:none;color:#fff;cursor:pointer;height:32px;padding:0 14px;border-radius:20px;font-size:0.78rem;font-weight:700;display:flex;align-items:center;gap:6px;transition:all 0.2s;box-shadow:0 2px 8px rgba(239,68,68,0.3);" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
+              <i class="fab fa-youtube"></i> Subscribe
+            </button>
           </div>
 
           <!-- Tabs (Udemy style underline) -->
@@ -1452,25 +1509,25 @@
 
 <!-- CODING PLAYGROUND PAGE -->
 <div id="page-coding" class="page" style="padding:0 !important;overflow:hidden;height:100%;">
-  <div style="display:flex;height:100%;">
-    <div style="width:320px;min-width:280px;border-right:1px solid rgba(255,255,255,0.08);display:flex;flex-direction:column;background:#12101f;height:100%;overflow:hidden;transition:all 0.25s ease;" id="coding-pg-left">
-      <div style="padding:14px 16px;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:space-between;">
-        <h3 style="font-size:0.95rem;font-weight:700;color:#fff;margin:0;display:flex;align-items:center;gap:8px;"><i class="fas fa-laptop-code" style="color:#a78bfa;"></i> Coding Practice</h3>
+  <div style="display:flex;height:100%;background:var(--ce-bg);">
+    <div style="width:320px;min-width:280px;border-right:1px solid var(--ce-toolbar-border);display:flex;flex-direction:column;background:var(--ce-panel-bg);height:100%;overflow:hidden;transition:all 0.25s ease;" id="coding-pg-left">
+      <div style="padding:14px 16px;border-bottom:1px solid var(--ce-toolbar-border);display:flex;align-items:center;justify-content:space-between;">
+        <h3 style="font-size:0.95rem;font-weight:700;color:var(--ce-text);margin:0;display:flex;align-items:center;gap:8px;"><i class="fas fa-laptop-code" style="color:#a78bfa;"></i> Coding Practice</h3>
         <button onclick="codingPgShowAddModal()" title="Add your own problem" style="width:28px;height:28px;border-radius:8px;background:rgba(108,71,255,0.15);border:1px solid rgba(108,71,255,0.3);color:#a78bfa;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:0.7rem;"><i class="fas fa-plus"></i></button>
       </div>
-      <div style="padding:8px 12px;display:flex;gap:6px;border-bottom:1px solid rgba(255,255,255,0.04);">
-        <select id="coding-pg-cat-filter" onchange="codingPgFilterProblems()" style="flex:1;background:#1a1a2e;border:1px solid rgba(255,255,255,0.12);border-radius:8px;padding:6px 10px;color:#fff;font-size:0.73rem;outline:none;cursor:pointer;"><option value="all">All Categories</option></select>
-        <select id="coding-pg-diff-filter" onchange="codingPgFilterProblems()" style="flex:1;background:#1a1a2e;border:1px solid rgba(255,255,255,0.12);border-radius:8px;padding:6px 10px;color:#fff;font-size:0.73rem;outline:none;cursor:pointer;"><option value="all">All Levels</option><option value="easy">Easy</option><option value="medium">Medium</option><option value="hard">Hard</option></select>
+      <div style="padding:8px 12px;display:flex;gap:6px;border-bottom:1px solid var(--ce-card-border);">
+        <select id="coding-pg-cat-filter" onchange="codingPgFilterProblems()" style="flex:1;background:var(--ce-btn-bg);border:1px solid var(--ce-btn-border);border-radius:8px;padding:6px 10px;color:var(--ce-text);font-size:0.73rem;outline:none;cursor:pointer;"><option value="all">All Categories</option></select>
+        <select id="coding-pg-diff-filter" onchange="codingPgFilterProblems()" style="flex:1;background:var(--ce-btn-bg);border:1px solid var(--ce-btn-border);border-radius:8px;padding:6px 10px;color:var(--ce-text);font-size:0.73rem;outline:none;cursor:pointer;"><option value="all">All Levels</option><option value="easy">Easy</option><option value="medium">Medium</option><option value="hard">Hard</option></select>
       </div>
-      <div style="display:flex;padding:0 12px;border-bottom:1px solid rgba(255,255,255,0.04);">
+      <div style="display:flex;padding:0 12px;border-bottom:1px solid var(--ce-card-border);">
         <span id="coding-pg-tab-all" onclick="codingPgSwitchTab('all')" style="padding:9px 12px;font-size:0.75rem;font-weight:600;color:#a78bfa;cursor:pointer;border-bottom:2px solid #a78bfa;">All Problems</span>
-        <span id="coding-pg-tab-my" onclick="codingPgSwitchTab('my')" style="padding:9px 12px;font-size:0.75rem;font-weight:600;color:#94a3b8;cursor:pointer;border-bottom:2px solid transparent;">My Problems</span>
-        <span id="coding-pg-tab-score" onclick="codingPgSwitchTab('score')" style="padding:9px 12px;font-size:0.75rem;font-weight:600;color:#94a3b8;cursor:pointer;border-bottom:2px solid transparent;">Coding Score</span>
+        <span id="coding-pg-tab-my" onclick="codingPgSwitchTab('my')" style="padding:9px 12px;font-size:0.75rem;font-weight:600;color:var(--ce-text-muted);cursor:pointer;border-bottom:2px solid transparent;">My Problems</span>
+        <span id="coding-pg-tab-score" onclick="codingPgSwitchTab('score')" style="padding:9px 12px;font-size:0.75rem;font-weight:600;color:var(--ce-text-muted);cursor:pointer;border-bottom:2px solid transparent;">Coding Score</span>
       </div>
-      <div id="coding-pg-list" style="flex:1;overflow-y:auto;padding:6px;padding-bottom:20px;"><div style="text-align:center;padding:40px;color:#94a3b8;"><i class="fas fa-spinner fa-spin" style="font-size:1.5rem;margin-bottom:12px;display:block;color:#a78bfa;"></i><span style="font-size:0.85rem;">Loading problems...</span></div></div>
+      <div id="coding-pg-list" style="flex:1;overflow-y:auto;padding:6px;padding-bottom:20px;"><div style="text-align:center;padding:40px;color:var(--ce-text-muted);"><i class="fas fa-spinner fa-spin" style="font-size:1.5rem;margin-bottom:12px;display:block;color:#a78bfa;"></i><span style="font-size:0.85rem;">Loading problems...</span></div></div>
     </div>
-    <div style="flex:1;display:flex;flex-direction:column;overflow:hidden;height:100%;" id="coding-pg-right">
-      <div id="coding-pg-welcome" style="flex:1;display:flex;align-items:center;justify-content:center;"><div style="text-align:center;padding:60px 40px;"><div style="font-size:3rem;margin-bottom:16px;">🖥️</div><h2 style="color:#fff;font-size:1.4rem;font-weight:800;margin-bottom:8px;">Select a Problem</h2><p style="color:#94a3b8;font-size:0.9rem;line-height:1.6;">Choose a problem from the left panel to start coding.<br>Practice makes perfect!</p></div></div>
+    <div style="flex:1;display:flex;flex-direction:column;overflow:hidden;height:100%;background:var(--ce-bg);" id="coding-pg-right">
+      <div id="coding-pg-welcome" style="flex:1;display:flex;align-items:center;justify-content:center;"><div style="text-align:center;padding:60px 40px;"><div style="font-size:3rem;margin-bottom:16px;">🖥️</div><h2 style="color:var(--ce-text);font-size:1.4rem;font-weight:800;margin-bottom:8px;">Select a Problem</h2><p style="color:var(--ce-text-muted);font-size:0.9rem;line-height:1.6;">Choose a problem from the left panel to start coding.<br>Practice makes perfect!</p></div></div>
       <div id="coding-pg-editor-area" style="display:none;flex:1;overflow:hidden;height:100%;"></div>
     </div>
   </div>

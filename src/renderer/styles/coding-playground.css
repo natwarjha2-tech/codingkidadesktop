@@ -8,16 +8,17 @@
   height: 100%;
   min-height: calc(100vh - 64px);
   overflow: hidden;
+  background: var(--ce-bg);
 }
 
 /* Left Panel: Problem List */
 .coding-pg-left {
   width: 340px;
   min-width: 280px;
-  border-right: 1px solid rgba(255,255,255,0.06);
+  border-right: 1px solid var(--ce-toolbar-border);
   display: flex;
   flex-direction: column;
-  background: rgba(0,0,0,0.2);
+  background: var(--ce-panel-bg);
   height: 100%;
   overflow: hidden;
 }
@@ -27,13 +28,13 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 1px solid rgba(255,255,255,0.06);
+  border-bottom: 1px solid var(--ce-toolbar-border);
 }
 
 .coding-pg-left-header h3 {
   font-size: 1rem;
   font-weight: 700;
-  color: #fff;
+  color: var(--ce-text);
   margin: 0;
   display: flex;
   align-items: center;
@@ -61,30 +62,37 @@
   padding: 10px 16px;
   display: flex;
   gap: 8px;
-  border-bottom: 1px solid rgba(255,255,255,0.04);
+  border-bottom: 1px solid var(--ce-card-border);
 }
 
 .coding-pg-filters select {
   flex: 1;
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.1);
+  background: var(--ce-btn-bg);
+  border: 1px solid var(--ce-btn-border);
   border-radius: 8px;
   padding: 6px 10px;
-  color: #fff;
+  color: var(--ce-text);
   font-size: 0.75rem;
   outline: none;
   cursor: pointer;
 }
 .coding-pg-filters select option {
-  background: #1a1a2e;
-  color: #fff;
+  background: #0a0a0a;
+  color: #e2e8f0;
 }
 
 /* Add Problem Modal - Dropdown Options */
 #pg-add-cat option,
 #pg-add-diff option {
-  background: #1a1a2e;
-  color: #fff;
+  background: #0a0a0a;
+  color: #e2e8f0;
+}
+
+/* Left Panel Filter Dropdowns — force dark options */
+#coding-pg-cat-filter option,
+#coding-pg-diff-filter option {
+  background: #0a0a0a;
+  color: #e2e8f0;
 }
 
 /* Tabs */
@@ -92,18 +100,18 @@
   display: flex;
   padding: 0 16px;
   gap: 2px;
-  border-bottom: 1px solid rgba(255,255,255,0.04);
+  border-bottom: 1px solid var(--ce-card-border);
 }
 .coding-pg-tab {
   padding: 10px 14px;
   font-size: 0.78rem;
   font-weight: 600;
-  color: var(--muted);
+  color: var(--ce-text-muted);
   cursor: pointer;
   border-bottom: 2px solid transparent;
   transition: all 0.15s;
 }
-.coding-pg-tab:hover { color: #fff; }
+.coding-pg-tab:hover { color: var(--ce-text); }
 .coding-pg-tab.active {
   color: #a78bfa;
   border-bottom-color: #a78bfa;
@@ -128,8 +136,8 @@
   margin-bottom: 4px;
 }
 .coding-pg-item:hover {
-  background: rgba(255,255,255,0.04);
-  border-color: rgba(255,255,255,0.06);
+  background: var(--ce-btn-bg);
+  border-color: var(--ce-card-border);
 }
 .coding-pg-item.active {
   background: rgba(108,71,255,0.1);
@@ -139,19 +147,19 @@
 .coding-pg-item-num {
   font-size: 0.72rem;
   font-weight: 700;
-  color: var(--muted);
+  color: var(--ce-text-muted);
   min-width: 24px;
 }
 .coding-pg-item-info { flex: 1; }
 .coding-pg-item-title {
   font-size: 0.82rem;
   font-weight: 600;
-  color: #fff;
+  color: var(--ce-text);
   margin-bottom: 2px;
 }
 .coding-pg-item-meta {
   font-size: 0.7rem;
-  color: var(--muted);
+  color: var(--ce-text-muted);
 }
 
 .coding-pg-diff {
@@ -171,6 +179,7 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  background: var(--ce-bg);
 }
 
 .coding-pg-welcome {
@@ -186,6 +195,7 @@
   flex-direction: column;
   overflow-y: auto;
   padding: 16px;
+  background: var(--ce-bg);
 }
 
 /* Description panel — text content gets text cursor, scrollbar area gets default arrow */
@@ -200,3 +210,30 @@
 }
 
 /* Bottom panel toggle is now in the toolbar — no separate div needed */
+
+/* ═══════════════════════════════════════════════════════
+   Light Mode Overrides (Playground Section Only)
+   ═══════════════════════════════════════════════════════ */
+
+[data-ce-theme="light"] .coding-pg-left {
+  border-right-color: #dee2e6;
+}
+
+[data-ce-theme="light"] .coding-pg-item:hover {
+  background: #f1f3f5;
+  border-color: #dee2e6;
+}
+
+[data-ce-theme="light"] .coding-pg-item.active {
+  background: rgba(108,71,255,0.08);
+  border-color: rgba(108,71,255,0.2);
+}
+
+[data-ce-theme="light"] .coding-pg-add-btn {
+  background: rgba(108,71,255,0.08);
+  border-color: rgba(108,71,255,0.2);
+}
+
+[data-ce-theme="light"] .coding-pg-tab:hover {
+  color: #212529;
+}

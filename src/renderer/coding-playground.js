@@ -19,10 +19,64 @@ var _pgEditorInstance = null; // Monaco editor for playground
 var _pgBottomPanelVisible = true; // Bottom panel (input/output/history) visible
 var _pgPreloadedSolution = null; // Pre-loaded best solution for instant view
 var _pgUserComplexity = null; // User's code TC/SC from AI analysis
-var _pgCursorWidget = null; // Monaco ContentWidget for cursor AI pop-up
-var _pgCursorWidgetTimer = null; // Timer for 2-sec pause detection
-var _pgCursorWidgetVisible = false; // Whether cursor pop-up is currently visible
-var _pgCursorWidgetMinimized = false; // Whether cursor pop-up is minimized by user
+// (Cursor AI widget removed — AI accessed via Right-Click or Ctrl+I only)
+
+// ═══════════════════════════════════════════════════════
+// CODE EDITOR THEME — Dark/Light Mode Toggle
+// ═══════════════════════════════════════════════════════
+
+/**
+ * Initialize code editor theme from localStorage on page load.
+ * Applies the saved theme (default: dark) to the coding container.
+ */
+function codingPgInitTheme() {
+  var saved = localStorage.getItem('ck_ce_theme') || 'dark';
+  if (saved === 'light') {
+    document.documentElement.setAttribute('data-ce-theme', 'light');
+  } else {
+    document.documentElement.removeAttribute('data-ce-theme');
+  }
+}
+
+/**
+ * Toggle between dark and light mode for the code editor section.
+ * Persists preference in localStorage and updates Monaco theme.
+ */
+function codingPgToggleTheme() {
+  var isLight = document.documentElement.getAttribute('data-ce-theme') === 'light';
+  var newTheme = isLight ? 'dark' : 'light';
+
+  if (newTheme === 'light') {
+    document.documentElement.setAttribute('data-ce-theme', 'light');
+  } else {
+    document.documentElement.removeAttribute('data-ce-theme');
+  }
+
+  localStorage.setItem('ck_ce_theme', newTheme);
+
+  // Update Monaco editor theme
+  if (_pgEditorInstance && window.monaco) {
+    window.monaco.editor.setTheme(newTheme === 'light' ? 'ck-light' : 'ck-dark');
+  }
+
+  // Update all lesson-tab editors too
+  if (typeof _codingEditors !== 'undefined') {
+    Object.keys(_codingEditors).forEach(function(key) {
+      if (_codingEditors[key] && window.monaco) {
+        window.monaco.editor.setTheme(newTheme === 'light' ? 'ck-light' : 'ck-dark');
+      }
+    });
+  }
+
+  // Update button icon + label
+  var icon = document.getElementById('coding-pg-theme-icon');
+  var label = document.getElementById('coding-pg-theme-label');
+  if (icon) icon.className = newTheme === 'light' ? 'fas fa-sun' : 'fas fa-moon';
+  if (label) label.textContent = newTheme === 'light' ? 'Light' : 'Dark';
+}
+
+// Apply saved theme immediately on script load
+codingPgInitTheme();
 
 // ═══════════════════════════════════════════════════════
 // INITIALIZATION — called when page navigates to 'coding'
@@ -158,10 +212,11 @@ function codingPgSwitchTab(tab) {
   var tabAll = document.getElementById('coding-pg-tab-all');
   var tabMy = document.getElementById('coding-pg-tab-my');
   var tabScore = document.getElementById('coding-pg-tab-score');
+  var inactiveColor = getComputedStyle(document.documentElement).getPropertyValue('--ce-text-muted').trim() || '#94a3b8';
   
-  if (tabAll) { tabAll.style.color = tab === 'all' ? '#a78bfa' : '#94a3b8'; tabAll.style.borderBottomColor = tab === 'all' ? '#a78bfa' : 'transparent'; }
-  if (tabMy) { tabMy.style.color = tab === 'my' ? '#a78bfa' : '#94a3b8'; tabMy.style.borderBottomColor = tab === 'my' ? '#a78bfa' : 'transparent'; }
-  if (tabScore) { tabScore.style.color = tab === 'score' ? '#a78bfa' : '#94a3b8'; tabScore.style.borderBottomColor = tab === 'score' ? '#a78bfa' : 'transparent'; }
+  if (tabAll) { tabAll.style.color = tab === 'all' ? '#a78bfa' : inactiveColor; tabAll.style.borderBottomColor = tab === 'all' ? '#a78bfa' : 'transparent'; }
+  if (tabMy) { tabMy.style.color = tab === 'my' ? '#a78bfa' : inactiveColor; tabMy.style.borderBottomColor = tab === 'my' ? '#a78bfa' : 'transparent'; }
+  if (tabScore) { tabScore.style.color = tab === 'score' ? '#a78bfa' : inactiveColor; tabScore.style.borderBottomColor = tab === 'score' ? '#a78bfa' : 'transparent'; }
 
   if (tab === 'score') {
     codingPgRenderScore();
@@ -222,7 +277,7 @@ function codingPgToggleLeftPanel() {
     leftPanel.style.minWidth = '280px';
     leftPanel.style.padding = '';
     leftPanel.style.overflow = 'hidden';
-    leftPanel.style.borderRight = '1px solid rgba(255,255,255,0.08)';
+    leftPanel.style.borderRight = '1px solid var(--ce-toolbar-border)';
   } else {
     leftPanel.style.width = '0';
     leftPanel.style.minWidth = '0';
@@ -282,7 +337,7 @@ function codingPgRenderEditor(problem) {
   html += '  <div class="coding-title-row">';
   html += '    <span class="coding-title">' + sanitize(problem.title) + '</span>';
   html += '    <span class="coding-difficulty" style="background:' + diffColor + '20;color:' + diffColor + ';border:1px solid ' + diffColor + '40;">' + problem.difficulty + '</span>';
-  html += '    <span style="font-size:0.7rem;color:var(--muted);background:rgba(255,255,255,0.05);padding:2px 8px;border-radius:6px;">' + sanitize(problem.category) + '</span>';
+  html += '    <span style="font-size:0.7rem;color:var(--ce-text-muted);background:var(--ce-card-bg);padding:2px 8px;border-radius:6px;border:1px solid var(--ce-card-border);">' + sanitize(problem.category) + '</span>';
   html += '  </div>';
   html += '</div>';
 
@@ -295,15 +350,15 @@ function codingPgRenderEditor(problem) {
   if (problem.inputFormat || problem.outputFormat) {
     html += '<div style="display:flex;gap:10px;margin-bottom:10px;">';
     if (problem.inputFormat) {
-      html += '<div style="flex:1;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:10px 12px;">';
-      html += '  <div style="font-size:0.7rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Input Format</div>';
-      html += '  <pre style="font-size:0.78rem;color:rgba(255,255,255,0.75);white-space:pre-wrap;margin:0;">' + sanitize(problem.inputFormat) + '</pre>';
+      html += '<div style="flex:1;background:var(--ce-card-bg);border:1px solid var(--ce-card-border);border-radius:10px;padding:10px 12px;">';
+      html += '  <div style="font-size:0.7rem;font-weight:700;color:var(--ce-text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Input Format</div>';
+      html += '  <pre style="font-size:0.78rem;color:var(--ce-text);white-space:pre-wrap;margin:0;opacity:0.85;">' + sanitize(problem.inputFormat) + '</pre>';
       html += '</div>';
     }
     if (problem.outputFormat) {
-      html += '<div style="flex:1;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:10px 12px;">';
-      html += '  <div style="font-size:0.7rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Output Format</div>';
-      html += '  <pre style="font-size:0.78rem;color:rgba(255,255,255,0.75);white-space:pre-wrap;margin:0;">' + sanitize(problem.outputFormat) + '</pre>';
+      html += '<div style="flex:1;background:var(--ce-card-bg);border:1px solid var(--ce-card-border);border-radius:10px;padding:10px 12px;">';
+      html += '  <div style="font-size:0.7rem;font-weight:700;color:var(--ce-text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Output Format</div>';
+      html += '  <pre style="font-size:0.78rem;color:var(--ce-text);white-space:pre-wrap;margin:0;opacity:0.85;">' + sanitize(problem.outputFormat) + '</pre>';
       html += '</div>';
     }
     html += '</div>';
@@ -335,7 +390,7 @@ function codingPgRenderEditor(problem) {
   if (problem.explanation) {
     html += '<div style="background:rgba(34,197,94,0.05);border:1px solid rgba(34,197,94,0.15);border-radius:10px;padding:10px 14px;margin-top:10px;font-size:0.8rem;">';
     html += '  <div style="color:#22c55e;font-weight:700;margin-bottom:4px;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.5px;">Explanation</div>';
-    html += '  <div style="color:rgba(255,255,255,0.8);">' + sanitize(problem.explanation) + '</div>';
+    html += '  <div style="color:var(--ce-text);opacity:0.85;">' + sanitize(problem.explanation) + '</div>';
     html += '</div>';
   }
 
@@ -343,7 +398,7 @@ function codingPgRenderEditor(problem) {
   if (problem.tags && problem.tags.length > 0) {
     html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;">';
     problem.tags.forEach(function(tag) {
-      html += '<span style="font-size:0.68rem;font-weight:600;background:rgba(255,255,255,0.06);color:#94a3b8;padding:3px 8px;border-radius:6px;border:1px solid rgba(255,255,255,0.08);">#' + sanitize(tag) + '</span>';
+      html += '<span style="font-size:0.68rem;font-weight:600;background:var(--ce-card-bg);color:var(--ce-text-muted);padding:3px 8px;border-radius:6px;border:1px solid var(--ce-card-border);">#' + sanitize(tag) + '</span>';
     });
     html += '</div>';
   }
@@ -353,10 +408,10 @@ function codingPgRenderEditor(problem) {
     html += '<div style="background:rgba(108,71,255,0.06);border:1px solid rgba(108,71,255,0.15);border-radius:10px;padding:12px 14px;margin-top:10px;font-size:0.8rem;">';
     if (problem.constraints) {
       html += '<div style="color:#a78bfa;font-weight:700;margin-bottom:6px;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.5px;">Constraints</div>';
-      html += '<div style="color:rgba(255,255,255,0.8);white-space:pre-wrap;margin-bottom:8px;">' + sanitize(problem.constraints) + '</div>';
+      html += '<div style="color:var(--ce-text);opacity:0.85;white-space:pre-wrap;margin-bottom:8px;">' + sanitize(problem.constraints) + '</div>';
     }
     if (problem.timeComplexity || problem.spaceComplexity) {
-      html += '<div style="display:flex;gap:16px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.04);">';
+      html += '<div style="display:flex;gap:16px;padding-top:6px;border-top:1px solid var(--ce-card-border);">';
       if (problem.timeComplexity) html += '<span style="color:#22c55e;font-size:0.72rem;font-weight:600;">⏱ Expected: ' + sanitize(problem.timeComplexity) + '</span>';
       if (problem.spaceComplexity) html += '<span style="color:#60a5fa;font-size:0.72rem;font-weight:600;">💾 Space: ' + sanitize(problem.spaceComplexity) + '</span>';
       html += '</div>';
@@ -367,7 +422,7 @@ function codingPgRenderEditor(problem) {
   html += '</div>'; // End left panel
 
   // ── Resize Handle (Description ↔ Editor) — vertical drag ──
-  html += '<div id="coding-pg-vresize" style="flex:none;width:5px;cursor:col-resize;background:rgba(255,255,255,0.04);border-left:1px solid rgba(255,255,255,0.08);border-right:1px solid rgba(255,255,255,0.08);" onmouseenter="this.style.background=\'rgba(108,71,255,0.5)\'" onmouseleave="this.style.background=\'rgba(255,255,255,0.04)\'" onmousedown="codingPgStartResize(event)"></div>';
+  html += '<div id="coding-pg-vresize" style="flex:none;width:5px;cursor:col-resize;background:var(--ce-resize-bg);border-left:1px solid var(--ce-toolbar-border);border-right:1px solid var(--ce-toolbar-border);" onmouseenter="this.style.background=\'rgba(108,71,255,0.5)\'" onmouseleave="this.style.background=\'var(--ce-resize-bg)\'" onmousedown="codingPgStartResize(event)"></div>';
 
   // ═══ RIGHT: Code Editor ═══
   html += '<div style="flex:1;min-width:0;width:0;display:flex;flex-direction:column;overflow:hidden;padding-left:4px;">';
@@ -375,8 +430,8 @@ function codingPgRenderEditor(problem) {
   // Toolbar with toggle button
   html += '<div class="coding-toolbar">';
   html += '  <div class="coding-toolbar-left">';
-  html += '    <button onclick="codingPgToggleLeftPanel()" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:5px 10px;color:#94a3b8;cursor:pointer;font-size:0.7rem;font-weight:600;margin-right:4px;display:flex;align-items:center;gap:4px;transition:all 0.15s;" onmouseover="this.style.background=\'rgba(108,71,255,0.15)\';this.style.color=\'#a78bfa\';this.style.borderColor=\'rgba(108,71,255,0.3)\'" onmouseout="this.style.background=\'rgba(255,255,255,0.05)\';this.style.color=\'#94a3b8\';this.style.borderColor=\'rgba(255,255,255,0.1)\'" title="Toggle Problem List (Ctrl+B)"><i class="fas fa-bars"></i> Problems</button>';
-  html += '    <button onclick="codingPgToggleDescPanel()" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:5px 10px;color:#94a3b8;cursor:pointer;font-size:0.7rem;font-weight:600;margin-right:8px;display:flex;align-items:center;gap:4px;transition:all 0.15s;" onmouseover="this.style.background=\'rgba(108,71,255,0.15)\';this.style.color=\'#a78bfa\';this.style.borderColor=\'rgba(108,71,255,0.3)\'" onmouseout="this.style.background=\'rgba(255,255,255,0.05)\';this.style.color=\'#94a3b8\';this.style.borderColor=\'rgba(255,255,255,0.1)\'" title="Toggle Description Panel"><i class="fas fa-file-alt"></i> Desc</button>';
+  html += '    <button class="coding-toolbar-btn coding-toolbar-btn--problems" onclick="codingPgToggleLeftPanel()" title="Toggle Problem List (Ctrl+B)"><i class="fas fa-bars"></i> Problems</button>';
+  html += '    <button class="coding-toolbar-btn coding-toolbar-btn--desc" onclick="codingPgToggleDescPanel()" title="Toggle Description Panel"><i class="fas fa-file-alt"></i> Desc</button>';
   html += '    <select id="coding-pg-lang" class="coding-lang-select" onchange="codingPgChangeLang()">';
   CODING_LANGUAGES.forEach(function(lang) {
     var sel = lang.id === defaultLang ? ' selected' : '';
@@ -385,16 +440,17 @@ function codingPgRenderEditor(problem) {
   html += '    </select>';
   html += '  </div>';
   html += '  <div class="coding-toolbar-right">';
-  html += '    <button onclick="codingPgFormatCode()" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:5px 10px;color:#94a3b8;cursor:pointer;font-size:0.7rem;font-weight:600;display:flex;align-items:center;gap:4px;transition:all 0.15s;" onmouseover="this.style.background=\'rgba(34,197,94,0.15)\';this.style.color=\'#22c55e\';this.style.borderColor=\'rgba(34,197,94,0.3)\'" onmouseout="this.style.background=\'rgba(255,255,255,0.05)\';this.style.color=\'#94a3b8\';this.style.borderColor=\'rgba(255,255,255,0.1)\'" title="Format Code (Ctrl+Shift+F)"><i class="fas fa-magic"></i> Format</button>';
+  html += '    <button class="coding-toolbar-btn coding-toolbar-btn--format" onclick="codingPgFormatCode()" title="Format Code (Ctrl+Shift+F)"><i class="fas fa-magic"></i> Format</button>';
   html += '    <div id="coding-pg-ai-dropdown-wrap" style="position:relative;display:inline-block;">';
-  html += '      <button id="coding-pg-ai-dropdown-btn" onclick="codingPgToggleAIDropdown()" style="background:rgba(108,71,255,0.15);border:1px solid rgba(108,71,255,0.3);border-radius:6px;padding:5px 10px;color:#a78bfa;cursor:pointer;font-size:0.7rem;font-weight:600;display:flex;align-items:center;gap:4px;transition:all 0.15s;" title="AI Assist (Hints, Algorithm, Solution)"><i class="fas fa-robot"></i> AI ▾</button>';
-  html += '      <div id="coding-pg-ai-dropdown-menu" style="display:none;position:absolute;top:100%;right:0;margin-top:4px;background:#1a1a2e;border:1px solid rgba(108,71,255,0.3);border-radius:10px;min-width:180px;z-index:999;box-shadow:0 8px 24px rgba(0,0,0,0.5);overflow:hidden;">';
-  html += '        <div onclick="codingPgAIHints()" style="padding:10px 14px;color:#e2e8f0;font-size:0.78rem;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:8px;transition:background 0.15s;" onmouseover="this.style.background=\'rgba(108,71,255,0.15)\'" onmouseout="this.style.background=\'transparent\'"><i class="fas fa-lightbulb" style="color:#fbbf24;"></i> Hints</div>';
-  html += '        <div onclick="codingPgAIAlgorithm()" style="padding:10px 14px;color:#e2e8f0;font-size:0.78rem;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:8px;transition:background 0.15s;border-top:1px solid rgba(255,255,255,0.06);" onmouseover="this.style.background=\'rgba(108,71,255,0.15)\'" onmouseout="this.style.background=\'transparent\'"><i class="fas fa-project-diagram" style="color:#60a5fa;"></i> Algorithm</div>';
-  html += '        <div onclick="codingPgAIOptimalSolution()" style="padding:10px 14px;color:#e2e8f0;font-size:0.78rem;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:8px;transition:background 0.15s;border-top:1px solid rgba(255,255,255,0.06);" onmouseover="this.style.background=\'rgba(108,71,255,0.15)\'" onmouseout="this.style.background=\'transparent\'"><i class="fas fa-code" style="color:#22c55e;"></i> Optimal Solution</div>';
+  html += '      <button id="coding-pg-ai-dropdown-btn" class="coding-toolbar-btn coding-toolbar-btn--ai" onclick="codingPgToggleAIDropdown()" title="AI Assist (Hints, Algorithm, Solution)"><i class="fas fa-robot"></i> AI ▾</button>';
+  html += '      <div id="coding-pg-ai-dropdown-menu" style="display:none;position:absolute;top:100%;right:0;margin-top:4px;background:var(--ce-dropdown-bg);border:1px solid rgba(108,71,255,0.3);border-radius:10px;min-width:180px;z-index:999;box-shadow:0 8px 24px rgba(0,0,0,0.5);overflow:hidden;">';
+  html += '        <div onclick="codingPgAIHints()" style="padding:10px 14px;color:var(--ce-text);font-size:0.78rem;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:8px;transition:background 0.15s;" onmouseover="this.style.background=\'rgba(108,71,255,0.15)\'" onmouseout="this.style.background=\'transparent\'"><i class="fas fa-lightbulb" style="color:#fbbf24;"></i> Hints</div>';
+  html += '        <div onclick="codingPgAIAlgorithm()" style="padding:10px 14px;color:var(--ce-text);font-size:0.78rem;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:8px;transition:background 0.15s;border-top:1px solid var(--ce-card-border);" onmouseover="this.style.background=\'rgba(108,71,255,0.15)\'" onmouseout="this.style.background=\'transparent\'"><i class="fas fa-project-diagram" style="color:#60a5fa;"></i> Algorithm</div>';
+  html += '        <div onclick="codingPgAIOptimalSolution()" style="padding:10px 14px;color:var(--ce-text);font-size:0.78rem;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:8px;transition:background 0.15s;border-top:1px solid var(--ce-card-border);" onmouseover="this.style.background=\'rgba(108,71,255,0.15)\'" onmouseout="this.style.background=\'transparent\'"><i class="fas fa-code" style="color:#22c55e;"></i> Optimal Solution</div>';
   html += '      </div>';
   html += '    </div>';
-  html += '    <button id="coding-pg-bottom-toggle-btn" onclick="codingPgToggleBottomPanel()" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:5px 10px;color:#94a3b8;cursor:pointer;font-size:0.7rem;font-weight:600;display:flex;align-items:center;gap:4px;transition:all 0.15s;" onmouseover="this.style.background=\'rgba(108,71,255,0.15)\';this.style.color=\'#a78bfa\';this.style.borderColor=\'rgba(108,71,255,0.3)\'" onmouseout="this.style.background=\'rgba(255,255,255,0.05)\';this.style.color=\'#94a3b8\';this.style.borderColor=\'rgba(255,255,255,0.1)\'" title="Toggle Bottom Panel"><i class="fas fa-chevron-down" id="coding-pg-toggle-icon"></i> <span id="coding-pg-toggle-text">Hide Panel</span></button>';
+  html += '    <button id="coding-pg-bottom-toggle-btn" class="coding-toolbar-btn coding-toolbar-btn--panel" onclick="codingPgToggleBottomPanel()" title="Toggle Bottom Panel"><i class="fas fa-chevron-down" id="coding-pg-toggle-icon"></i> <span id="coding-pg-toggle-text">Hide Panel</span></button>';
+  html += '    <button id="coding-pg-theme-btn" class="coding-toolbar-btn coding-toolbar-btn--mode" onclick="codingPgToggleTheme()" title="Toggle Dark/Light Mode"><i class="' + (document.documentElement.getAttribute('data-ce-theme') === 'light' ? 'fas fa-sun' : 'fas fa-moon') + '" id="coding-pg-theme-icon"></i> <span id="coding-pg-theme-label">' + (document.documentElement.getAttribute('data-ce-theme') === 'light' ? 'Light' : 'Dark') + '</span></button>';
   html += '    <button class="coding-btn coding-btn-run" id="coding-pg-run-btn" onclick="codingPgRun()"><i class="fas fa-play"></i> Run</button>';
   html += '    <button class="coding-btn coding-btn-submit" id="coding-pg-submit-btn" onclick="codingPgSubmit()"><i class="fas fa-paper-plane"></i> Submit</button>';
   html += '  </div>';
@@ -491,6 +547,30 @@ function codingPgInitMonaco(langId, starterCode) {
     container.innerHTML = '';
     if (_pgEditorInstance) { _pgEditorInstance.dispose(); _pgEditorInstance = null; }
 
+    // Define custom dark theme with pure black background (only once)
+    if (!window._ckMonacoThemesDefined) {
+      monaco.editor.defineTheme('ck-dark', {
+        base: 'vs-dark',
+        inherit: true,
+        rules: [],
+        colors: {
+          'editor.background': '#000000',
+          'editorGutter.background': '#000000',
+          'editorLineNumber.foreground': '#555555',
+          'editorLineNumber.activeForeground': '#888888',
+        }
+      });
+      monaco.editor.defineTheme('ck-light', {
+        base: 'vs',
+        inherit: true,
+        rules: [],
+        colors: {
+          'editor.background': '#ffffff',
+        }
+      });
+      window._ckMonacoThemesDefined = true;
+    }
+
     // Restore saved code or use starter
     var problemId = _pgActiveProblem ? _pgActiveProblem.id : '';
     var savedCode = pgRestoreCode(problemId, langId);
@@ -499,7 +579,7 @@ function codingPgInitMonaco(langId, starterCode) {
     _pgEditorInstance = monaco.editor.create(container, {
       value: initialCode,
       language: langObj.monacoId,
-      theme: 'vs-dark',
+      theme: document.documentElement.getAttribute('data-ce-theme') === 'light' ? 'ck-light' : 'ck-dark',
       fontSize: 14,
       fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
       minimap: { enabled: false },
@@ -525,17 +605,16 @@ function codingPgInitMonaco(langId, starterCode) {
       if (pid) pgSaveCode(pid, lid, _pgEditorInstance.getValue());
       // Real-time syntax error detection (debounced)
       codingPgScheduleCompileCheck();
-      // Reset cursor widget timer on typing (user is active)
-      _pgResetCursorWidgetTimer();
     });
 
-    // Register cursor position change listener for AI pop-up widget
+    // Register cursor position change listener
     _pgEditorInstance.onDidChangeCursorPosition(function(e) {
       var el = document.getElementById('coding-pg-cursor');
       if (el) el.textContent = 'Ln ' + e.position.lineNumber + ', Col ' + e.position.column;
-      // Reset cursor widget timer when cursor moves
-      _pgResetCursorWidgetTimer();
     });
+
+    // Register right-click context menu actions + Ctrl+I shortcut
+    _pgRegisterEditorActions(_pgEditorInstance);
 
     // Pre-load best solution for this problem (so AI features are instant)
     _pgPreloadBestSolution();
@@ -927,7 +1006,7 @@ function codingPgLoadHistory(problemId) {
   var submissions = _pgGetSubmissions(problemId);
 
   if (submissions.length === 0) {
-    container.innerHTML = '<span style="color:#94a3b8;font-size:0.78rem;font-style:italic;">No submissions yet.</span>';
+    container.innerHTML = '<span style="color:var(--ce-text-muted);font-size:0.78rem;font-style:italic;">No submissions yet.</span>';
     return;
   }
 
@@ -952,9 +1031,9 @@ function codingPgLoadHistory(problemId) {
     var timeAgo = codingTimeAgo(sub.createdAt);
     var langLabel = (sub.language || '?').toUpperCase();
 
-    html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px;margin-bottom:4px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.05);border-radius:8px;">';
+    html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px;margin-bottom:4px;background:var(--ce-card-bg);border:1px solid var(--ce-card-border);border-radius:8px;">';
     html += '  <span style="font-size:0.78rem;font-weight:700;color:' + statusColor + ';">' + statusIcon + ' ' + statusText + '</span>';
-    html += '  <span style="font-size:0.7rem;color:#94a3b8;display:flex;align-items:center;gap:8px;">';
+    html += '  <span style="font-size:0.7rem;color:var(--ce-text-muted);display:flex;align-items:center;gap:8px;">';
     html += '    <span style="background:rgba(108,71,255,0.1);color:#a78bfa;padding:1px 6px;border-radius:4px;font-weight:700;font-size:0.65rem;">' + langLabel + '</span>';
     if (sub.passedCount !== undefined) html += '<span>' + sub.passedCount + '/' + sub.totalCount + '</span>';
     html += '    <span>' + timeAgo + '</span>';
@@ -1204,7 +1283,7 @@ function codingPgRenderScore() {
 
   // Total Score Card
   html += '<div style="margin:8px 4px 12px;padding:16px;background:linear-gradient(135deg,rgba(108,71,255,0.12),rgba(236,72,153,0.08));border:1px solid rgba(108,71,255,0.2);border-radius:14px;text-align:center;">';
-  html += '  <div style="font-size:1.8rem;font-weight:800;color:#fff;">' + totalPoints + '</div>';
+  html += '  <div style="font-size:1.8rem;font-weight:800;color:var(--ce-text);">' + totalPoints + '</div>';
   html += '  <div style="font-size:0.72rem;color:#a78bfa;font-weight:600;margin-bottom:8px;">Total Points</div>';
   html += '  <div style="font-size:0.9rem;color:#fbbf24;font-weight:700;">🪙 ' + totalCoins + ' coins earned</div>';
   html += '</div>';
@@ -1234,8 +1313,8 @@ function codingPgRenderScore() {
   // Submission Heatmap
   var year = new Date().getFullYear();
   var totalSubs = Object.values(calendar).reduce(function(s, v) { return s + v; }, 0);
-  html += '<div style="margin:0 4px 12px;padding:12px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:12px;">';
-  html += '  <div style="font-size:0.78rem;font-weight:700;color:#fff;margin-bottom:10px;">' + totalSubs + ' Submissions in ' + year + '</div>';
+  html += '<div style="margin:0 4px 12px;padding:12px;background:var(--ce-card-bg);border:1px solid var(--ce-card-border);border-radius:12px;">';
+  html += '  <div style="font-size:0.78rem;font-weight:700;color:var(--ce-text);margin-bottom:10px;">' + totalSubs + ' Submissions in ' + year + '</div>';
   html += '  <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;">';
   // Last 49 days heatmap (7 weeks)
   for (var d = 48; d >= 0; d--) {
@@ -1250,22 +1329,22 @@ function codingPgRenderScore() {
 
   // Solved Problems List with Leaderboard button
   if (solved.length === 0) {
-    html += '<div style="text-align:center;padding:30px;color:#94a3b8;"><div style="font-size:1.5rem;margin-bottom:8px;">📊</div><div style="font-size:0.82rem;">No problems solved yet.<br>Start solving to earn points!</div></div>';
+    html += '<div style="text-align:center;padding:30px;color:var(--ce-text-muted);"><div style="font-size:1.5rem;margin-bottom:8px;">📊</div><div style="font-size:0.82rem;">No problems solved yet.<br>Start solving to earn points!</div></div>';
   } else {
-    html += '<div style="font-size:0.75rem;font-weight:700;color:var(--muted);padding:4px 8px;margin-bottom:6px;">Solved Problems (' + solved.length + ')</div>';
+    html += '<div style="font-size:0.75rem;font-weight:700;color:var(--ce-text-muted);padding:4px 8px;margin-bottom:6px;">Solved Problems (' + solved.length + ')</div>';
     // Sort by most recent first
     var sortedSolved = solved.slice().sort(function(a, b) { return new Date(b.solvedAt).getTime() - new Date(a.solvedAt).getTime(); });
     sortedSolved.forEach(function(s) {
       var diffColors = { easy: '#22c55e', medium: '#f59e0b', hard: '#ef4444' };
       var dc = diffColors[s.difficulty] || '#f59e0b';
       var dateStr = new Date(s.solvedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
-      html += '<div style="padding:10px 12px;margin:0 4px 6px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:10px;">';
+      html += '<div style="padding:10px 12px;margin:0 4px 6px;background:var(--ce-card-bg);border:1px solid var(--ce-card-border);border-radius:10px;">';
       html += '  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">';
-      html += '    <span style="font-size:0.8rem;font-weight:700;color:#fff;">✅ ' + sanitize(s.title) + '</span>';
+      html += '    <span style="font-size:0.8rem;font-weight:700;color:var(--ce-text);">✅ ' + sanitize(s.title) + '</span>';
       html += '    <span style="font-size:0.65rem;font-weight:700;padding:2px 6px;border-radius:8px;background:' + dc + '20;color:' + dc + ';border:1px solid ' + dc + '40;">' + s.difficulty.toUpperCase() + '</span>';
       html += '  </div>';
       html += '  <div style="display:flex;align-items:center;justify-content:space-between;">';
-      html += '    <div style="display:flex;align-items:center;gap:10px;font-size:0.7rem;color:#94a3b8;">';
+      html += '    <div style="display:flex;align-items:center;gap:10px;font-size:0.7rem;color:var(--ce-text-muted);">';
       html += '      <span style="color:#a78bfa;font-weight:600;">+' + s.points + 'pts</span>';
       html += '      <span style="color:#fbbf24;font-weight:600;">+' + s.coins + '🪙</span>';
       html += '      <span>' + (s.language || '').toUpperCase() + '</span>';
@@ -2038,107 +2117,125 @@ function _pgHideAIPanel() {
 }
 
 // ═══════════════════════════════════════════════════════
-// CURSOR AI POP-UP WIDGET (shows after 2 sec pause)
-// Uses Monaco ContentWidget API
+// RIGHT-CLICK CONTEXT MENU + CTRL+I (Monaco Editor Actions)
+// Registered once per editor instance — zero API, uses pre-loaded solution
 // ═══════════════════════════════════════════════════════
 
 /**
- * Reset the cursor widget timer (called on typing/cursor move)
- * After 2 seconds of inactivity, shows the AI pop-up at cursor position
- * Respects minimized state — if user minimized, re-shows in minimized form
+ * Register Monaco editor actions for right-click context menu and Ctrl+I.
+ * Context menu group: "CodingKida AI" with 3 sub-items.
+ * Ctrl+I: opens a quick-pick popup with the same 3 options.
  */
-function _pgResetCursorWidgetTimer() {
-  // Hide existing widget on any activity
-  _pgHideCursorWidget();
-  clearTimeout(_pgCursorWidgetTimer);
-  _pgCursorWidgetTimer = setTimeout(function() {
-    _pgShowCursorWidget();
-  }, 2000);
+function _pgRegisterEditorActions(editor) {
+  if (!editor || !window.monaco) return;
+
+  // Right-click context menu actions (grouped under "CodingKida AI")
+  editor.addAction({
+    id: 'ck-ai-next-step',
+    label: '💡 Next Step',
+    contextMenuGroupId: '9_codingkida',
+    contextMenuOrder: 1,
+    run: function() { codingPgNextStep(); }
+  });
+
+  editor.addAction({
+    id: 'ck-ai-analyze',
+    label: '🔍 Analyze Code',
+    contextMenuGroupId: '9_codingkida',
+    contextMenuOrder: 2,
+    run: function() { codingPgAnalyzeMistake(); }
+  });
+
+  editor.addAction({
+    id: 'ck-ai-solution',
+    label: '</> Show Solution',
+    contextMenuGroupId: '9_codingkida',
+    contextMenuOrder: 3,
+    run: function() { codingPgAIOptimalSolution(); }
+  });
+
+  // Ctrl+I keybinding — show a floating 3-option popup at cursor
+  editor.addAction({
+    id: 'ck-ai-popup',
+    label: 'CodingKida AI Assist',
+    keybindings: [window.monaco.KeyMod.CtrlCmd | window.monaco.KeyCode.KeyI],
+    run: function() { _pgShowCtrlIPopup(); }
+  });
 }
 
 /**
- * Show cursor AI pop-up widget at current cursor position
- * Uses Monaco ContentWidget for proper editor integration
- * Features: equal-sized buttons + minimize/maximize controls
+ * Show Ctrl+I popup: a small floating panel near the cursor with 3 options.
+ * Uses Monaco's ContentWidget for proper positioning.
  */
-function _pgShowCursorWidget() {
+var _pgCtrlIWidget = null;
+var _pgCtrlIWidgetVisible = false;
+
+function _pgShowCtrlIPopup() {
   if (!_pgEditorInstance || !window.monaco) return;
-  if (!_pgPreloadedSolution) return; // No solution loaded, don't show
-  if (_pgCursorWidgetVisible) return; // Already showing
+
+  // If already visible, hide it (toggle behavior)
+  if (_pgCtrlIWidgetVisible) {
+    _pgHideCtrlIPopup();
+    return;
+  }
+
+  if (!_pgPreloadedSolution) {
+    _pgShowAIPanel('🤖 AI Assist', '<div style="color:#f59e0b;">Best solution not loaded yet. Please wait a moment.</div>');
+    return;
+  }
 
   var position = _pgEditorInstance.getPosition();
   if (!position) return;
 
-  // Don't show if editor is empty or has very little code
-  var code = _pgEditorInstance.getValue();
-  if (!code || code.trim().length < 3) return;
+  _pgCtrlIWidgetVisible = true;
 
-  _pgCursorWidgetVisible = true;
-
-  // Create ContentWidget
-  _pgCursorWidget = {
-    getId: function() { return 'pg-ai-cursor-widget'; },
+  _pgCtrlIWidget = {
+    getId: function() { return 'pg-ai-ctrlI-widget'; },
     getDomNode: function() {
       if (!this._domNode) {
         this._domNode = document.createElement('div');
-        this._domNode.id = 'pg-ai-cursor-widget-dom';
-        this._domNode.style.cssText = 'background:#1a1a2e;border:1px solid rgba(108,71,255,0.4);border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,0.5);z-index:999;cursor:default;white-space:nowrap;overflow:hidden;';
+        this._domNode.id = 'pg-ai-ctrlI-dom';
+        this._domNode.style.cssText = 'background:#1a1a2e;border:1px solid rgba(108,71,255,0.4);border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,0.5);z-index:999;cursor:default;white-space:nowrap;overflow:hidden;padding:4px;';
 
-        // Control bar (minimize/maximize)
-        var controlBar = document.createElement('div');
-        controlBar.style.cssText = 'display:flex;align-items:center;justify-content:flex-end;padding:3px 6px 0;gap:4px;';
-
-        var minBtn = document.createElement('button');
-        minBtn.innerHTML = '−';
-        minBtn.title = 'Minimize';
-        minBtn.style.cssText = 'background:rgba(255,255,255,0.08);border:none;border-radius:3px;width:16px;height:16px;color:#94a3b8;font-size:0.7rem;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;transition:background 0.15s;';
-        minBtn.onmouseover = function() { minBtn.style.background = 'rgba(239,68,68,0.3)'; minBtn.style.color = '#fca5a5'; };
-        minBtn.onmouseout = function() { minBtn.style.background = 'rgba(255,255,255,0.08)'; minBtn.style.color = '#94a3b8'; };
-        minBtn.onclick = function(e) { e.stopPropagation(); _pgMinimizeCursorWidget(); };
-
-        controlBar.appendChild(minBtn);
-
-        // Buttons container
         var btnContainer = document.createElement('div');
-        btnContainer.id = 'pg-ai-cursor-btns';
-        btnContainer.style.cssText = 'display:flex;gap:4px;align-items:center;padding:4px 6px 6px;';
+        btnContainer.style.cssText = 'display:flex;gap:4px;align-items:center;padding:4px 4px;';
 
-        var btnStyle = 'width:72px;height:26px;border-radius:6px;font-size:0.63rem;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:3px;transition:background 0.15s;';
+        var btnStyle = 'height:28px;padding:0 12px;border-radius:6px;font-size:0.68rem;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:4px;transition:background 0.15s;white-space:nowrap;';
 
         var btn1 = document.createElement('button');
-        btn1.innerHTML = '<i class="fas fa-step-forward"></i> Next';
+        btn1.innerHTML = '<i class="fas fa-step-forward"></i> Next Step';
         btn1.style.cssText = btnStyle + 'background:rgba(34,197,94,0.12);border:1px solid rgba(34,197,94,0.3);color:#22c55e;';
         btn1.onmouseover = function() { btn1.style.background = 'rgba(34,197,94,0.25)'; };
         btn1.onmouseout = function() { btn1.style.background = 'rgba(34,197,94,0.12)'; };
-        btn1.onclick = function(e) { e.stopPropagation(); codingPgNextStep(); };
+        btn1.onclick = function(e) { e.stopPropagation(); _pgHideCtrlIPopup(); codingPgNextStep(); };
 
         var btn2 = document.createElement('button');
         btn2.innerHTML = '<i class="fas fa-search"></i> Analyze';
         btn2.style.cssText = btnStyle + 'background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.3);color:#fbbf24;';
         btn2.onmouseover = function() { btn2.style.background = 'rgba(245,158,11,0.25)'; };
         btn2.onmouseout = function() { btn2.style.background = 'rgba(245,158,11,0.12)'; };
-        btn2.onclick = function(e) { e.stopPropagation(); codingPgAnalyzeMistake(); };
+        btn2.onclick = function(e) { e.stopPropagation(); _pgHideCtrlIPopup(); codingPgAnalyzeMistake(); };
 
         var btn3 = document.createElement('button');
         btn3.innerHTML = '<i class="fas fa-code"></i> Solution';
         btn3.style.cssText = btnStyle + 'background:rgba(108,71,255,0.12);border:1px solid rgba(108,71,255,0.3);color:#a78bfa;';
         btn3.onmouseover = function() { btn3.style.background = 'rgba(108,71,255,0.25)'; };
         btn3.onmouseout = function() { btn3.style.background = 'rgba(108,71,255,0.12)'; };
-        btn3.onclick = function(e) { e.stopPropagation(); codingPgAIOptimalSolution(); };
+        btn3.onclick = function(e) { e.stopPropagation(); _pgHideCtrlIPopup(); codingPgAIOptimalSolution(); };
+
+        // Close button
+        var closeBtn = document.createElement('button');
+        closeBtn.innerHTML = '✕';
+        closeBtn.style.cssText = 'background:rgba(255,255,255,0.08);border:none;border-radius:4px;width:22px;height:22px;color:#94a3b8;font-size:0.7rem;cursor:pointer;display:flex;align-items:center;justify-content:center;margin-left:2px;transition:background 0.15s;';
+        closeBtn.onmouseover = function() { closeBtn.style.background = 'rgba(239,68,68,0.3)'; closeBtn.style.color = '#fca5a5'; };
+        closeBtn.onmouseout = function() { closeBtn.style.background = 'rgba(255,255,255,0.08)'; closeBtn.style.color = '#94a3b8'; };
+        closeBtn.onclick = function(e) { e.stopPropagation(); _pgHideCtrlIPopup(); };
 
         btnContainer.appendChild(btn1);
         btnContainer.appendChild(btn2);
         btnContainer.appendChild(btn3);
-
-        this._domNode.appendChild(controlBar);
+        btnContainer.appendChild(closeBtn);
         this._domNode.appendChild(btnContainer);
-
-        // If user previously minimized, show in minimized state
-        if (_pgCursorWidgetMinimized) {
-          btnContainer.style.display = 'none';
-          controlBar.style.padding = '4px 6px';
-          _pgAddMaximizeBtn(controlBar, btnContainer);
-        }
       }
       return this._domNode;
     },
@@ -2150,69 +2247,29 @@ function _pgShowCursorWidget() {
     }
   };
 
-  _pgEditorInstance.addContentWidget(_pgCursorWidget);
+  _pgEditorInstance.addContentWidget(_pgCtrlIWidget);
+
+  // Auto-hide when user starts typing
+  var disposable = _pgEditorInstance.onDidChangeModelContent(function() {
+    _pgHideCtrlIPopup();
+    disposable.dispose();
+  });
 }
 
 /**
- * Minimize the cursor widget — hides buttons, shows only a small restore icon
+ * Hide Ctrl+I popup widget
  */
-function _pgMinimizeCursorWidget() {
-  _pgCursorWidgetMinimized = true;
-  var dom = document.getElementById('pg-ai-cursor-widget-dom');
-  if (!dom) return;
-  var btnContainer = document.getElementById('pg-ai-cursor-btns');
-  var controlBar = dom.firstChild;
-  if (btnContainer) btnContainer.style.display = 'none';
-  if (controlBar) {
-    controlBar.style.padding = '4px 6px';
-    // Replace minimize btn with maximize btn
-    controlBar.innerHTML = '';
-    _pgAddMaximizeBtn(controlBar, btnContainer);
-  }
-}
-
-/**
- * Add maximize (restore) button to control bar
- */
-function _pgAddMaximizeBtn(controlBar, btnContainer) {
-  var maxBtn = document.createElement('button');
-  maxBtn.innerHTML = '<i class="fas fa-robot" style="font-size:0.6rem;margin-right:3px;"></i>□';
-  maxBtn.title = 'Restore AI Assist';
-  maxBtn.style.cssText = 'background:rgba(108,71,255,0.15);border:1px solid rgba(108,71,255,0.3);border-radius:4px;padding:3px 8px;color:#a78bfa;font-size:0.63rem;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background 0.15s;';
-  maxBtn.onmouseover = function() { maxBtn.style.background = 'rgba(108,71,255,0.3)'; };
-  maxBtn.onmouseout = function() { maxBtn.style.background = 'rgba(108,71,255,0.15)'; };
-  maxBtn.onclick = function(e) { e.stopPropagation(); _pgMaximizeCursorWidget(); };
-  controlBar.appendChild(maxBtn);
-}
-
-/**
- * Maximize (restore) the cursor widget — shows all buttons again
- */
-function _pgMaximizeCursorWidget() {
-  _pgCursorWidgetMinimized = false;
-  // Remove and re-add widget to rebuild DOM cleanly
-  _pgHideCursorWidget();
-  // Show immediately (don't wait 2 sec)
-  setTimeout(function() { _pgShowCursorWidget(); }, 10);
-}
-
-/**
- * Hide cursor AI pop-up widget
- */
-function _pgHideCursorWidget() {
-  if (!_pgCursorWidgetVisible || !_pgCursorWidget || !_pgEditorInstance) return;
+function _pgHideCtrlIPopup() {
+  if (!_pgCtrlIWidgetVisible || !_pgCtrlIWidget || !_pgEditorInstance) return;
   try {
-    _pgEditorInstance.removeContentWidget(_pgCursorWidget);
+    _pgEditorInstance.removeContentWidget(_pgCtrlIWidget);
   } catch(e) {}
-  _pgCursorWidget = null;
-  _pgCursorWidgetVisible = false;
+  _pgCtrlIWidget = null;
+  _pgCtrlIWidgetVisible = false;
 }
 
 /**
- * Cursor Pop-up → Next Step
- * Inserts the next solution line AFTER cursor position.
-/**
- * Cursor Pop-up → Next Step  (Industry-level, all user scenarios handled)
+ * Next Step — inserts the next unwritten solution line (Industry-level)
  *
  * DESIGN:
  * - Normalize all code lines for comparison (removes spacing/brace-style differences)
@@ -2229,7 +2286,7 @@ function _pgHideCursorWidget() {
  *   Tabs vs spaces, trailing whitespace, double spaces
  */
 function codingPgNextStep() {
-  _pgHideCursorWidget();
+  _pgHideCtrlIPopup();
 
   var solutionCode = _pgGetCurrentLangSolution();
   if (!solutionCode) {
@@ -2343,7 +2400,7 @@ function codingPgNextStep() {
  * Compares user code with best solution and highlights differences
  */
 function codingPgAnalyzeMistake() {
-  _pgHideCursorWidget();
+  _pgHideCtrlIPopup();
 
   var solutionCode = _pgGetCurrentLangSolution();
   if (!solutionCode) {
