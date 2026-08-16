@@ -42,34 +42,53 @@ function switchVpTab(el, panelId) {
 
 async function _lazyLoadQuiz(lessonId, token) {
   const el = document.getElementById('vp-quiz');
-  if (el) el.innerHTML = '<div class="tab-card" style="text-align:center;padding:30px;"><div class="skeleton-shimmer" style="width:60%;height:16px;margin:0 auto 12px;"></div><div class="skeleton-shimmer" style="width:80%;height:12px;margin:0 auto 8px;"></div><div class="skeleton-shimmer" style="width:40%;height:12px;margin:0 auto;"></div></div>';
+  // Cache-first: show cached quiz data instantly
+  var cacheKey = '/api/quiz?lessonId=' + lessonId;
+  var cached = ckCacheGet(cacheKey);
+  if (cached && cached.success && cached.quizzes && cached.quizzes.length > 0) {
+    renderQuizTab(cached.quizzes);
+    // If cache is fresh, skip API call
+    if (ckCacheIsFresh(cacheKey)) return;
+  } else {
+    if (el) el.innerHTML = '<div class="tab-card" style="text-align:center;padding:30px;"><div class="skeleton-shimmer" style="width:60%;height:16px;margin:0 auto 12px;"></div><div class="skeleton-shimmer" style="width:80%;height:12px;margin:0 auto 8px;"></div><div class="skeleton-shimmer" style="width:40%;height:12px;margin:0 auto;"></div></div>';
+  }
   try {
     const quizRes = await fetch(BASE_URL + '/api/quiz?lessonId=' + lessonId, {
       headers: token ? { Authorization: 'Bearer ' + token } : {},
     });
     const quizData = await quizRes.json();
     if (quizData.success && quizData.quizzes && quizData.quizzes.length > 0) {
+      ckCacheSet(cacheKey, quizData);
       renderQuizTab(quizData.quizzes);
     } else {
       renderQuizTab(null);
     }
-  } catch { renderQuizTab(null); }
+  } catch { if (!cached) renderQuizTab(null); }
 }
 
 async function _lazyLoadExercise(lessonId, token) {
   const el = document.getElementById('vp-exercise');
-  if (el) el.innerHTML = '<div class="tab-card" style="text-align:center;padding:30px;"><div class="skeleton-shimmer" style="width:60%;height:16px;margin:0 auto 12px;"></div><div class="skeleton-shimmer" style="width:80%;height:12px;margin:0 auto 8px;"></div><div class="skeleton-shimmer" style="width:40%;height:12px;margin:0 auto;"></div></div>';
+  // Cache-first: show cached exercise data instantly
+  var cacheKey = '/api/exercise?lessonId=' + lessonId;
+  var cached = ckCacheGet(cacheKey);
+  if (cached && cached.success && cached.exercises && cached.exercises.length > 0) {
+    renderExerciseTab(cached.exercises);
+    if (ckCacheIsFresh(cacheKey)) return;
+  } else {
+    if (el) el.innerHTML = '<div class="tab-card" style="text-align:center;padding:30px;"><div class="skeleton-shimmer" style="width:60%;height:16px;margin:0 auto 12px;"></div><div class="skeleton-shimmer" style="width:80%;height:12px;margin:0 auto 8px;"></div><div class="skeleton-shimmer" style="width:40%;height:12px;margin:0 auto;"></div></div>';
+  }
   try {
     const exRes = await fetch(BASE_URL + '/api/exercise?lessonId=' + lessonId, {
       headers: token ? { Authorization: 'Bearer ' + token } : {},
     });
     const exData = await exRes.json();
     if (exData.success && exData.exercises && exData.exercises.length > 0) {
+      ckCacheSet(cacheKey, exData);
       renderExerciseTab(exData.exercises);
     } else {
       renderExerciseTab(null);
     }
-  } catch { renderExerciseTab(null); }
+  } catch { if (!cached) renderExerciseTab(null); }
 }
 
 function _destroyHls() {
@@ -328,7 +347,20 @@ async function _vpRecordView(lessonId) {
 
 async function openVideoFromBackend(courseId, moduleId, lessonId) {
   try {
-    const data = await CoursesAPI.getByIdSigned(courseId);
+    // Cache signed course data for 45 minutes (signed URLs valid for 1 hour)
+    var signedCacheKey = '/api/courses/' + courseId + '_signed';
+    var cachedSigned = ckCacheGet(signedCacheKey);
+    var data;
+    // Use cached if less than 45 min old (signed URLs valid for 60 min)
+    if (cachedSigned && cachedSigned.success && cachedSigned._cachedAt && (Date.now() - cachedSigned._cachedAt < 45 * 60 * 1000)) {
+      data = cachedSigned;
+    } else {
+      data = await CoursesAPI.getByIdSigned(courseId);
+      if (data && data.success) {
+        data._cachedAt = Date.now();
+        ckCacheSet(signedCacheKey, data);
+      }
+    }
     if (!data.success) return;
     const course = data.course;
     const mod = (course.modules || []).find(m => m.id === moduleId);

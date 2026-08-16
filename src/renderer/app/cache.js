@@ -10,6 +10,40 @@
 
 var _CK_CACHE_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
+// TTL presets (in ms) for different data types
+var _CK_CACHE_TTL = {
+  'default': 7 * 24 * 60 * 60 * 1000,  // 7 days
+  'dashboard': 5 * 60 * 1000,           // 5 minutes
+  'courses_list': 30 * 60 * 1000,       // 30 minutes
+  'course_detail': 30 * 60 * 1000,      // 30 minutes
+  'quiz': 24 * 60 * 60 * 1000,          // 24 hours
+  'exercise': 24 * 60 * 60 * 1000,      // 24 hours
+  'homework': 24 * 60 * 60 * 1000,      // 24 hours
+  'streak': 60 * 60 * 1000,             // 1 hour
+  'leaderboard': 5 * 60 * 1000,         // 5 minutes
+  'feedback': 10 * 60 * 1000,           // 10 minutes
+  'profile': 10 * 60 * 1000,            // 10 minutes
+  'coins': 5 * 60 * 1000,               // 5 minutes
+};
+
+/**
+ * Get TTL for an endpoint based on its type
+ */
+function _ckCacheGetTTL(endpoint) {
+  if (endpoint.includes('/api/quiz')) return _CK_CACHE_TTL.quiz;
+  if (endpoint.includes('/api/exercise')) return _CK_CACHE_TTL.exercise;
+  if (endpoint.includes('/api/homework')) return _CK_CACHE_TTL.homework;
+  if (endpoint.includes('/api/weekly-streak')) return _CK_CACHE_TTL.streak;
+  if (endpoint.includes('/api/leaderboard')) return _CK_CACHE_TTL.leaderboard;
+  if (endpoint.includes('/api/feedback')) return _CK_CACHE_TTL.feedback;
+  if (endpoint.includes('/api/courses/') && !endpoint.includes('?')) return _CK_CACHE_TTL.course_detail;
+  if (endpoint === '/api/courses') return _CK_CACHE_TTL.courses_list;
+  if (endpoint.includes('/api/student/dashboard')) return _CK_CACHE_TTL.dashboard;
+  if (endpoint.includes('/api/coins')) return _CK_CACHE_TTL.coins;
+  if (endpoint === '/api/student') return _CK_CACHE_TTL.profile;
+  return _CK_CACHE_TTL.default;
+}
+
 /**
  * Get cached data for an endpoint (userId-specific)
  * Returns parsed data or null if expired/missing
@@ -22,13 +56,32 @@ function ckCacheGet(endpoint) {
     var raw = localStorage.getItem(key);
     if (!raw) return null;
     var entry = JSON.parse(raw);
-    // Check expiry
-    if (Date.now() - entry.ts > _CK_CACHE_EXPIRY_MS) {
-      localStorage.removeItem(key);
-      return null;
+    // Check TTL per endpoint type
+    var ttl = _ckCacheGetTTL(endpoint);
+    if (Date.now() - entry.ts > ttl) {
+      // Expired — but still return stale data (caller can decide to use it)
+      // Mark as stale so caller knows to refresh
+      entry.data._stale = true;
+      return entry.data;
     }
     return entry.data;
   } catch(e) { return null; }
+}
+
+/**
+ * Check if cache is fresh (within TTL) — used to decide if API call needed
+ */
+function ckCacheIsFresh(endpoint) {
+  var userId = getCurrentUserId();
+  if (!userId) return false;
+  var key = 'ck_pcache_' + userId + '_' + endpoint.replace(/[^a-zA-Z0-9]/g, '_');
+  try {
+    var raw = localStorage.getItem(key);
+    if (!raw) return false;
+    var entry = JSON.parse(raw);
+    var ttl = _ckCacheGetTTL(endpoint);
+    return (Date.now() - entry.ts) < ttl;
+  } catch(e) { return false; }
 }
 
 /**

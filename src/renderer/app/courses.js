@@ -103,17 +103,29 @@ function renderCourseGrid(courses) {
 async function openCourseDetail(courseId) {
   currentCourseId = courseId;
 
-  // Try backend first, fallback to mockData
+  // Cache-first: show cached course detail instantly
+  var cacheKey = '/api/courses/' + courseId;
+  var cached = ckCacheGet(cacheKey);
+
+  if (cached && cached.success && cached.course) {
+    renderCourseDetailFromBackend(cached.course);
+    // If fresh, skip API call
+    if (ckCacheIsFresh(cacheKey)) return;
+  }
+
+  // Try backend (always if stale or no cache)
   let course = null;
   try {
     const data = await CoursesAPI.getById(courseId);
     if (data.success && data.course) {
+      ckCacheSet(cacheKey, data);
       course = data.course;
       renderCourseDetailFromBackend(course);
       return;
     }
   } catch (err) {
-    // fallback to mockData
+    // If we showed cached data, that's fine — don't fallback to mock
+    if (cached && cached.success) return;
   }
 
   // mockData fallback (id is number in mockData)
