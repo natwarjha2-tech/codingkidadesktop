@@ -200,7 +200,8 @@ body {
 .user-role { font-size: 0.72rem; color: var(--muted); }
 
 /* ===== MAIN CONTENT ===== */
-.main-content { flex: 1; overflow-y: auto; background: var(--dark); height: 100vh; }
+.main-content { flex: 1; overflow-y: auto; background: var(--dark); height: 100vh; position: relative; }
+.main-content::before { content:''; position:fixed; top:0; left:var(--sidebar-width); right:0; bottom:0; background: radial-gradient(ellipse at 20% 0%, rgba(124,58,237,0.08) 0%, transparent 50%), radial-gradient(ellipse at 80% 20%, rgba(236,72,153,0.05) 0%, transparent 40%), radial-gradient(ellipse at 50% 80%, rgba(59,130,246,0.04) 0%, transparent 50%); pointer-events:none; z-index:0; }
 .page { display: none; padding: 32px; }
 .page.active { display: block; }
 
@@ -280,29 +281,33 @@ body {
 /* ===== DASHBOARD ===== */
 .welcome-banner {
   position: relative;
-  background: radial-gradient(circle at 18% 30%, rgba(96, 59, 255, 0.28), transparent 28%),
-              radial-gradient(circle at 78% 40%, rgba(251, 146, 60, 0.18), transparent 22%),
-              linear-gradient(135deg, #110b36 0%, #4527d9 32%, #c8289d 57%, #fb7f64 100%);
-  border-radius: 28px; padding: 24px 28px; margin-bottom: 28px;
+  background: radial-gradient(circle at 65% 50%, rgba(124,47,255,0.25) 0%, rgba(91,32,180,0.12) 25%, transparent 50%),
+              radial-gradient(circle at 75% 35%, rgba(220,40,255,0.08) 0%, transparent 30%),
+              linear-gradient(90deg, #03011B 0%, #080620 30%, #0F082B 55%, #080620 75%, #03011B 100%);
+
+              border-radius: 20px; padding: 32px 36px; margin-bottom: 20px; min-height: 295px;
   display: flex; align-items: center; justify-content: space-between;
   overflow: hidden;
-  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.28);
+  box-shadow: 0 16px 32px -8px rgba(0,0,0,0.4), 0 0 30px rgba(124,58,237,0.06);
 }
 .welcome-banner::before {
   content: '';
   position: absolute;
   inset: 0;
-  background: radial-gradient(circle at 50% 10%, rgba(255, 255, 255, 0.08), transparent 28%),
-              radial-gradient(circle at 80% 45%, rgba(251, 146, 60, 0.14), transparent 24%);
+  background: radial-gradient(1px 1px at 20% 15%, rgba(255,255,255,0.4), transparent),
+              radial-gradient(1px 1px at 60% 10%, rgba(255,255,255,0.3), transparent),
+              radial-gradient(1px 1px at 80% 70%, rgba(255,255,255,0.25), transparent),
+              radial-gradient(1px 1px at 35% 80%, rgba(255,255,255,0.2), transparent),
+              radial-gradient(1px 1px at 90% 45%, rgba(255,255,255,0.2), transparent);
   pointer-events: none;
 }
 .welcome-banner::after {
   content: '';
   position: absolute;
-  width: 280px; height: 280px;
-  right: -80px; bottom: -80px;
-  background: radial-gradient(circle, rgba(236, 72, 153, 0.18), transparent 55%);
-  filter: blur(10px);
+  width: 250px; height: 250px;
+  right: -40px; bottom: -40px;
+  background: radial-gradient(circle, rgba(124,47,255,0.1), transparent 55%);
+  filter: blur(15px);
   pointer-events: none;
 }
 .hero-copy {

@@ -1,5 +1,15 @@
 /** CodingKida Desktop — Coins & Leaderboard System */
 
+// ─── Level Badge ─────────────────────────────────────────────────────────────
+
+function updateLevelBadge(totalCoins) {
+  var level = Math.floor(totalCoins / 50) + 1;
+  var titles = ['Beginner', 'Starter', 'Junior Coder', 'Coder', 'Pro Coder', 'Expert', 'Master', 'Legend'];
+  var title = titles[Math.min(level - 1, titles.length - 1)];
+  var badge = document.getElementById('user-level-badge');
+  if (badge) badge.textContent = 'Level ' + level + ' \u00b7 ' + title;
+}
+
 // ─── Coins & Leaderboard System ──────────────────────────────────────────────
 
 var _quizStartTime = null;
@@ -15,8 +25,9 @@ async function loadUserCoins() {
     _userCoinsCache = cached.totalCoins || 0;
     var el = document.getElementById('coins-count');
     if (el) el.textContent = String(_userCoinsCache);
-    var welcomeEl = document.getElementById('welcome-coins-count');
+    var welcomeEl = document.getElementById('topbar-coins-count');
     if (welcomeEl) welcomeEl.textContent = String(_userCoinsCache);
+    updateLevelBadge(_userCoinsCache);
   }
   // Background refresh
   try {
@@ -29,8 +40,9 @@ async function loadUserCoins() {
       _userCoinsCache = data.totalCoins || 0;
       const el = document.getElementById('coins-count');
       if (el) el.textContent = String(_userCoinsCache);
-      const welcomeEl = document.getElementById('welcome-coins-count');
+      const welcomeEl = document.getElementById('topbar-coins-count');
       if (welcomeEl) welcomeEl.textContent = String(_userCoinsCache);
+      updateLevelBadge(_userCoinsCache);
     }
   } catch {}
 }
@@ -55,24 +67,10 @@ function openCoinsPopup() {
   const popup = document.getElementById('coins-popup');
   if (!popup) return;
   
-  // Check if we're opening from welcome card badge on dashboard
-  const dashboardPage = document.getElementById('page-dashboard');
-  const isDashboardActive = dashboardPage && dashboardPage.classList.contains('active');
-  const welcomeBadge = document.getElementById('welcome-coins-count');
-  
-  if (isDashboardActive && welcomeBadge && welcomeBadge.offsetParent !== null) {
-    // Welcome badge is visible on dashboard - position popup below it
-    const rect = welcomeBadge.getBoundingClientRect();
-    popup.style.top = (rect.bottom + 8) + 'px';
-    popup.style.right = (window.innerWidth - rect.right) + 'px';
-    popup.style.left = 'auto';
-  } else {
-    // Default position (topbar coins widget or other)
-    popup.style.top = '60px';
-    popup.style.right = '80px';
-    popup.style.left = 'auto';
-  }
-  
+  // Position below topbar, right-aligned with content area
+  popup.style.top = '45px';
+  popup.style.right = '24px';
+  popup.style.left = 'auto';
   popup.style.display = 'block';
   _loadCoinsPopupData();
 }
@@ -82,18 +80,9 @@ function hideCoinsPopup() {
   if (popup) popup.style.display = 'none';
 }
 
-// Initialize welcome coins badge click handler (backup to inline onclick)
+// Initialize coins badge click handler — now handled by topbar inline onclick
 function _initWelcomeCoinsBadge() {
-  const badge = document.getElementById('welcome-coins-badge');
-  if (badge) {
-    badge.addEventListener('click', function(e) {
-      e.stopPropagation();
-      e.preventDefault();
-      console.log('Welcome coins badge clicked via event listener');
-      openCoinsPopup();
-    });
-    console.log('Welcome coins badge click handler initialized');
-  }
+  // No-op: topbar coins element uses inline onclick="openCoinsPopup()"
 }
 
 async function _loadCoinsPopupData() {
@@ -148,6 +137,27 @@ function hideTopbarDropdown() {
   const dd = document.getElementById('topbar-dropdown');
   if (dd) dd.style.display = 'none';
 }
+
+// App topbar (dashboard) profile dropdown
+function toggleAppTopbarDropdown() {
+  const dd = document.getElementById('app-topbar-dropdown');
+  if (!dd) return;
+  dd.style.display = dd.style.display === 'none' || !dd.style.display ? 'block' : 'none';
+}
+
+function hideAppTopbarDropdown() {
+  const dd = document.getElementById('app-topbar-dropdown');
+  if (dd) dd.style.display = 'none';
+}
+
+// Close app-topbar dropdown on outside click
+document.addEventListener('click', function(e) {
+  var dd = document.getElementById('app-topbar-dropdown');
+  var btn = document.getElementById('app-topbar-profile-btn');
+  if (dd && dd.style.display === 'block' && btn && !btn.contains(e.target) && !dd.contains(e.target)) {
+    dd.style.display = 'none';
+  }
+});
 
 // Leaderboard modal
 function showLeaderboardModal() {
@@ -253,7 +263,9 @@ document.addEventListener('click', function(e) {
   }
   // Close coins popup if clicking outside
   if (coinsPopup && coinsPopup.style.display === 'block') {
-    if (!coinsPopup.contains(e.target) && !coinsWidget.contains(e.target)) {
+    var appTopbarCoins = document.getElementById('app-topbar-coins');
+    var clickedInsideCoins = (coinsWidget && coinsWidget.contains(e.target)) || (appTopbarCoins && appTopbarCoins.contains(e.target));
+    if (!coinsPopup.contains(e.target) && !clickedInsideCoins) {
       coinsPopup.style.display = 'none';
     }
   }

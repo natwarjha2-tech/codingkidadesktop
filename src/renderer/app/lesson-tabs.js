@@ -421,6 +421,7 @@ async function submitWeeklyStreak(streakId) {
         if (streakEl) {
           const current = parseInt(streakEl.textContent) || 0;
           streakEl.textContent = current + 1;
+          updateStreakPips(current + 1);
         }
       } else {
         result.style.color = '#ef4444';

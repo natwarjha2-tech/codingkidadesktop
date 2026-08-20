@@ -144,6 +144,10 @@ function handleProfilePhoto(input) {
     const topbarText = document.getElementById('topbar-avatar-text');
     if (topbarImg) { topbarImg.src = e.target.result; topbarImg.style.display = 'block'; }
     if (topbarText) topbarText.style.display = 'none';
+    const topbarProfileImg = document.getElementById('topbar-profile-avatar-img');
+    const topbarProfileText = document.getElementById('topbar-profile-initial');
+    if (topbarProfileImg) { topbarProfileImg.src = e.target.result; topbarProfileImg.style.display = 'block'; }
+    if (topbarProfileText) topbarProfileText.style.display = 'none';
   };
   reader.readAsDataURL(file);
 
