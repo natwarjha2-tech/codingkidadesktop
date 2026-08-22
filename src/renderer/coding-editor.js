@@ -146,7 +146,12 @@ function renderCodingExercise(exercise, exIndex) {
   html += '<div class="coding-toolbar">';
   html += '  <div class="coding-toolbar-left">';
   html += '    <select id="coding-lang-select-' + exIndex + '" class="coding-lang-select" onchange="codingChangeLanguage(' + exIndex + ', \'' + (exercise.id || '') + '\')">';
-  CODING_LANGUAGES.forEach(function(lang) {
+  // Exercise from course: lock to single language; otherwise show all
+  var exerciseLangs = exercise.language
+    ? CODING_LANGUAGES.filter(function(l) { return l.id === exercise.language; })
+    : CODING_LANGUAGES;
+  if (exerciseLangs.length === 0) exerciseLangs = CODING_LANGUAGES; // fallback safety
+  exerciseLangs.forEach(function(lang) {
     var selected = lang.id === defaultLang ? ' selected' : '';
     html += '      <option value="' + lang.id + '"' + selected + '>' + lang.icon + ' ' + lang.label + '</option>';
   });
@@ -970,12 +975,18 @@ function codingPgOpenFromExercise(exerciseId) {
             description: ex.description,
             category: 'Course Exercise',
             difficulty: ex.difficulty || 'medium',
-            defaultLanguage: ex.language || 'cpp',
-            constraints: '',
-            timeComplexity: '', spaceComplexity: '',
+            defaultLanguage: ex.language || 'c',
+            inputFormat: ex.inputFormat || '',
+            outputFormat: ex.outputFormat || '',
+            constraints: ex.constraints || '',
+            explanation: ex.explanation || '',
+            tags: ex.tags || [],
+            timeComplexity: ex.timeComplexity || '',
+            spaceComplexity: ex.spaceComplexity || '',
             starterCode: { cpp: ex.starterCode || '', python: ex.starterCode || '', javascript: ex.starterCode || '' },
             testCases: [],
             hints: ex.hints || [],
+            bestSolution: ex.bestSolution || null,
           };
           // Load test cases
           fetch(BASE_URL + '/api/exercise/test-cases?exerciseId=' + exerciseId, {

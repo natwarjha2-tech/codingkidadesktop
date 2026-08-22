@@ -330,7 +330,7 @@ function codingPgRenderEditor(problem) {
   html += '<div id="coding-pg-split-container" style="display:flex;height:100%;width:100%;overflow:hidden;">';
 
   // ═══ LEFT: Problem Description ═══
-  html += '<div id="coding-pg-desc-panel" style="flex:none;width:38%;min-width:150px;max-width:65%;overflow-y:auto;padding:12px 8px 12px 12px;user-select:text;cursor:default;">';
+  html += '<div id="coding-pg-desc-panel" style="flex:none;width:38%;min-width:150px;max-width:65%;height:100%;overflow-y:auto;padding:12px 8px 40px 12px;user-select:text;cursor:default;">';
 
   // Problem Header
   html += '<div class="coding-header">';
@@ -433,7 +433,11 @@ function codingPgRenderEditor(problem) {
   html += '    <button class="coding-toolbar-btn coding-toolbar-btn--problems" onclick="codingPgToggleLeftPanel()" title="Toggle Problem List (Ctrl+B)"><i class="fas fa-bars"></i> Problems</button>';
   html += '    <button class="coding-toolbar-btn coding-toolbar-btn--desc" onclick="codingPgToggleDescPanel()" title="Toggle Description Panel"><i class="fas fa-file-alt"></i> Desc</button>';
   html += '    <select id="coding-pg-lang" class="coding-lang-select" onchange="codingPgChangeLang()">';
-  CODING_LANGUAGES.forEach(function(lang) {
+  // Exercise from course: lock to single language; Custom problems: show all 4
+  var availableLangs = (problem.category === 'Course Exercise' && problem.defaultLanguage)
+    ? CODING_LANGUAGES.filter(function(l) { return l.id === problem.defaultLanguage; })
+    : CODING_LANGUAGES;
+  availableLangs.forEach(function(lang) {
     var sel = lang.id === defaultLang ? ' selected' : '';
     html += '<option value="' + lang.id + '"' + sel + '>' + lang.icon + ' ' + lang.label + '</option>';
   });
@@ -1076,7 +1080,7 @@ function codingPgShowAddModal() {
   html += '<div style="display:flex;flex-direction:column;gap:12px;">';
   html += '<input id="pg-add-title" placeholder="Problem Title" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:10px 14px;color:#fff;font-size:0.88rem;outline:none;">';
   html += '<textarea id="pg-add-desc" placeholder="Problem Description" rows="3" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:10px 14px;color:#fff;font-size:0.85rem;outline:none;resize:vertical;"></textarea>';
-  html += '<div style="display:flex;gap:8px;"><select id="pg-add-cat" style="flex:1;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:8px;color:#fff;font-size:0.82rem;outline:none;cursor:pointer;"><option value="Arrays">Arrays</option><option value="Strings">Strings</option><option value="Math">Math</option><option value="Sorting">Sorting</option><option value="Searching">Searching</option><option value="Recursion">Recursion</option><option value="Dynamic Programming">DP</option></select>';
+  html += '<div style="display:flex;gap:8px;"><select id="pg-add-cat" style="flex:1;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:8px;color:#fff;font-size:0.82rem;outline:none;cursor:pointer;"><option value="Basic Input / Output">Basic Input / Output</option><option value="Variables & Data Types">Variables & Data Types</option><option value="Arithmetic / Maths Programs">Arithmetic / Maths Programs</option><option value="Number Programs">Number Programs</option><option value="Operators & Expressions">Operators & Expressions</option><option value="Conditional / If-Else">Conditional / If-Else</option><option value="Switch / Menu-Driven">Switch / Menu-Driven</option><option value="Loops / Iterations">Loops / Iterations</option><option value="Pattern Programs">Pattern Programs</option><option value="Number Series">Number Series</option><option value="Functions / Methods">Functions / Methods</option><option value="Recursion">Recursion</option><option value="1D Arrays / Lists">1D Arrays / Lists</option><option value="2D Arrays / Matrices">2D Arrays / Matrices</option><option value="Searching">Searching</option><option value="Sorting">Sorting</option><option value="Strings">Strings</option><option value="Characters">Characters</option><option value="Pointers (C)">Pointers (C)</option><option value="Dynamic Memory Management (C)">Dynamic Memory (C)</option><option value="Structures & Unions (C)">Structures & Unions (C)</option><option value="Collections / Data Structures">Collections / DS</option><option value="Object-Oriented Programming (OOP)">OOP</option><option value="File Handling">File Handling</option><option value="Exception / Error Handling">Exception Handling</option><option value="Database / SQL">Database / SQL</option><option value="APIs / JSON">APIs / JSON</option><option value="Data Analysis / NumPy / Pandas">Data Analysis</option><option value="Multithreading / Concurrency">Multithreading</option><option value="GUI / Application Development">GUI / App Dev</option><option value="Testing / Debugging / Code Quality">Testing / Debugging</option><option value="Build Tools / Version Control">Build Tools / VCS</option><option value="General Programming / Mixed Problems">General / Mixed</option><option value="Other / Miscellaneous">Other / Misc</option></select>';
   html += '<select id="pg-add-diff" style="flex:1;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:8px;color:#fff;font-size:0.82rem;outline:none;cursor:pointer;"><option value="easy">Easy</option><option value="medium">Medium</option><option value="hard">Hard</option></select></div>';
   html += '<div style="font-size:0.8rem;color:var(--muted);font-weight:600;margin-top:4px;">Test Cases:</div>';
   html += '<div style="display:flex;gap:8px;"><input id="pg-add-tc-in" placeholder="Input (e.g. 5 3)" style="flex:1;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:8px;color:#fff;font-size:0.82rem;outline:none;"><input id="pg-add-tc-out" placeholder="Expected Output (e.g. 8)" style="flex:1;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:8px;color:#fff;font-size:0.82rem;outline:none;"></div>';
@@ -1787,11 +1791,20 @@ function codingPgShowLeaderboard(problemId) {
 
 /**
  * Pre-load best solution for current problem (called on problem select)
- * Ensures _pgPreloadedSolution is ready for instant AI features
+ * For exercise problems: use bestSolution field directly (no API call)
+ * For custom 33 problems: fetch from /api/coding-problems/best-solution
  */
 function _pgPreloadBestSolution() {
   if (!_pgActiveProblem) return;
   _pgPreloadedSolution = null;
+
+  // Exercise from course: bestSolution already embedded in problem data
+  if (_pgActiveProblem.category === 'Course Exercise' && _pgActiveProblem.bestSolution) {
+    _pgPreloadedSolution = _pgActiveProblem.bestSolution;
+    return;
+  }
+
+  // Custom problems: fetch from API
   var token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
   fetch(BASE_URL + '/api/coding-problems/best-solution?problemId=' + _pgActiveProblem.id, {
     headers: token ? { 'Authorization': 'Bearer ' + token } : {},
