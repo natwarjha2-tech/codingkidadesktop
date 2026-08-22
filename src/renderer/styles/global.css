@@ -474,6 +474,12 @@ body {
 .filter-tab:hover, .filter-tab.active { background: var(--primary); color: #fff; border-color: var(--primary); }
 
 /* ===== VIDEO PAGE — 3 COLUMN LAYOUT ===== */
+
+/* Hide global top bar when video page is active (avoids duplicate header) */
+.main-content:has(#page-video.active) > #app-topbar { display: none !important; }
+/* Prevent outer scrollbar when video page is active — video page manages its own scroll */
+.main-content:has(#page-video.active) { overflow: hidden; }
+
 #page-video {
   display: none;
   padding: 0 !important;

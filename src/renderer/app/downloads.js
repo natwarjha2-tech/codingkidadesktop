@@ -588,6 +588,16 @@ function _restoreOnlineVideoUI() {
   // Restore grid
   var vpBody = document.querySelector('.vp-body');
   if(vpBody) vpBody.style.gridTemplateColumns = '';
+  // Restore engagement bar
+  var engagementBar = document.getElementById('vp-engagement-bar');
+  if(engagementBar) { engagementBar.style.pointerEvents = ''; engagementBar.style.opacity = ''; }
+  // Restore video height constraints
+  var vpVideoWrap = document.querySelector('.vp-video-wrap');
+  if(vpVideoWrap) vpVideoWrap.style.maxHeight = '';
+  var vpVideo = document.getElementById('video-player');
+  if(vpVideo) { vpVideo.style.maxHeight = ''; vpVideo.style.objectFit = ''; }
+  var vpIframe = document.getElementById('video-iframe');
+  if(vpIframe) vpIframe.style.maxHeight = '';
 }
 
 async function playOfflineContent(lessonId, type) {
@@ -616,7 +626,7 @@ async function playOfflineContent(lessonId, type) {
  * Shows Notes only if a PDF is also downloaded for this lesson.
  */
 function _applyOfflinePlaybackUI(lessonId, userId) {
-  // Hide online-only tabs
+  // Hide online-only tabs (these require network/backend data)
   var tabs = document.querySelectorAll('.vp-tab');
   tabs.forEach(function(tab) {
     var panel = tab.getAttribute('onclick') || '';
@@ -631,9 +641,28 @@ function _applyOfflinePlaybackUI(lessonId, userId) {
   var rightPanel = document.querySelector('.vp-right');
   if(rightPanel) rightPanel.style.display = 'none';
 
-  // Make video area full width
+  // Make video area full width (expand into space freed by hidden right panel)
   var vpBody = document.querySelector('.vp-body');
   if(vpBody) vpBody.style.gridTemplateColumns = '1fr';
+
+  // Constrain video height so video + controls + content below all fit in viewport
+  // Uses max-height with calc to leave room for topbar (~60px), engagement bar (~50px), tabs (~46px), notes (~100px)
+  var vpVideoWrap = document.querySelector('.vp-video-wrap');
+  if(vpVideoWrap) vpVideoWrap.style.maxHeight = 'calc(100vh - 260px)';
+  // Ensure custom video player container is visible (it starts display:none in HTML)
+  var customPlayer = document.getElementById('custom-video-player');
+  if(customPlayer) customPlayer.style.display = 'block';
+  // Constrain the video element itself to fit within the wrap and maintain aspect ratio
+  var vpVideo = document.getElementById('video-player');
+  if(vpVideo) { vpVideo.style.maxHeight = 'calc(100vh - 260px)'; vpVideo.style.objectFit = 'contain'; }
+  // Also constrain iframe for YouTube-type embeds
+  var vpIframe = document.getElementById('video-iframe');
+  if(vpIframe && vpIframe.style.display !== 'none') { vpIframe.style.maxHeight = 'calc(100vh - 260px)'; }
+
+  // Show engagement bar (Downloads bypasses openVideoFromBackend which normally shows it)
+  // Disabled since like/dislike require network
+  var engagementBar = document.getElementById('vp-engagement-bar');
+  if(engagementBar) { engagementBar.style.display = 'flex'; engagementBar.style.pointerEvents = 'none'; engagementBar.style.opacity = '0.5'; }
 
   // Hide Next Lesson float (requires online course context)
   var nextFloat = document.getElementById('next-lesson-float');
