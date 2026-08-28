@@ -83,7 +83,8 @@
 
 /* Add Problem Modal - Dropdown Options */
 #pg-add-cat option,
-#pg-add-diff option {
+#pg-add-diff option,
+#pg-add-lang option {
   background: #0a0a0a;
   color: #e2e8f0;
 }

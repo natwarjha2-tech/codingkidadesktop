@@ -19,6 +19,7 @@ var _pgEditorInstance = null; // Monaco editor for playground
 var _pgBottomPanelVisible = true; // Bottom panel (input/output/history) visible
 var _pgPreloadedSolution = null; // Pre-loaded best solution for instant view
 var _pgUserComplexity = null; // User's code TC/SC from AI analysis
+var _pgLastHiddenPanel = null; // Tracks last hidden panel ('left' | 'desc') for restore button
 // (Cursor AI widget removed — AI accessed via Right-Click or Ctrl+I only)
 
 // ═══════════════════════════════════════════════════════
@@ -284,7 +285,9 @@ function codingPgToggleLeftPanel() {
     leftPanel.style.padding = '0';
     leftPanel.style.overflow = 'hidden';
     leftPanel.style.borderRight = 'none';
+    _pgLastHiddenPanel = 'left'; // remember most recently hidden panel
   }
+  _pgUpdateRestoreBtn();
 }
 
 /**
@@ -303,10 +306,49 @@ function codingPgToggleDescPanel() {
   } else {
     descPanel.style.display = 'none';
     if (resizeHandle) resizeHandle.style.display = 'none';
+    _pgLastHiddenPanel = 'desc'; // remember most recently hidden panel
   }
   if (_pgEditorInstance) {
     setTimeout(function() { _pgEditorInstance.layout(); }, 50);
   }
+  _pgUpdateRestoreBtn();
+}
+
+/**
+ * Restore the most recently hidden panel (Problems or Desc).
+ * Reuses the existing toggle functions — no duplicated show/hide logic.
+ * Triggered by the small back-arrow button on the code editor page.
+ */
+function codingPgRestoreLastPanel() {
+  var leftPanel = document.getElementById('coding-pg-left');
+  var descPanel = document.getElementById('coding-pg-desc-panel');
+  var leftHidden = leftPanel && (leftPanel.style.width === '0' || leftPanel.style.width === '0px');
+  var descHidden = descPanel && descPanel.style.display === 'none';
+
+  // Prefer the most-recently-hidden panel; fall back to whichever is hidden
+  if (_pgLastHiddenPanel === 'left' && leftHidden) {
+    codingPgToggleLeftPanel();
+  } else if (_pgLastHiddenPanel === 'desc' && descHidden) {
+    codingPgToggleDescPanel();
+  } else if (leftHidden) {
+    codingPgToggleLeftPanel();
+  } else if (descHidden) {
+    codingPgToggleDescPanel();
+  }
+  _pgUpdateRestoreBtn();
+}
+
+/**
+ * Show the restore button only when at least one panel is hidden.
+ */
+function _pgUpdateRestoreBtn() {
+  var btn = document.getElementById('coding-pg-restore-btn');
+  if (!btn) return;
+  var leftPanel = document.getElementById('coding-pg-left');
+  var descPanel = document.getElementById('coding-pg-desc-panel');
+  var leftHidden = leftPanel && (leftPanel.style.width === '0' || leftPanel.style.width === '0px');
+  var descHidden = descPanel && descPanel.style.display === 'none';
+  btn.style.display = (leftHidden || descHidden) ? 'flex' : 'none';
 }
 
 /**
@@ -317,8 +359,8 @@ function codingPgRenderEditor(problem) {
   var area = document.getElementById('coding-pg-editor-area');
   if (!area) return;
 
-  var defaultLang = problem.defaultLanguage || 'cpp';
-  var langObj = CODING_LANGUAGES.find(function(l) { return l.id === defaultLang; }) || CODING_LANGUAGES[1];
+  var defaultLang = problem.defaultLanguage || 'java';
+  var langObj = CODING_LANGUAGES.find(function(l) { return l.id === defaultLang; }) || CODING_LANGUAGES[0];
   var starterCode = (problem.starterCode && problem.starterCode[defaultLang]) || '';
 
   var diffColors = { easy: '#22c55e', medium: '#f59e0b', hard: '#ef4444' };
@@ -430,11 +472,16 @@ function codingPgRenderEditor(problem) {
   // Toolbar with toggle button
   html += '<div class="coding-toolbar">';
   html += '  <div class="coding-toolbar-left">';
+  html += '    <button id="coding-pg-restore-btn" class="coding-toolbar-btn" onclick="codingPgRestoreLastPanel()" title="Show hidden panel" style="display:none;"><i class="fas fa-arrow-left"></i></button>';
   html += '    <button class="coding-toolbar-btn coding-toolbar-btn--problems" onclick="codingPgToggleLeftPanel()" title="Toggle Problem List (Ctrl+B)"><i class="fas fa-bars"></i> Problems</button>';
   html += '    <button class="coding-toolbar-btn coding-toolbar-btn--desc" onclick="codingPgToggleDescPanel()" title="Toggle Description Panel"><i class="fas fa-file-alt"></i> Desc</button>';
   html += '    <select id="coding-pg-lang" class="coding-lang-select" onchange="codingPgChangeLang()">';
-  // Exercise from course: lock to single language; Custom problems: show all 4
-  var availableLangs = (problem.category === 'Course Exercise' && problem.defaultLanguage)
+  // Lock to a single language when:
+  //  - Course exercise with a fixed language, OR
+  //  - Custom problem created with a locked language (lockedLanguage flag)
+  var isLangLocked = (problem.category === 'Course Exercise' && problem.defaultLanguage)
+    || (problem.lockedLanguage && problem.defaultLanguage);
+  var availableLangs = isLangLocked
     ? CODING_LANGUAGES.filter(function(l) { return l.id === problem.defaultLanguage; })
     : CODING_LANGUAGES;
   availableLangs.forEach(function(lang) {
@@ -463,7 +510,7 @@ function codingPgRenderEditor(problem) {
   // Monaco container — flex:1 fills remaining height between toolbar and bottom panels
   html += '<div class="coding-editor-wrap" style="flex:1;display:flex;flex-direction:column;min-height:0;">';
   html += '  <div class="coding-editor-header">';
-  html += '    <span class="coding-editor-filename" id="coding-pg-filename"><i class="fas fa-code"></i> solution' + langObj.extension + '</span>';
+  html += '    <span class="coding-editor-filename" id="coding-pg-filename"><i class="fas fa-code"></i> ' + pgFilenameFromTitle(problem.title, langObj.extension) + '</span>';
   html += '    <span class="coding-editor-info" id="coding-pg-cursor">Ln 1, Col 1</span>';
   html += '  </div>';
   html += '  <div id="coding-pg-monaco" class="coding-monaco-container" style="flex:1;min-height:0;"></div>';
@@ -506,6 +553,11 @@ function codingPgRenderEditor(problem) {
 
   area.innerHTML = html;
 
+  // On problem open, the left panel is auto-collapsed → mark it as last hidden
+  // and refresh the restore button visibility to match actual panel state.
+  _pgLastHiddenPanel = 'left';
+  _pgUpdateRestoreBtn();
+
   // Initialize Monaco and load submission history
   setTimeout(function() {
     codingPgInitMonaco(defaultLang, starterCode);
@@ -516,6 +568,25 @@ function codingPgRenderEditor(problem) {
 // ═══════════════════════════════════════════════════════
 // PLAYGROUND CODE PERSISTENCE
 // ═══════════════════════════════════════════════════════
+
+/**
+ * Build a dynamic filename from a problem title + language extension.
+ * "Two Sum" + ".java" → "twoSum.java"
+ * "Reverse Array" + ".py" → "reverseArray.py"
+ * Falls back to "solution" if title is empty.
+ */
+function pgFilenameFromTitle(title, extension) {
+  var words = (title || '').trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return 'solution' + extension;
+  var camel = words.map(function(w, i) {
+    var clean = w.replace(/[^A-Za-z0-9]/g, '');
+    if (!clean) return '';
+    return i === 0
+      ? clean.charAt(0).toLowerCase() + clean.slice(1)
+      : clean.charAt(0).toUpperCase() + clean.slice(1);
+  }).join('');
+  return (camel || 'solution') + extension;
+}
 
 function _pgCodeKey(problemId, langId) {
   var userId = (typeof getCurrentUserId === 'function') ? getCurrentUserId() : 'anon';
@@ -545,7 +616,7 @@ function codingPgInitMonaco(langId, starterCode) {
 
   container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:0.85rem;gap:8px;"><i class="fas fa-spinner fa-spin"></i> Loading editor...</div>';
 
-  var langObj = CODING_LANGUAGES.find(function(l) { return l.id === langId; }) || CODING_LANGUAGES[1];
+  var langObj = CODING_LANGUAGES.find(function(l) { return l.id === langId; }) || CODING_LANGUAGES[0];
 
   loadMonacoEditor().then(function(monaco) {
     container.innerHTML = '';
@@ -634,13 +705,14 @@ function codingPgChangeLang() {
   var select = document.getElementById('coding-pg-lang');
   if (!select || !_pgEditorInstance || !window.monaco) return;
   var langId = select.value;
-  var langObj = CODING_LANGUAGES.find(function(l) { return l.id === langId; }) || CODING_LANGUAGES[1];
+  var langObj = CODING_LANGUAGES.find(function(l) { return l.id === langId; }) || CODING_LANGUAGES[0];
 
   var model = _pgEditorInstance.getModel();
   if (model) window.monaco.editor.setModelLanguage(model, langObj.monacoId);
 
   var filenameEl = document.getElementById('coding-pg-filename');
-  if (filenameEl) filenameEl.innerHTML = '<i class="fas fa-code"></i> solution' + langObj.extension;
+  var pgTitle = _pgActiveProblem ? _pgActiveProblem.title : '';
+  if (filenameEl) filenameEl.innerHTML = '<i class="fas fa-code"></i> ' + pgFilenameFromTitle(pgTitle, langObj.extension);
 
   // Restore saved code for new language, else use starter/default
   var savedForLang = pgRestoreCode(_pgActiveProblem ? _pgActiveProblem.id : '', langId);
@@ -675,8 +747,8 @@ function codingPgRun() {
   if (!code.trim()) { if (outputEl) outputEl.innerHTML = '<span class="coding-output-error"><i class="fas fa-exclamation-circle"></i> Write some code first.</span>'; return; }
 
   var select = document.getElementById('coding-pg-lang');
-  var langId = select ? select.value : 'cpp';
-  var langObj = CODING_LANGUAGES.find(function(l) { return l.id === langId; }) || CODING_LANGUAGES[1];
+  var langId = select ? select.value : 'java';
+  var langObj = CODING_LANGUAGES.find(function(l) { return l.id === langId; }) || CODING_LANGUAGES[0];
   var stdin = document.getElementById('coding-pg-stdin');
   var stdinVal = stdin ? stdin.value : '';
 
@@ -725,8 +797,8 @@ function codingPgSubmit() {
   if (!_pgActiveProblem) return;
 
   var select = document.getElementById('coding-pg-lang');
-  var langId = select ? select.value : 'cpp';
-  var langObj = CODING_LANGUAGES.find(function(l) { return l.id === langId; }) || CODING_LANGUAGES[1];
+  var langId = select ? select.value : 'java';
+  var langObj = CODING_LANGUAGES.find(function(l) { return l.id === langId; }) || CODING_LANGUAGES[0];
 
   if (outputEl) outputEl.innerHTML = '<span class="coding-output-info"><i class="fas fa-spinner fa-spin"></i> Testing against all cases...</span>';
   var submitBtn = document.getElementById('coding-pg-submit-btn');
@@ -1082,8 +1154,17 @@ function codingPgShowAddModal() {
   html += '<textarea id="pg-add-desc" placeholder="Problem Description" rows="3" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:10px 14px;color:#fff;font-size:0.85rem;outline:none;resize:vertical;"></textarea>';
   html += '<div style="display:flex;gap:8px;"><select id="pg-add-cat" style="flex:1;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:8px;color:#fff;font-size:0.82rem;outline:none;cursor:pointer;"><option value="Basic Input / Output">Basic Input / Output</option><option value="Variables & Data Types">Variables & Data Types</option><option value="Arithmetic / Maths Programs">Arithmetic / Maths Programs</option><option value="Number Programs">Number Programs</option><option value="Operators & Expressions">Operators & Expressions</option><option value="Conditional / If-Else">Conditional / If-Else</option><option value="Switch / Menu-Driven">Switch / Menu-Driven</option><option value="Loops / Iterations">Loops / Iterations</option><option value="Pattern Programs">Pattern Programs</option><option value="Number Series">Number Series</option><option value="Functions / Methods">Functions / Methods</option><option value="Recursion">Recursion</option><option value="1D Arrays / Lists">1D Arrays / Lists</option><option value="2D Arrays / Matrices">2D Arrays / Matrices</option><option value="Searching">Searching</option><option value="Sorting">Sorting</option><option value="Strings">Strings</option><option value="Characters">Characters</option><option value="Pointers (C)">Pointers (C)</option><option value="Dynamic Memory Management (C)">Dynamic Memory (C)</option><option value="Structures & Unions (C)">Structures & Unions (C)</option><option value="Collections / Data Structures">Collections / DS</option><option value="Object-Oriented Programming (OOP)">OOP</option><option value="File Handling">File Handling</option><option value="Exception / Error Handling">Exception Handling</option><option value="Database / SQL">Database / SQL</option><option value="APIs / JSON">APIs / JSON</option><option value="Data Analysis / NumPy / Pandas">Data Analysis</option><option value="Multithreading / Concurrency">Multithreading</option><option value="GUI / Application Development">GUI / App Dev</option><option value="Testing / Debugging / Code Quality">Testing / Debugging</option><option value="Build Tools / Version Control">Build Tools / VCS</option><option value="General Programming / Mixed Problems">General / Mixed</option><option value="Other / Miscellaneous">Other / Misc</option></select>';
   html += '<select id="pg-add-diff" style="flex:1;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:8px;color:#fff;font-size:0.82rem;outline:none;cursor:pointer;"><option value="easy">Easy</option><option value="medium">Medium</option><option value="hard">Hard</option></select></div>';
+  // Language selector — the chosen language is locked for this custom problem
+  html += '<div style="font-size:0.8rem;color:var(--muted);font-weight:600;margin-top:4px;">Language (locked for this problem):</div>';
+  html += '<select id="pg-add-lang" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:8px 10px;color:#fff;font-size:0.82rem;outline:none;cursor:pointer;">';
+  CODING_LANGUAGES.forEach(function(lang) {
+    html += '<option value="' + lang.id + '">' + lang.icon + ' ' + lang.label + '</option>';
+  });
+  html += '</select>';
   html += '<div style="font-size:0.8rem;color:var(--muted);font-weight:600;margin-top:4px;">Test Cases:</div>';
   html += '<div style="display:flex;gap:8px;"><input id="pg-add-tc-in" placeholder="Input (e.g. 5 3)" style="flex:1;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:8px;color:#fff;font-size:0.82rem;outline:none;"><input id="pg-add-tc-out" placeholder="Expected Output (e.g. 8)" style="flex:1;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:8px;color:#fff;font-size:0.82rem;outline:none;"></div>';
+  // Inline validation error (replaces blocking alert — keeps fields editable)
+  html += '<div id="pg-add-error" style="display:none;color:#ef4444;font-size:0.8rem;font-weight:600;padding:8px 12px;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.25);border-radius:8px;"></div>';
   html += '<button onclick="codingPgAddProblem()" style="background:linear-gradient(135deg,#6c47ff,#b251ff);border:none;border-radius:10px;padding:12px;color:#fff;font-size:0.9rem;font-weight:700;cursor:pointer;">Add Problem</button>';
   html += '</div></div></div>';
   document.body.insertAdjacentHTML('beforeend', html);
@@ -1097,9 +1178,24 @@ function codingPgAddProblem() {
   var desc = document.getElementById('pg-add-desc').value.trim();
   var cat = document.getElementById('pg-add-cat').value;
   var diff = document.getElementById('pg-add-diff').value;
+  var langSelect = document.getElementById('pg-add-lang');
+  var lang = langSelect ? langSelect.value : 'java';
   var tcIn = document.getElementById('pg-add-tc-in').value;
   var tcOut = document.getElementById('pg-add-tc-out').value.trim();
-  if (!title || !desc) { alert('Title and description required.'); return; }
+
+  // Inline validation — keeps the modal open and fields fully editable
+  var errorEl = document.getElementById('pg-add-error');
+  if (!title || !desc) {
+    if (errorEl) {
+      errorEl.textContent = '⚠ Title and Description are required.';
+      errorEl.style.display = 'block';
+    }
+    return;
+  }
+  if (errorEl) errorEl.style.display = 'none';
+
+  var starter = {};
+  starter[lang] = getDefaultStarter(lang);
 
   var problem = {
     id: 'my-' + Date.now(),
@@ -1107,8 +1203,9 @@ function codingPgAddProblem() {
     description: desc,
     category: cat,
     difficulty: diff,
-    defaultLanguage: 'cpp',
-    starterCode: { cpp: getDefaultStarter('cpp'), python: getDefaultStarter('python'), javascript: getDefaultStarter('javascript') },
+    defaultLanguage: lang,
+    lockedLanguage: true, // custom problems are locked to the chosen language
+    starterCode: starter,
     testCases: tcIn && tcOut ? [{ input: tcIn, expectedOutput: tcOut, isHidden: false }] : [],
     hints: [],
   };

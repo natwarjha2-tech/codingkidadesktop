@@ -18,8 +18,8 @@
 const MONACO_CDN_BASE = 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min';
 
 const CODING_LANGUAGES = [
-  { id: 'c', label: 'C', monacoId: 'c', judge0Id: 50, extension: '.c', icon: '🇨' },
   { id: 'java', label: 'Java', monacoId: 'java', judge0Id: 62, extension: '.java', icon: '☕' },
+  { id: 'c', label: 'C', monacoId: 'c', judge0Id: 50, extension: '.c', icon: '🇨' },
   { id: 'python', label: 'Python', monacoId: 'python', judge0Id: 71, extension: '.py', icon: '🐍' },
   { id: 'javascript', label: 'JavaScript', monacoId: 'javascript', judge0Id: 63, extension: '.js', icon: '🟨' },
 ];
@@ -95,7 +95,7 @@ function loadMonacoEditor() {
  * Called from renderExerciseTab when exercise.type === "coding"
  */
 function renderCodingExercise(exercise, exIndex) {
-  var defaultLang = exercise.language || _codingSelectedLang[exercise.id] || 'cpp';
+  var defaultLang = exercise.language || _codingSelectedLang[exercise.id] || 'java';
   _codingSelectedLang[exercise.id || exIndex] = defaultLang;
 
   var difficultyColors = {
@@ -105,7 +105,7 @@ function renderCodingExercise(exercise, exIndex) {
   };
   var difficultyColor = difficultyColors[exercise.difficulty] || '#f59e0b';
 
-  var langObj = CODING_LANGUAGES.find(function(l) { return l.id === defaultLang; }) || CODING_LANGUAGES[1];
+  var langObj = CODING_LANGUAGES.find(function(l) { return l.id === defaultLang; }) || CODING_LANGUAGES[0];
 
   var html = '';
 
@@ -277,9 +277,9 @@ function initMonacoForExercise(exIndex) {
   var container = document.getElementById('coding-monaco-' + exIndex);
   if (!container) return;
 
-  var langId = container.getAttribute('data-lang') || 'cpp';
+  var langId = container.getAttribute('data-lang') || 'java';
   var starterCode = decodeURIComponent(container.getAttribute('data-starter') || '');
-  var langObj = CODING_LANGUAGES.find(function(l) { return l.id === langId; }) || CODING_LANGUAGES[1];
+  var langObj = CODING_LANGUAGES.find(function(l) { return l.id === langId; }) || CODING_LANGUAGES[0];
 
   // Show loading state
   container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:0.85rem;gap:8px;"><i class="fas fa-spinner fa-spin"></i> Loading editor...</div>';
@@ -420,7 +420,7 @@ function codingChangeLanguage(exIndex, exerciseId) {
   if (!select) return;
 
   var langId = select.value;
-  var langObj = CODING_LANGUAGES.find(function(l) { return l.id === langId; }) || CODING_LANGUAGES[1];
+  var langObj = CODING_LANGUAGES.find(function(l) { return l.id === langId; }) || CODING_LANGUAGES[0];
 
   // Persist language selection
   _codingSelectedLang[exerciseId || exIndex] = langId;
@@ -484,8 +484,8 @@ function codingRun(exIndex) {
 
   // Get selected language
   var select = document.getElementById('coding-lang-select-' + exIndex);
-  var selectedLang = select ? select.value : 'cpp';
-  var langObj = CODING_LANGUAGES.find(function(l) { return l.id === selectedLang; }) || CODING_LANGUAGES[1];
+  var selectedLang = select ? select.value : 'java';
+  var langObj = CODING_LANGUAGES.find(function(l) { return l.id === selectedLang; }) || CODING_LANGUAGES[0];
 
   // Get custom input
   var inputEl = document.getElementById('coding-input-' + exIndex);
@@ -589,8 +589,8 @@ function codingSubmit(exIndex) {
 
   // Get selected language
   var select = document.getElementById('coding-lang-select-' + exIndex);
-  var selectedLang = select ? select.value : 'cpp';
-  var langObj = CODING_LANGUAGES.find(function(l) { return l.id === selectedLang; }) || CODING_LANGUAGES[1];
+  var selectedLang = select ? select.value : 'java';
+  var langObj = CODING_LANGUAGES.find(function(l) { return l.id === selectedLang; }) || CODING_LANGUAGES[0];
 
   // Get exercise ID
   var exerciseCards = document.querySelectorAll('.exercise-card');
@@ -975,7 +975,7 @@ function codingPgOpenFromExercise(exerciseId) {
             description: ex.description,
             category: 'Course Exercise',
             difficulty: ex.difficulty || 'medium',
-            defaultLanguage: ex.language || 'c',
+            defaultLanguage: ex.language || 'java',
             inputFormat: ex.inputFormat || '',
             outputFormat: ex.outputFormat || '',
             constraints: ex.constraints || '',
