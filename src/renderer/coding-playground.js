@@ -806,7 +806,42 @@ function codingPgSubmit() {
 
   // For playground problems (not in DB), run against test cases client-side via /api/code/run
   var testCases = _pgActiveProblem.testCases || [];
-  if (testCases.length === 0) { if (outputEl) outputEl.innerHTML = '<span class="coding-output-info">No test cases for this problem.</span>'; if (submitBtn) { submitBtn.disabled = false; submitBtn.innerHTML = '<i class="fas fa-paper-plane"></i> Submit'; } return; }
+
+  // No test cases → execute-only submit (like Run): run code, show output, record submission.
+  // No pass/fail judgment and no coins/points (nothing to verify against).
+  if (testCases.length === 0) {
+    var stdinEl = document.getElementById('coding-pg-stdin');
+    var stdinVal = stdinEl ? stdinEl.value : '';
+    var token0 = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+    fetch(BASE_URL + '/api/code/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token0 },
+      body: JSON.stringify({ source_code: code, language_id: langObj.judge0Id, stdin: stdinVal }),
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      var h = '';
+      if (data.success && data.status === 'compilation_error') {
+        h += '<div class="coding-output-status coding-status-error">Compilation Error</div><pre class="coding-output-pre coding-output-error-text">' + sanitize(data.compile_output) + '</pre>';
+      } else if (data.success && data.status === 'runtime_error') {
+        h += '<div class="coding-output-status coding-status-error">Runtime Error</div><pre class="coding-output-pre coding-output-error-text">' + sanitize(data.stderr) + '</pre>';
+      } else if (data.success && data.status === 'time_limit') {
+        h += '<div class="coding-output-status coding-status-warning">Time Limit Exceeded</div>';
+      } else if (data.success) {
+        h += '<div class="coding-output-status coding-status-success">✅ Submitted successfully</div>';
+        h += '<div style="font-size:0.75rem;color:var(--ce-text-muted);margin:6px 0;">No test cases configured — output shown below (not verified).</div>';
+        h += '<pre class="coding-output-pre">' + sanitize(data.stdout || '(no output)') + '</pre>';
+      } else {
+        h += '<span class="coding-output-error"><i class="fas fa-exclamation-circle"></i> ' + sanitize(data.message || 'Execution failed.') + '</span>';
+      }
+      if (outputEl) outputEl.innerHTML = h;
+      // TC/SC analysis (non-blocking) — same as Run
+      codingPgAnalyzeComplexity(code, langId);
+    })
+    .catch(function() { if (outputEl) outputEl.innerHTML = '<span class="coding-output-error"><i class="fas fa-exclamation-circle"></i> Connection failed.</span>'; })
+    .finally(function() { if (submitBtn) { submitBtn.disabled = false; submitBtn.innerHTML = '<i class="fas fa-paper-plane"></i> Submit'; } });
+    return;
+  }
 
   var token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
   var results = [];
