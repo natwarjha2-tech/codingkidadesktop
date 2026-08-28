@@ -529,7 +529,7 @@ function codingPgRenderEditor(problem) {
   html += '    <span><i class="fas fa-terminal"></i> Custom Input</span>';
   html += '    <span id="coding-pg-input-toggle">▼</span>';
   html += '  </div>';
-  html += '  <textarea id="coding-pg-stdin" class="coding-input-textarea" style="display:block;" placeholder="Enter input...">' + sanitize(firstSampleInput) + '</textarea>';
+  html += '  <textarea id="coding-pg-stdin" class="coding-input-textarea" style="display:block;" placeholder="Enter all input in line by line before run">' + sanitize(firstSampleInput) + '</textarea>';
   html += '</div>';
 
   // Output
