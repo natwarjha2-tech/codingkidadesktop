@@ -233,3 +233,54 @@ function _ckCachePreFetchAll() {
     }).catch(function() {});
   }, 2000);
 }
+
+
+/**
+ * Refresh all data — clears cache and re-fetches everything fresh.
+ * Called when user clicks the Refresh button in sidebar.
+ */
+function refreshAllData() {
+  var userId = getCurrentUserId();
+  if (!userId) return;
+
+  // Spin the refresh icon
+  var icon = document.getElementById('refresh-icon');
+  if (icon) { icon.style.animation = 'spin 0.8s linear infinite'; }
+
+  // Clear all cache for this user
+  ckCacheClearUser(userId);
+
+  // Also clear legacy dashboard cache
+  localStorage.removeItem('ck_dashboard_cache_' + userId);
+
+  // Re-fetch all data
+  _ckCachePreFetchAll();
+
+  // Reload current page content
+  var currentPage = document.querySelector('.page.active');
+  var pageId = currentPage ? currentPage.id.replace('page-', '') : 'dashboard';
+
+  // Re-trigger page-specific data loads
+  if (pageId === 'dashboard' || pageId === 'profile') {
+    StudentAPI.getDashboard().then(function(data) { _applyDashboardData(data, false); }).catch(function() {});
+  }
+  if (pageId === 'courses') {
+    loadCourses().then(function(courses) { renderCourseGrid(courses); }).catch(function() {});
+  }
+  if (pageId === 'profile') {
+    loadOrdersPage(); loadMallPage(); loadRateUsPage();
+    loadParentReport(); loadReferralPage(); loadHelpPage();
+    loadStudentProgress();
+  }
+  if (pageId === 'achievements') { showAchievements(); }
+  if (pageId === 'orders') { loadOrdersPage(); }
+  if (pageId === 'mall') { loadMallPage(); }
+  if (pageId === 'rate-us') { loadRateUsPage(); }
+  if (pageId === 'student-progress') { loadStudentProgress(); }
+  if (pageId === 'parent-report') { loadParentReport(); }
+
+  // Stop spin after 2 seconds
+  setTimeout(function() {
+    if (icon) { icon.style.animation = ''; }
+  }, 2000);
+}

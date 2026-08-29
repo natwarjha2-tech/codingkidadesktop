@@ -66,6 +66,13 @@ ipcMain.handle('get-pending-auth', () => {
   return auth;
 });
 
+// Google login complete — load main app
+ipcMain.handle('google-login-complete', (event, data) => {
+  if (mainWindow && data && data.token) {
+    mainWindow.loadFile(path.join(__dirname, 'src/renderer/index.html'));
+  }
+});
+
 // Provide pending enroll token to renderer
 ipcMain.handle('get-pending-enroll', () => {
   const enroll = pendingEnroll;
@@ -73,10 +80,26 @@ ipcMain.handle('get-pending-enroll', () => {
   return enroll;
 });
 
-// Handle deep link — codingkida://enroll?token=xxx
+// Handle deep link — codingkida://enroll?token=xxx or codingkida://auth?token=xxx
 async function handleDeepLink(url) {
   try {
     const parsed = new URL(url);
+
+    // Google OAuth success deep link: codingkida://auth?token=xxx&user=xxx
+    if (parsed.hostname === 'auth') {
+      const token = parsed.searchParams.get('token');
+      const userRaw = parsed.searchParams.get('user');
+      if (token && userRaw && mainWindow) {
+        try {
+          const user = JSON.parse(decodeURIComponent(userRaw));
+          pendingAuth = { token, user: JSON.stringify(user), remember: true };
+          mainWindow.focus();
+          mainWindow.webContents.send('google-auth-token', { token, user });
+        } catch {}
+      }
+      return;
+    }
+
     if (parsed.hostname === 'enroll') {
       const token = parsed.searchParams.get('token');
       if (token && mainWindow) {
