@@ -537,33 +537,38 @@ async function renderOfflineDownloads() {
     html += '<div class="dl-course-body">';
 
     Object.keys(grouped[course]).forEach(function(module) {
-      html += '<div class="dl-module">';
-      html += '<div class="dl-module-header"><span class="dl-module-accent"></span><span class="dl-module-name">' + sanitize(module) + '</span></div>';
+      var moduleItems = grouped[course][module];
+      var videoItems = moduleItems.filter(function(d) { return d.type === 'video'; });
+      var pdfItems = moduleItems.filter(function(d) { return d.type === 'pdf'; });
 
-      grouped[course][module].forEach(function(d) {
-        var isPdf = d.type === 'pdf';
-        var icon = isPdf ? 'fa-file-pdf' : 'fa-play-circle';
-        var iconColor = isPdf ? '#ef4444' : '#22c55e';
-        var typeLabel = isPdf ? 'PDF Notes' : 'Video';
-        var actionLabel = isPdf ? 'View' : 'Watch';
-        var actionIcon = isPdf ? 'fa-eye' : 'fa-play';
+      html += '<div class="dl-module' + (Object.keys(grouped[course]).indexOf(module) === 0 ? ' dl-mod-open' : '') + '">';
+      html += '<div class="dl-module-header" onclick="this.parentElement.classList.toggle(\'dl-mod-open\')" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;"><div style="display:flex;align-items:center;gap:10px;"><span class="dl-module-accent"></span><span class="dl-module-name">' + sanitize(module) + '</span><span style="font-size:0.7rem;color:var(--muted);background:rgba(255,255,255,0.05);padding:2px 8px;border-radius:10px;">' + moduleItems.length + ' items</span></div><i class="fas fa-chevron-down" style="font-size:0.65rem;color:var(--muted);transition:transform 0.2s;"></i></div>';
 
-        html += '<div class="dl-lesson">';
-        html += '<div class="dl-lesson-body">';
-        html += '<div class="dl-lesson-icon" style="color:' + iconColor + ';border-color:' + iconColor + '30;"><i class="fas ' + icon + '"></i></div>';
-        html += '<div class="dl-lesson-content">';
-        html += '<span class="dl-lesson-title">' + sanitize(d.title) + '</span>';
-        html += '<span class="dl-lesson-meta"><span class="dl-type-badge">' + typeLabel + '</span>';
-        if(d.daysLeft !== undefined) html += ' <span class="dl-expiry">Expires in ' + d.daysLeft + ' day' + (d.daysLeft !== 1 ? 's' : '') + '</span>';
-        html += '</span>';
-        html += '</div>';
-        html += '</div>';
-        html += '<div class="dl-lesson-actions">';
-        html += '<button class="dl-action-btn" onclick="playOfflineContent(\'' + d.lessonId + '\',\'' + d.type + '\')"><i class="fas ' + actionIcon + '"></i> ' + actionLabel + '</button>';
-        html += '<button class="dl-remove-btn" onclick="deleteOfflineContent(\'' + d.lessonId + '\',\'' + d.type + '\')" title="Remove"><i class="fas fa-trash-alt"></i></button>';
-        html += '</div>';
-        html += '</div>';
-      });
+      // Lesson Videos sub-section (collapsible)
+      if (videoItems.length > 0) {
+        html += '<div class="dl-sub-section">';
+        html += '<div onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display===\'none\'?\'block\':\'none\';this.querySelector(\'i\').classList.toggle(\'fa-chevron-down\');this.querySelector(\'i\').classList.toggle(\'fa-chevron-right\')" style="display:flex;align-items:center;gap:6px;padding:6px 12px;cursor:pointer;"><i class="fas fa-chevron-down" style="font-size:0.55rem;color:var(--muted);transition:transform 0.2s;width:10px;"></i><i class="fas fa-play-circle" style="color:#a78bfa;font-size:0.7rem;"></i><span style="font-size:0.72rem;font-weight:700;color:#a78bfa;text-transform:uppercase;letter-spacing:0.4px;">Lesson Videos</span><span style="font-size:0.62rem;color:var(--muted);margin-left:auto;">' + videoItems.length + '</span></div>';
+        html += '<div>';
+        videoItems.forEach(function(d) {
+          html += '<div class="dl-lesson"><div class="dl-lesson-body"><div class="dl-lesson-icon" style="color:#22c55e;border-color:#22c55e30;"><i class="fas fa-play-circle"></i></div><div class="dl-lesson-content"><span class="dl-lesson-title">' + sanitize(d.title) + '</span><span class="dl-lesson-meta"><span class="dl-type-badge">Video</span>';
+          if(d.daysLeft !== undefined) html += ' <span class="dl-expiry">Expires in ' + d.daysLeft + ' day' + (d.daysLeft !== 1 ? 's' : '') + '</span>';
+          html += '</span></div></div><div class="dl-lesson-actions"><button class="dl-action-btn" onclick="playOfflineContent(\'' + d.lessonId + '\',\'' + d.type + '\')"><i class="fas fa-play"></i> Watch</button><button class="dl-remove-btn" onclick="deleteOfflineContent(\'' + d.lessonId + '\',\'' + d.type + '\')" title="Remove"><i class="fas fa-trash-alt"></i></button></div></div>';
+        });
+        html += '</div></div>';
+      }
+
+      // Study Material sub-section (collapsible) — includes lesson PDFs + admin-uploaded materials
+      if (pdfItems.length > 0) {
+        html += '<div class="dl-sub-section">';
+        html += '<div onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display===\'none\'?\'block\':\'none\';this.querySelector(\'i\').classList.toggle(\'fa-chevron-down\');this.querySelector(\'i\').classList.toggle(\'fa-chevron-right\')" style="display:flex;align-items:center;gap:6px;padding:6px 12px;cursor:pointer;border-top:1px solid rgba(255,255,255,0.04);margin-top:2px;"><i class="fas fa-chevron-down" style="font-size:0.55rem;color:var(--muted);transition:transform 0.2s;width:10px;"></i><i class="fas fa-book-open" style="color:#a78bfa;font-size:0.7rem;"></i><span style="font-size:0.72rem;font-weight:700;color:#a78bfa;text-transform:uppercase;letter-spacing:0.4px;">Study Material</span><span style="font-size:0.62rem;color:var(--muted);margin-left:auto;">' + pdfItems.length + '</span></div>';
+        html += '<div>';
+        pdfItems.forEach(function(d) {
+          html += '<div class="dl-lesson"><div class="dl-lesson-body"><div class="dl-lesson-icon" style="color:#ef4444;border-color:#ef444430;"><i class="fas fa-file-pdf"></i></div><div class="dl-lesson-content"><span class="dl-lesson-title">' + sanitize(d.title) + '</span><span class="dl-lesson-meta"><span class="dl-type-badge">' + (d.lessonId && d.lessonId.startsWith('material_') ? 'Study Material' : 'PDF Notes') + '</span>';
+          if(d.daysLeft !== undefined) html += ' <span class="dl-expiry">Expires in ' + d.daysLeft + ' day' + (d.daysLeft !== 1 ? 's' : '') + '</span>';
+          html += '</span></div></div><div class="dl-lesson-actions"><button class="dl-action-btn" onclick="playOfflineContent(\'' + d.lessonId + '\',\'' + d.type + '\')"><i class="fas fa-eye"></i> View</button><button class="dl-remove-btn" onclick="deleteOfflineContent(\'' + d.lessonId + '\',\'' + d.type + '\')" title="Remove"><i class="fas fa-trash-alt"></i></button></div></div>';
+        });
+        html += '</div></div>';
+      }
 
       html += '</div>';
     });
@@ -702,4 +707,49 @@ async function deleteOfflineContent(lessonId, type) {
   const userId = getCurrentUserId();
   await window.electron.deleteDownload({ lessonId, type, userId });
   renderOfflineDownloads();
+}
+
+
+/**
+ * Download study material PDF (module-level, no lesson required)
+ * Used by Study Material section in course detail
+ */
+async function downloadStudyMaterial(fileUrl, title, moduleTitle, courseTitle) {
+  if (!window.electron || !window.electron.downloadContent) {
+    alert('Downloads only available in the desktop app.');
+    return;
+  }
+  if (!fileUrl) { alert('No file available.'); return; }
+  var userId = getCurrentUserId();
+  if (!userId) { alert('Please log in to download.'); return; }
+  var token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+
+  try {
+    // Get signed URL if S3
+    var dlUrl = fileUrl;
+    if (fileUrl.includes('amazonaws.com')) {
+      var res = await fetch(BASE_URL + '/api/media/signed-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+        body: JSON.stringify({ url: fileUrl, forDownload: true }),
+      });
+      if (res.ok) { var d = await res.json(); if (d.signedUrl) dlUrl = d.signedUrl; }
+    }
+    var result = await window.electron.downloadContent({
+      url: dlUrl,
+      lessonId: 'material_' + Date.now(),
+      title: title || 'Study Material',
+      type: 'pdf',
+      userId: userId,
+      courseTitle: courseTitle || '',
+      moduleTitle: moduleTitle || '',
+    });
+    if (result.success) {
+      alert('✅ Downloaded: ' + (title || 'Study Material'));
+    } else {
+      alert('⚠️ Download failed: ' + (result.error || 'Unknown error'));
+    }
+  } catch (err) {
+    alert('⚠️ Download failed. Check your connection.');
+  }
 }

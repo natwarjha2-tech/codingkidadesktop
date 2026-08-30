@@ -73,6 +73,15 @@ ipcMain.handle('google-login-complete', (event, data) => {
   }
 });
 
+// OTP login complete — load main app (token already verified)
+ipcMain.handle('otp-login-complete', (event, { token, user, remember }) => {
+  if (mainWindow && token) {
+    pendingAuth = { token, user: JSON.stringify(user || {}), remember: remember !== false };
+    mainWindow.loadFile(path.join(__dirname, 'src/renderer/index.html'));
+  }
+  return { success: true };
+});
+
 // Provide pending enroll token to renderer
 ipcMain.handle('get-pending-enroll', () => {
   const enroll = pendingEnroll;

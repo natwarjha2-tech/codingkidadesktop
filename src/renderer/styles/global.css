@@ -1179,10 +1179,15 @@ body {
 .dl-course-open .dl-course-body { max-height:3000px; opacity:1; }
 
 /* Module */
-.dl-module { margin-bottom:10px; }
-.dl-module-header { display:flex; align-items:center; gap:8px; padding:6px 2px; }
-.dl-module-accent { width:3px; height:14px; border-radius:2px; background:linear-gradient(180deg,#6c47ff,#a855f7); flex-shrink:0; }
-.dl-module-name { font-size:0.78rem; font-weight:600; color:rgba(255,255,255,0.6); }
+.dl-module { margin-bottom:12px; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.05); border-radius:12px; overflow:hidden; }
+.dl-module-header { display:flex; align-items:center; gap:10px; padding:12px 14px; cursor:pointer; transition:background 0.2s; }
+.dl-module-header:hover { background:rgba(255,255,255,0.04); }
+.dl-module-accent { width:4px; height:18px; border-radius:3px; background:linear-gradient(180deg,#6c47ff,#a855f7); flex-shrink:0; }
+.dl-module-name { font-size:0.9rem; font-weight:700; color:#fff; }
+.dl-module .dl-sub-section { display:none; }
+.dl-module.dl-mod-open .dl-sub-section { display:block; }
+.dl-module.dl-mod-open .dl-module-header i.fa-chevron-down { transform:rotate(0deg); }
+.dl-module:not(.dl-mod-open) .dl-module-header i.fa-chevron-down { transform:rotate(-90deg); }
 
 /* Lesson card */
 .dl-lesson { display:flex; align-items:center; padding:14px 16px; border-radius:12px; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.06); margin-bottom:8px; transition:all 0.2s ease; }

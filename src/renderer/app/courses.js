@@ -380,6 +380,14 @@ function renderCourseDetailFromBackend(course) {
     var lessonsWrap = document.createElement('div');
     lessonsWrap.className = 'cd-lessons-wrap';
 
+    // Lesson Videos header
+    var lessonHeader = document.createElement('div');
+    lessonHeader.style.cssText = 'display:flex;align-items:center;gap:8px;padding:12px 16px 6px;';
+    lessonHeader.innerHTML = '<i class="fas fa-play-circle" style="color:#a78bfa;font-size:0.8rem;"></i>' +
+      '<span style="font-size:0.8rem;font-weight:700;color:#a78bfa;text-transform:uppercase;letter-spacing:0.5px;">Lesson Videos</span>' +
+      '<span style="font-size:0.68rem;color:var(--muted);margin-left:auto;">' + modLessons.length + ' lesson' + (modLessons.length > 1 ? 's' : '') + '</span>';
+    lessonsWrap.appendChild(lessonHeader);
+
     modLessons.forEach(function(lesson) {
       lessonIndex++;
       var canAccess = course.isEnrolled || lesson.isFree;
@@ -428,6 +436,50 @@ function renderCourseDetailFromBackend(course) {
     });
 
     modDiv.appendChild(lessonsWrap);
+
+    // Study Material section — admin-uploaded PDFs per module
+    var materials = mod.materials || [];
+    if (materials.length > 0) {
+      var matWrap = document.createElement('div');
+      matWrap.style.cssText = 'border-top:1px solid rgba(255,255,255,0.06);padding:12px 16px 8px;';
+
+      var matHeader = document.createElement('div');
+      matHeader.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:10px;';
+      matHeader.innerHTML = '<i class="fas fa-book-open" style="color:#a78bfa;font-size:0.8rem;"></i>' +
+        '<span style="font-size:0.8rem;font-weight:700;color:#a78bfa;text-transform:uppercase;letter-spacing:0.5px;">Study Material</span>' +
+        '<span style="font-size:0.68rem;color:var(--muted);margin-left:auto;">' + materials.length + ' file' + (materials.length > 1 ? 's' : '') + '</span>';
+      matWrap.appendChild(matHeader);
+
+      materials.forEach(function(mat) {
+        var canAccess = course.isEnrolled || course.isFree;
+        var icon = mat.fileType === 'ppt' ? 'fa-file-powerpoint' : mat.fileType === 'image' ? 'fa-file-image' : mat.fileType === 'doc' ? 'fa-file-word' : 'fa-file-pdf';
+        var iconColor = mat.fileType === 'ppt' ? '#f59e0b' : mat.fileType === 'image' ? '#3b82f6' : mat.fileType === 'doc' ? '#2563eb' : '#ef4444';
+
+        var matItem = document.createElement('div');
+        matItem.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:10px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.05);margin-bottom:6px;transition:all 0.2s;' + (canAccess ? 'cursor:pointer;' : 'opacity:0.5;cursor:not-allowed;');
+        matItem.onmouseover = function() { if(canAccess) matItem.style.background='rgba(108,71,255,0.08)'; };
+        matItem.onmouseout = function() { matItem.style.background='rgba(255,255,255,0.02)'; };
+
+        var fileUrl = mat.fileUrl || '';
+        var btnsHtml = '';
+        if (canAccess && fileUrl) {
+          btnsHtml = '<button onclick="event.stopPropagation();openPdfInApp(\'' + fileUrl.replace(/'/g, "\\'") + '\')" style="background:rgba(108,71,255,0.12);border:1px solid rgba(108,71,255,0.3);color:#a78bfa;border-radius:6px;padding:3px 8px;font-size:0.68rem;font-weight:600;cursor:pointer;white-space:nowrap;">View</button>' +
+            '<button onclick="event.stopPropagation();downloadStudyMaterial(\'' + fileUrl.replace(/'/g, "\\'") + '\',\'' + sanitize(mat.title).replace(/'/g, "\\'") + '\',\'' + sanitize(mod.title).replace(/'/g, "\\'") + '\',\'' + sanitize(course.title).replace(/'/g, "\\'") + '\')" style="background:rgba(34,197,94,0.12);border:1px solid rgba(34,197,94,0.3);color:#4ade80;border-radius:6px;padding:3px 8px;font-size:0.68rem;font-weight:600;cursor:pointer;white-space:nowrap;margin-left:4px;">Download</button>';
+        } else {
+          btnsHtml = '<i class="fas fa-lock" style="color:var(--muted);font-size:0.7rem;"></i>';
+        }
+
+        matItem.innerHTML =
+          '<i class="fas ' + icon + '" style="color:' + iconColor + ';font-size:0.85rem;flex-shrink:0;width:20px;text-align:center;"></i>' +
+          '<span style="flex:1;font-size:0.8rem;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + sanitize(mat.title) + '</span>' +
+          btnsHtml;
+
+        matWrap.appendChild(matItem);
+      });
+
+      lessonsWrap.appendChild(matWrap);
+    }
+
     modulesContainer.appendChild(modDiv);
   });
 
