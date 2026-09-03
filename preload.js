@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('electron', {
   getPendingAuth: () => ipcRenderer.invoke('get-pending-auth'),
   getPendingEnroll: () => ipcRenderer.invoke('get-pending-enroll'),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
+  quitAndInstallUpdate: () => ipcRenderer.invoke('quit-and-install-update'),
   downloadContent: (args) => ipcRenderer.invoke('download-content', args),
   getDownloads: (args) => ipcRenderer.invoke('get-downloads', args),
   playDownload: (args) => ipcRenderer.invoke('play-download', args),

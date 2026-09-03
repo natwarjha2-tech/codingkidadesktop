@@ -275,6 +275,13 @@ function _applyCachedDashboard() {
 async function _applyDashboardData(data, isFromCache) {
     if (!data.success) return;
 
+    // Detect new enrollments for notifications (compare with previous cache)
+    if (!isFromCache && typeof notifSync === 'function') {
+      // Server-side notifications handle enrollment — just sync after dashboard refresh
+      // notifCourseEnrolled() is called from payment webhook on server; desktop picks it up via sync
+      try { notifSync(); } catch(e) {}
+    }
+
     // Save to localStorage cache for instant load next time
     if (!isFromCache) {
       const userId = getCurrentUserId();

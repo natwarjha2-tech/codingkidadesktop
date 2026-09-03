@@ -145,6 +145,11 @@ ipcMain.handle('open-external', (event, url) => {
   shell.openExternal(url);
 });
 
+// Quit and install update (triggered from notification)
+ipcMain.handle('quit-and-install-update', () => {
+  if (autoUpdater) autoUpdater.quitAndInstall();
+});
+
 // Handle login from renderer
 ipcMain.handle('login', async (event, { email, password, remember }) => {
   try {
@@ -180,7 +185,16 @@ app.whenReady().then(() => {
       autoUpdater.checkForUpdatesAndNotify().catch(() => {});
     }, 5000);
 
-    autoUpdater.on('update-downloaded', () => {
+    autoUpdater.on('update-available', (info) => {
+      if (mainWindow && mainWindow.webContents) {
+        mainWindow.webContents.send('app-update-available', { version: info.version || 'new' });
+      }
+    });
+
+    autoUpdater.on('update-downloaded', (info) => {
+      if (mainWindow && mainWindow.webContents) {
+        mainWindow.webContents.send('app-update-downloaded', { version: info.version || 'new' });
+      }
       dialog.showMessageBox({
         type: 'info',
         title: 'Update Ready',

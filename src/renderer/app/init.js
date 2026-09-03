@@ -95,7 +95,11 @@ document.addEventListener('keydown', (e) => {
   // Refresh dashboard on window focus (payment browser se wapas aane pe)
   window.addEventListener('focus', () => {
     const t = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token');
-    if (t) StudentAPI.getDashboard().then(data => _applyDashboardData(data, false)).catch(() => {});
+    if (t) {
+      StudentAPI.getDashboard().then(data => _applyDashboardData(data, false)).catch(() => {});
+      // Sync notifications on focus (picks up any server-side notifications created while away)
+      if (typeof notifSync === 'function') notifSync();
+    }
   });
 
   // Listen for enrollment complete from deep link
@@ -104,7 +108,18 @@ document.addEventListener('keydown', (e) => {
       StudentAPI.getDashboard().then(d => _applyDashboardData(d, false)).catch(() => {});
       loadCourses().then(courses => renderCourseGrid(courses)).catch(() => {});
     });
+
+    // Listen for app update notifications from main process
+    window.electron.ipcRenderer.on('app-update-available', (data) => {
+      if (data && data.version) notifAppUpdateAvailable(data.version);
+    });
+    window.electron.ipcRenderer.on('app-update-downloaded', (data) => {
+      if (data && data.version) notifAppUpdateAvailable(data.version);
+    });
   }
+
+  // Initialize notification system
+  if (token) notifInit();
 
   // Enrollment detected via deep link (codingkida://enroll) and window focus refresh
   // No polling needed
