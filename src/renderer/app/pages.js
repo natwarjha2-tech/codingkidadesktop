@@ -476,21 +476,43 @@ function _renderParentReport(dashData, achievements, totalCoins) {
   const studentName = document.getElementById('sidebar-user-name')?.textContent || 'Student';
   const att = _attendanceGetSummary();
 
+  // Time KPI values: show a dash for genuinely-zero activity instead of a
+  // misleading "0 min" (real attendance data only — never fabricated).
+  var _spFmtTime = function(mins) { return (!mins || mins <= 0) ? '\u2014' : _fmtMins(mins); };
+
+  // Active days in the CURRENT calendar week (Mon–Sun) — unique active dates from
+  // Monday through today, out of 7. Uses the same real attendance calendar records.
+  var _wkToday = new Date();
+  var _wkDow = _wkToday.getDay();                 // 0=Sun..6=Sat
+  var _wkMondayOffset = _wkDow === 0 ? 6 : _wkDow - 1;  // days since Monday
+  var _wkMonday = new Date(_wkToday); _wkMonday.setDate(_wkToday.getDate() - _wkMondayOffset); _wkMonday.setHours(0,0,0,0);
+  var _weekActiveDays = 0;
+  (att.calendar || []).forEach(function(rec) {
+    if (!rec || !rec.active || !rec.date) return;
+    var p = String(rec.date).split('-');
+    if (p.length !== 3) return;
+    var rd = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+    rd.setHours(0,0,0,0);
+    if (rd >= _wkMonday && rd <= _wkToday) _weekActiveDays++;
+  });
+
   // Summary cards
   const summaryCards = [
-    { icon: 'fa-book-open',     color: '#8B5CF6', label: 'Courses Enrolled',  value: totalEnrolled,           sub: 'total' },
-    { icon: 'fa-check-circle',  color: '#22C55E', label: 'Lessons Completed', value: totalCompleted,          sub: 'all time' },
-    { icon: 'fa-clock',         color: '#F59E0B', label: 'Today',             value: _fmtMins(att.todayMins), sub: 'learning time' },
-    { icon: 'fa-calendar-week', color: '#EC4899', label: 'This Week',         value: _fmtMins(att.weekMins),  sub: att.activeDays + ' active days / 30' },
+    { icon: 'fa-book-open',     color: '#8B5CF6', label: 'Courses Enrolled',  value: totalEnrolled,             sub: 'total' },
+    { icon: 'fa-check-circle',  color: '#22C55E', label: 'Lessons Completed', value: totalCompleted,            sub: 'all time' },
+    { icon: 'fa-clock',         color: '#F59E0B', label: 'Today',             value: _spFmtTime(att.todayMins), sub: (att.todayMins > 0 ? 'learning time' : 'no activity yet') },
+    { icon: 'fa-calendar-week', color: '#EC4899', label: 'This Week',         value: _spFmtTime(att.weekMins),  sub: _weekActiveDays + ' active days / 7' },
   ];
   document.getElementById('pr-summary-cards').innerHTML = summaryCards.map(function(c) {
-    return '<div style="background:rgba(14,12,30,0.8);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid rgba(139,92,246,0.14);border-radius:20px;padding:22px;transition:all 0.22s ease;box-shadow:0 4px 16px rgba(0,0,0,0.25),0 0 20px rgba(139,92,246,0.035);position:relative;overflow:hidden;" onmouseover="this.style.transform=\'translateY(-3px)\';this.style.borderColor=\'' + c.color + '40\';this.style.boxShadow=\'0 8px 24px rgba(0,0,0,0.3),0 0 24px ' + c.color + '15\'" onmouseout="this.style.transform=\'translateY(0)\';this.style.borderColor=\'rgba(139,92,246,0.14)\';this.style.boxShadow=\'0 4px 16px rgba(0,0,0,0.25),0 0 20px rgba(139,92,246,0.035)\'">' +
-      '<div style="position:absolute;top:-20%;right:-10%;width:80px;height:80px;background:radial-gradient(circle,' + c.color + '08,transparent 70%);pointer-events:none;"></div>' +
-      '<div style="width:40px;height:40px;border-radius:12px;background:' + c.color + '18;border:1px solid ' + c.color + '30;display:flex;align-items:center;justify-content:center;margin-bottom:14px;box-shadow:0 0 8px ' + c.color + '12;">' +
-      '<i class="fas ' + c.icon + '" style="color:' + c.color + ';font-size:0.85rem;"></i></div>' +
-      '<div style="font-size:2rem;font-weight:700;color:#F8FAFC;line-height:1;margin-bottom:6px;">' + c.value + '</div>' +
-      '<div style="font-size:0.9rem;font-weight:600;color:rgba(255,255,255,0.78);margin-bottom:3px;">' + c.label + '</div>' +
-      '<div style="font-size:0.75rem;color:rgba(255,255,255,0.38);">' + c.sub + '</div>' +
+    return '<div class="pr-kpi" style="--kpi:' + c.color + ';" onmouseover="this.style.borderColor=\'' + c.color + '45\'" onmouseout="this.style.borderColor=\'\'">' +
+      '<div class="pr-kpi-glow" style="background:radial-gradient(circle,' + c.color + '12,transparent 70%);"></div>' +
+      '<div class="pr-kpi-ic" style="background:' + c.color + '18;border-color:' + c.color + '30;box-shadow:0 0 10px ' + c.color + '14;">' +
+      '<i class="fas ' + c.icon + '" style="color:' + c.color + ';"></i></div>' +
+      '<div class="pr-kpi-body">' +
+      '<div class="pr-kpi-value">' + c.value + '</div>' +
+      '<div class="pr-kpi-label">' + c.label + '</div>' +
+      '<div class="pr-kpi-sub">' + c.sub + '</div>' +
+      '</div>' +
       '</div>';
   }).join('');
 
@@ -499,56 +521,80 @@ function _renderParentReport(dashData, achievements, totalCoins) {
   var attCal = document.getElementById('pr-attendance-calendar');
   if (attMeta) attMeta.textContent = '';
   if (attCal) {
-    // 15 past days + today + 14 future days = 30 cells
-    var calData = att.calendar.slice();
     var today = new Date();
-    var past15 = calData.slice(-15);
-    var future15 = [];
-    for (var fi = 1; fi <= 15; fi++) {
-      var fd = new Date(today); fd.setDate(today.getDate() + fi);
-      future15.push({ day: fd.getDate(), date: fd.toLocaleDateString('en-IN'), mins: 0, active: false, _future: true });
-    }
-    var combined = past15.concat(future15);
+    var curYear = today.getFullYear();
+    var curMonth = today.getMonth(); // 0-based
+    var todayDate = today.getDate();
+    var monthNamesShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
-    // Stats strip
-    var statsHtml = '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:18px;">' +
-      '<div style="background:rgba(139,92,246,0.05);border:1px solid rgba(139,92,246,0.1);border-radius:10px;padding:10px 14px;text-align:center;">' +
-      '<div style="font-size:1rem;font-weight:800;color:#fff;">' + att.activeDays + ' <span style="font-size:0.7rem;font-weight:500;color:#64748b;">/ 30</span></div>' +
+    // Map real attendance records by their exact calendar date.
+    // rec.date is a 'YYYY-MM-DD' string produced by _attendanceGetSummary(); we
+    // parse its own year/month/day so matching is timezone-consistent with the
+    // data source (no fabrication, no re-calculation, no activity moved).
+    var attByYmd = {};
+    (att.calendar || []).forEach(function(rec) {
+      if (rec && rec.date) {
+        var p = String(rec.date).split('-'); // [YYYY, MM, DD]
+        if (p.length === 3) attByYmd[Number(p[0]) + ':' + Number(p[1]) + ':' + Number(p[2])] = rec;
+      }
+    });
+
+    // Active Days for the DISPLAYED calendar month only. Denominator = real number
+    // of days in that month (not a fixed 30). Counts unique active dates within the
+    // month, excluding future dates, from the same real attendance records.
+    var daysInMonth = new Date(curYear, curMonth + 1, 0).getDate();
+    var monthActiveDays = 0;
+    for (var mad = 1; mad <= daysInMonth; mad++) {
+      if (mad > todayDate) break; // future dates never active (current month)
+      var madRec = attByYmd[curYear + ':' + (curMonth + 1) + ':' + mad];
+      if (madRec && madRec.active) monthActiveDays++;
+    }
+
+    // Stats strip — Active Days for the displayed month (X / days-in-month), centered
+    var statsHtml = '<div style="display:flex;justify-content:center;margin-bottom:18px;">' +
+      '<div style="background:rgba(139,92,246,0.05);border:1px solid rgba(139,92,246,0.1);border-radius:10px;padding:10px 24px;text-align:center;min-width:150px;">' +
+      '<div style="font-size:1rem;font-weight:800;color:#fff;">' + monthActiveDays + ' <span style="font-size:0.7rem;font-weight:500;color:#64748b;">/ ' + daysInMonth + '</span></div>' +
       '<div style="font-size:0.65rem;color:#64748b;margin-top:2px;">Active Days</div></div>' +
-      '<div style="background:rgba(16,185,129,0.05);border:1px solid rgba(16,185,129,0.1);border-radius:10px;padding:10px 14px;text-align:center;">' +
-      '<div style="font-size:1rem;font-weight:800;color:#fff;">' + _fmtMins(Math.min(att.todayMins, 1440)) + '</div>' +
-      '<div style="font-size:0.65rem;color:#64748b;margin-top:2px;">Today\u2019s Focus</div></div>' +
-      '<div style="background:rgba(236,72,153,0.05);border:1px solid rgba(236,72,153,0.1);border-radius:10px;padding:10px 14px;text-align:center;">' +
-      '<div style="font-size:1rem;font-weight:800;color:#fff;">' + _fmtMins(att.weekMins) + '</div>' +
-      '<div style="font-size:0.65rem;color:#64748b;margin-top:2px;">Weekly Total</div></div>' +
       '</div>';
 
-    // Weekday header + alignment padding
-    var firstDate = new Date(today); firstDate.setDate(today.getDate() - 14);
-    var startDow = firstDate.getDay(); var startPad = startDow === 0 ? 6 : startDow - 1;
+    // Weekday header (Mon-first)
     var weekdayHtml = '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-bottom:6px;text-align:center;">';
     ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].forEach(function(d) { weekdayHtml += '<span style="font-size:0.6rem;font-weight:600;color:#64748b;">' + d + '</span>'; });
     weekdayHtml += '</div>';
 
-    // Grid cells (compact 40x40 squares)
-    var padHtml = '';
-    for (var pi = 0; pi < startPad; pi++) { padHtml += '<div style="width:44px;height:44px;"></div>'; }
-    var cellsHtml = padHtml + combined.map(function(day, idx) {
-      var isToday = idx === past15.length - 1;
-      var isFuture = day._future;
+    // Real month grid: leading pad (Mon-first) + day 1..lastDay of current month only.
+    var firstDow = new Date(curYear, curMonth, 1).getDay(); // 0=Sun
+    var startPad = firstDow === 0 ? 6 : firstDow - 1;        // Mon-first offset
+    var lastDay = new Date(curYear, curMonth + 1, 0).getDate();
+
+    var cellsHtml = '';
+    for (var pi = 0; pi < startPad; pi++) { cellsHtml += '<div style="width:44px;height:44px;"></div>'; }
+
+    for (var dnum = 1; dnum <= lastDay; dnum++) {
+      var key = curYear + ':' + (curMonth + 1) + ':' + dnum;
+      var rec = attByYmd[key];
+      var mins = rec ? (rec.mins || 0) : 0;
+      var active = rec ? !!rec.active : false;
+      var isToday = dnum === todayDate;
+      var isFuture = dnum > todayDate;
+
       if (isFuture) {
-        return '<div title="' + day.date + ' \u00b7 Plan your coding!" style="width:44px;height:44px;border-radius:8px;background:rgba(15,15,30,0.6);border:1px dashed rgba(139,92,246,0.15);display:flex;align-items:center;justify-content:center;font-size:0.68rem;color:rgba(100,116,139,0.5);font-weight:500;transition:all 0.18s;margin:0 auto;" onmouseover="this.style.borderColor=\'rgba(139,92,246,0.35)\';this.style.color=\'rgba(139,92,246,0.6)\'" onmouseout="this.style.borderColor=\'rgba(139,92,246,0.15)\';this.style.color=\'rgba(100,116,139,0.5)\'">' + day.day + '</div>';
+        cellsHtml += '<div title="Plan your coding!" style="width:44px;height:44px;border-radius:8px;background:rgba(15,15,30,0.6);border:1px dashed rgba(139,92,246,0.15);display:flex;align-items:center;justify-content:center;font-size:0.68rem;color:rgba(100,116,139,0.5);font-weight:500;transition:all 0.18s;margin:0 auto;" onmouseover="this.style.borderColor=\'rgba(139,92,246,0.35)\';this.style.color=\'rgba(139,92,246,0.6)\'" onmouseout="this.style.borderColor=\'rgba(139,92,246,0.15)\';this.style.color=\'rgba(100,116,139,0.5)\'">' + dnum + '</div>';
+        continue;
       }
-      var displayMins = Math.min(day.mins || 0, 1440);
-      var intensity = day.mins === 0 ? 0 : day.mins < 15 ? 0.3 : day.mins < 30 ? 0.6 : 1;
+
+      var displayMins = Math.min(mins, 1440);
+      var intensity = mins === 0 ? 0 : mins < 15 ? 0.3 : mins < 30 ? 0.6 : 1;
       var bg, borderColor, textColor, shadow;
-      if (!day.active) { bg = 'rgba(255,255,255,0.03)'; borderColor = 'rgba(255,255,255,0.07)'; textColor = '#94A3B8'; shadow = 'none'; }
+      if (!active) { bg = 'rgba(255,255,255,0.03)'; borderColor = 'rgba(255,255,255,0.07)'; textColor = '#94A3B8'; shadow = 'none'; }
       else if (intensity <= 0.3) { bg = 'rgba(124,58,237,0.25)'; borderColor = 'rgba(124,58,237,0.3)'; textColor = '#C4B5FD'; shadow = 'none'; }
       else if (intensity <= 0.6) { bg = 'linear-gradient(135deg,#7C3AED,#A855F7)'; borderColor = 'rgba(168,85,247,0.4)'; textColor = '#fff'; shadow = '0 0 8px rgba(168,85,247,0.2)'; }
       else { bg = 'linear-gradient(135deg,#A855F7,#EC4899)'; borderColor = 'rgba(236,72,153,0.4)'; textColor = '#fff'; shadow = '0 0 12px rgba(236,72,153,0.4)'; }
-      if (isToday) { borderColor = '#A78BFA'; shadow = (shadow === 'none' ? '' : shadow + ',') + '0 0 0 2px rgba(167,139,250,0.4)'; if (!day.active) { bg = 'rgba(139,92,246,0.1)'; textColor = '#A78BFA'; } }
-      return '<div title="' + day.date + (displayMins > 0 ? ' \u00b7 ' + _fmtMins(displayMins) : (isToday ? ' \u00b7 Today' : '')) + '" style="width:44px;height:44px;border-radius:8px;background:' + bg + ';border:1px solid ' + borderColor + ';display:flex;align-items:center;justify-content:center;font-size:0.68rem;color:' + textColor + ';font-weight:' + (isToday || day.active ? '700' : '500') + ';box-shadow:' + shadow + ';transition:all 0.18s ease;margin:0 auto;" onmouseover="this.style.transform=\'scale(1.1)\'" onmouseout="this.style.transform=\'scale(1)\'">' + day.day + '</div>';
-    }).join('');
+      if (isToday) { borderColor = '#A78BFA'; shadow = (shadow === 'none' ? '' : shadow + ',') + '0 0 0 2px rgba(167,139,250,0.4)'; if (!active) { bg = 'rgba(139,92,246,0.1)'; textColor = '#A78BFA'; } }
+
+      var titleTxt = monthNamesShort[curMonth] + ' ' + dnum + ', ' + curYear + (displayMins > 0 ? ' \u00b7 ' + _fmtMins(displayMins) : (isToday ? ' \u00b7 Today' : ''));
+      cellsHtml += '<div title="' + titleTxt + '" style="width:44px;height:44px;border-radius:8px;background:' + bg + ';border:1px solid ' + borderColor + ';display:flex;align-items:center;justify-content:center;font-size:0.68rem;color:' + textColor + ';font-weight:' + (isToday || active ? '700' : '500') + ';box-shadow:' + shadow + ';transition:all 0.18s ease;margin:0 auto;" onmouseover="this.style.transform=\'scale(1.1)\'" onmouseout="this.style.transform=\'scale(1)\'">' + dnum + '</div>';
+    }
 
     // Legend (single, clean, centered)
     var legendHtml = '<div style="display:flex;align-items:center;justify-content:center;gap:14px;margin-top:14px;font-size:0.62rem;color:#64748B;">' +
@@ -558,9 +604,9 @@ function _renderParentReport(dashData, achievements, totalCoins) {
       '<span style="display:flex;align-items:center;gap:4px;"><span style="width:9px;height:9px;border-radius:3px;background:linear-gradient(135deg,#A855F7,#EC4899);box-shadow:0 0 6px rgba(236,72,153,0.4);"></span> On Fire</span>' +
       '</div>';
 
-    // Month label
+    // Month label — matches the month being rendered
     var monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-    var monthLabel = '<div style="font-size:0.72rem;font-weight:600;color:#94A3B8;letter-spacing:0.5px;margin-bottom:10px;text-align:center;">' + monthNames[today.getMonth()] + ' ' + today.getFullYear() + '</div>';
+    var monthLabel = '<div style="font-size:0.72rem;font-weight:600;color:#94A3B8;letter-spacing:0.5px;margin-bottom:10px;text-align:center;">' + monthNames[curMonth] + ' ' + curYear + '</div>';
 
     attCal.innerHTML = statsHtml +
       '<div style="background:rgba(19,21,40,0.5);padding:16px 18px;border-radius:14px;border:1px solid rgba(255,255,255,0.04);">' +
@@ -569,10 +615,7 @@ function _renderParentReport(dashData, achievements, totalCoins) {
       legendHtml + '</div>';
   }
 
-  // Active days badge + Motivational message + Next Mission
-  var activeBadge = document.getElementById('pr-active-days-badge');
-  if (activeBadge) activeBadge.innerHTML = '\uD83D\uDCC5 ' + att.activeDays + ' Active Days';
-
+  // Motivational message + Next Mission
   var motivArea = document.getElementById('pr-motivation-area');
   if (motivArea) {
     // Calculate this week using actual calendar week boundaries (Mon-Sun)
@@ -670,18 +713,19 @@ function _renderParentReport(dashData, achievements, totalCoins) {
       }).join('')
     : '<p style="color:#64748b;font-size:0.85rem;">No courses enrolled yet.</p>';
 
-  // Stats row (3 cards — no Certificates)
+  // Quick stats (compact horizontal rows in the side panel)
   document.getElementById('pr-stats-row').innerHTML = [
     { icon: 'fa-fire',   color: '#ef4444', label: 'Weekly Streak', value: streakCount,         sub: 'Keep it going!' },
     { icon: 'fa-coins',  color: '#ec4899', label: 'Coins Earned',  value: totalCoins,          sub: 'Great progress!' },
     { icon: 'fa-medal',  color: '#a78bfa', label: 'Achievements',  value: achievements.length, sub: 'Keep collecting!' },
   ].map(function(c) {
-    return '<div style="background:rgba(22,22,38,0.75);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid ' + c.color + '20;border-radius:16px;padding:20px;text-align:center;transition:all 0.2s;" onmouseover="this.style.transform=\'translateY(-2px)\';this.style.borderColor=\'' + c.color + '40\'" onmouseout="this.style.transform=\'translateY(0)\';this.style.borderColor=\'' + c.color + '20\'">' +
-      '<div style="width:38px;height:38px;border-radius:12px;background:' + c.color + '15;display:flex;align-items:center;justify-content:center;margin:0 auto 10px;">' +
-      '<i class="fas ' + c.icon + '" style="color:' + c.color + ';font-size:0.9rem;"></i></div>' +
-      '<div style="font-size:1.6rem;font-weight:800;color:#fff;margin-bottom:2px;">' + c.value + '</div>' +
-      '<div style="font-size:0.78rem;font-weight:600;color:#94a3b8;">' + c.label + '</div>' +
-      '<div style="font-size:0.65rem;color:#475569;margin-top:3px;">' + c.sub + '</div>' +
+    return '<div class="pr-stat-item" style="border-color:' + c.color + '1f;" onmouseover="this.style.borderColor=\'' + c.color + '45\';this.style.transform=\'translateX(2px)\'" onmouseout="this.style.borderColor=\'' + c.color + '1f\';this.style.transform=\'translateX(0)\'">' +
+      '<div class="pr-stat-ic" style="background:' + c.color + '18;"><i class="fas ' + c.icon + '" style="color:' + c.color + ';"></i></div>' +
+      '<div style="flex:1;min-width:0;">' +
+      '<div class="pr-stat-label">' + c.label + '</div>' +
+      '<div class="pr-stat-sub">' + c.sub + '</div>' +
+      '</div>' +
+      '<div class="pr-stat-value" style="color:' + c.color + ';">' + c.value + '</div>' +
       '</div>';
   }).join('');
 
@@ -861,9 +905,60 @@ async function loadOrdersPage() {
   }
 }
 
+// Orders view state (frontend-only: filter/sort/pagination over already-loaded data)
+var _ordState = { data: null, page: 1, perPage: 6, search: '', filter: 'all', sort: 'latest' };
+
+// Course logo/identity for an order (reuse existing real assets; fallback to themed icon)
+function _ordCourseLogo(title) {
+  var ct = (title || '').toLowerCase().trim();
+  var img = function(src, bg, bd){ return { html: '<img src="' + src + '" alt="" style="width:30px;height:30px;object-fit:contain;" onerror="this.style.display=\'none\'"/>', bg: bg, border: bd }; };
+  if (ct.includes('java') && !ct.includes('javascript')) return img('assets/java-logo.png', 'rgba(249,115,22,0.12)', 'rgba(249,115,22,0.25)');
+  if (ct.includes('python')) return img('assets/python-logo.png', 'rgba(16,185,129,0.12)', 'rgba(16,185,129,0.25)');
+  if (ct === 'c' || ct.indexOf('c ') === 0 || ct.includes('c programming') || ct.includes('c lang')) return img('assets/c-logo.png', 'rgba(34,211,238,0.12)', 'rgba(34,211,238,0.25)');
+  var fa = 'fas fa-book';
+  if (ct.includes('javascript') || ct.includes(' js')) fa = 'fab fa-js';
+  else if (ct.includes('html') || ct.includes('web')) fa = 'fab fa-html5';
+  else if (ct.includes('react')) fa = 'fab fa-react';
+  else if (ct.includes('node')) fa = 'fab fa-node-js';
+  return { html: '<i class="' + fa + '" style="font-size:1.1rem;color:#a78bfa;"></i>', bg: 'rgba(139,92,246,0.1)', border: 'rgba(139,92,246,0.2)' };
+}
+
 function _renderOrdersPage(content, data) {
-  var orders = data.orders || [];
-  if (orders.length === 0) {
+  _ordState.data = data;
+  _ordState.page = 1;
+  // Keep the user's active search/filter if the header controls still hold them
+  // (this runs on both cache + fresh render); otherwise defaults apply.
+  var s = document.getElementById('ord-search-input');
+  var f = document.getElementById('ord-filter-select');
+  _ordState.search = s ? s.value.toLowerCase().trim() : '';
+  _ordState.filter = f ? f.value : 'all';
+  _ordRenderView(content);
+}
+
+// Filter/sort/paginate handler wired to header controls + pagination
+function _ordApplyFilters() {
+  var content = document.getElementById('orders-content');
+  if (!content || !_ordState.data) return;
+  var s = document.getElementById('ord-search-input');
+  var f = document.getElementById('ord-filter-select');
+  var sort = document.getElementById('ord-sort-select');
+  if (s) _ordState.search = s.value.toLowerCase().trim();
+  if (f) _ordState.filter = f.value;
+  if (sort) _ordState.sort = sort.value;
+  _ordState.page = 1;
+  _ordRenderView(content);
+}
+function _ordGoToPage(p) {
+  _ordState.page = p;
+  var content = document.getElementById('orders-content');
+  if (content) _ordRenderView(content);
+}
+
+function _ordRenderView(content) {
+  var data = _ordState.data || {};
+  var allOrders = data.orders || [];
+
+  if (allOrders.length === 0) {
     content.innerHTML = '<div style="text-align:center;padding:50px 20px;">' +
       '<div style="width:64px;height:64px;border-radius:18px;background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.15);display:flex;align-items:center;justify-content:center;font-size:1.8rem;margin:0 auto 16px;">\uD83D\uDECD\uFE0F</div>' +
       '<div style="font-size:1rem;font-weight:700;color:#fff;margin-bottom:6px;">No orders yet</div>' +
@@ -872,44 +967,129 @@ function _renderOrdersPage(content, data) {
       '</div>';
     return;
   }
-  // Summary stats
-  var successCount = orders.filter(function(o){return o.status==='success';}).length;
-  var pendingFailedCount = orders.filter(function(o){return o.status!=='success';}).length;
-  var html = '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:24px;">';
-  html += '<div style="background:rgba(22,22,38,0.75);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid rgba(16,185,129,0.12);border-radius:16px;padding:18px;text-align:center;">' +
-    '<div style="width:32px;height:32px;border-radius:9px;background:rgba(16,185,129,0.1);display:flex;align-items:center;justify-content:center;margin:0 auto 10px;"><i class="fas fa-check-circle" style="font-size:0.7rem;color:#6ee7b7;"></i></div>' +
-    '<div style="font-size:1.5rem;font-weight:800;color:#fff;">' + successCount + '</div>' +
-    '<div style="font-size:0.7rem;color:#64748b;margin-top:2px;">Purchased</div></div>';
-  html += '<div style="background:rgba(22,22,38,0.75);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid rgba(236,72,153,0.12);border-radius:16px;padding:18px;text-align:center;">' +
-    '<div style="width:32px;height:32px;border-radius:9px;background:rgba(236,72,153,0.1);display:flex;align-items:center;justify-content:center;margin:0 auto 10px;"><i class="fas fa-wallet" style="font-size:0.7rem;color:#f472b6;"></i></div>' +
-    '<div style="font-size:1.5rem;font-weight:800;color:#fff;">\u20B9' + data.totalSpent + '</div>' +
-    '<div style="font-size:0.7rem;color:#64748b;margin-top:2px;">Total Spent</div></div>';
-  html += '<div style="background:rgba(22,22,38,0.75);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid rgba(245,158,11,0.12);border-radius:16px;padding:18px;text-align:center;">' +
-    '<div style="width:32px;height:32px;border-radius:9px;background:rgba(245,158,11,0.1);display:flex;align-items:center;justify-content:center;margin:0 auto 10px;"><i class="fas fa-clock" style="font-size:0.7rem;color:#fbbf24;"></i></div>' +
-    '<div style="font-size:1.5rem;font-weight:800;color:#fff;">' + pendingFailedCount + '</div>' +
-    '<div style="font-size:0.7rem;color:#64748b;margin-top:2px;">Pending</div></div>';
-  html += '</div>';
-  // Order list
-  html += '<div style="display:flex;flex-direction:column;gap:12px;">';
-  orders.forEach(function(o) {
-    var statusColor = o.status === 'success' ? '#22c55e' : o.status === 'failed' ? '#ef4444' : '#f59e0b';
-    var statusBg = o.status === 'success' ? 'rgba(16,185,129,0.08)' : o.status === 'failed' ? 'rgba(239,68,68,0.08)' : 'rgba(245,158,11,0.08)';
-    var statusBorder = o.status === 'success' ? 'rgba(16,185,129,0.15)' : o.status === 'failed' ? 'rgba(239,68,68,0.15)' : 'rgba(245,158,11,0.15)';
-    var statusLabel = o.status === 'success' ? '\u2713 Successful' : o.status === 'failed' ? '\u2717 Failed' : '\u25CF Pending';
-    var date = new Date(o.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
-    html += '<div style="background:rgba(22,22,38,0.6);border:1px solid rgba(255,255,255,0.05);border-radius:16px;padding:16px 20px;display:flex;align-items:center;gap:14px;transition:all 0.2s;" onmouseover="this.style.borderColor=\'rgba(139,92,246,0.15)\';this.style.background=\'rgba(22,22,38,0.75)\'" onmouseout="this.style.borderColor=\'rgba(255,255,255,0.05)\';this.style.background=\'rgba(22,22,38,0.6)\'">' +
-      '<div style="width:42px;height:42px;border-radius:12px;background:rgba(139,92,246,0.08);border:1px solid rgba(139,92,246,0.12);display:flex;align-items:center;justify-content:center;flex-shrink:0;"><i class="fas fa-book" style="font-size:0.8rem;color:#a78bfa;"></i></div>' +
-      '<div style="flex:1;min-width:0;">' +
-      '<div style="font-size:0.88rem;font-weight:700;color:#fff;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + sanitize(o.courseTitle) + '</div>' +
-      '<div style="font-size:0.72rem;color:#64748b;">' + date + '</div>' +
-      '</div>' +
-      '<div style="text-align:right;flex-shrink:0;">' +
-      '<div style="font-size:1rem;font-weight:800;color:#fff;margin-bottom:3px;">\u20B9' + o.amount + '</div>' +
-      '<span style="font-size:0.65rem;font-weight:600;color:' + statusColor + ';background:' + statusBg + ';border:1px solid ' + statusBorder + ';border-radius:8px;padding:2px 8px;">' + statusLabel + '</span>' +
-      '</div>' +
-      '</div>';
+
+  // Stable order-number map (oldest order = #0001) — deterministic label over real orders
+  var byOldest = allOrders.slice().sort(function(a, b){ return new Date(a.createdAt) - new Date(b.createdAt); });
+  var orderNumMap = {};
+  byOldest.forEach(function(o, i){ orderNumMap[o.id] = i + 1; });
+
+  // Summary stats (unchanged real values)
+  var successCount = allOrders.filter(function(o){ return o.status === 'success'; }).length;
+  var pendingCount = allOrders.filter(function(o){ return o.status !== 'success'; }).length;
+
+  // Apply search + filter
+  var filtered = allOrders.filter(function(o) {
+    if (_ordState.filter !== 'all' && o.status !== _ordState.filter) return false;
+    if (_ordState.search) {
+      var q = _ordState.search; // already lowercased + trimmed
+      var title = (o.courseTitle || '').toLowerCase();
+      var orderNum = String(orderNumMap[o.id] || 0);
+      var fullId = ('ckd-ord-' + orderNum.padStart(4, '0'));
+      // Match course title always. Match the order ID only when the query looks
+      // like an ID query (contains a digit, '#', or 'ord'/'ckd') — otherwise a
+      // plain letter like "c" would match every order via the "ckd-ord" prefix.
+      var isIdQuery = /[0-9#]/.test(q) || q.indexOf('ord') !== -1 || q.indexOf('ckd') !== -1;
+      var matchTitle = title.indexOf(q) !== -1;
+      var matchId = isIdQuery && ('#' + fullId).indexOf(q.replace(/\s+/g, '')) !== -1;
+      if (!matchTitle && !matchId) return false;
+    }
+    return true;
   });
+  // Sort
+  filtered.sort(function(a, b) {
+    return _ordState.sort === 'oldest'
+      ? new Date(a.createdAt) - new Date(b.createdAt)
+      : new Date(b.createdAt) - new Date(a.createdAt);
+  });
+
+  // Pagination
+  var total = filtered.length;
+  var perPage = _ordState.perPage;
+  var totalPages = Math.max(1, Math.ceil(total / perPage));
+  if (_ordState.page > totalPages) _ordState.page = totalPages;
+  var startIdx = (_ordState.page - 1) * perPage;
+  var pageOrders = filtered.slice(startIdx, startIdx + perPage);
+
+  // ── KPI cards ──
+  var kpi = function(icon, accent, value, label, sub) {
+    return '<div class="ord-kpi" style="--ac:' + accent + ';" onmouseover="this.style.borderColor=\'' + accent + '45\'" onmouseout="this.style.borderColor=\'\'">' +
+      '<div class="ord-kpi-ic" style="background:' + accent + '18;border-color:' + accent + '30;"><i class="fas ' + icon + '" style="color:' + accent + ';"></i></div>' +
+      '<div style="flex:1;min-width:0;">' +
+      '<div class="ord-kpi-value">' + value + '</div>' +
+      '<div class="ord-kpi-label">' + label + '</div>' +
+      '<div class="ord-kpi-sub">' + sub + '</div>' +
+      '</div></div>';
+  };
+  var html = '<div class="ord-kpi-grid">' +
+    kpi('fa-shopping-bag', '#22c55e', successCount, 'Purchased', 'Total orders') +
+    kpi('fa-wallet', '#ec4899', '\u20B9' + (data.totalSpent || 0), 'Total Spent', 'Across all orders') +
+    kpi('fa-clock', '#f59e0b', pendingCount, 'Pending', 'Awaiting completion') +
+    '</div>';
+
+  // ── Order History header + sort ──
+  html += '<div class="ord-history-head">' +
+    '<span style="font-size:1.05rem;font-weight:700;color:#fff;">Order History</span>' +
+    '<div class="ord-sort"><span style="font-size:0.72rem;color:#64748b;">Sort by:</span>' +
+    '<select id="ord-sort-select" onchange="_ordApplyFilters()">' +
+    '<option value="latest"' + (_ordState.sort === 'latest' ? ' selected' : '') + '>Latest First</option>' +
+    '<option value="oldest"' + (_ordState.sort === 'oldest' ? ' selected' : '') + '>Oldest First</option>' +
+    '</select></div></div>';
+
+  // ── Order cards ──
+  if (pageOrders.length === 0) {
+    html += '<div style="text-align:center;padding:44px 20px;">' +
+      '<div style="width:56px;height:56px;border-radius:16px;background:rgba(139,92,246,0.08);border:1px solid rgba(139,92,246,0.18);display:flex;align-items:center;justify-content:center;font-size:1.3rem;color:#a78bfa;margin:0 auto 14px;"><i class="fas fa-search"></i></div>' +
+      '<div style="font-size:0.95rem;font-weight:700;color:#fff;margin-bottom:6px;">No orders found</div>' +
+      '<div style="font-size:0.8rem;color:#64748b;max-width:300px;margin:0 auto;line-height:1.5;">Try a different search term or change the filter.</div>' +
+      '</div>';
+  } else {
+    html += '<div style="display:flex;flex-direction:column;gap:12px;">';
+    pageOrders.forEach(function(o) {
+      var isSuccess = o.status === 'success';
+      var isFailed = o.status === 'failed';
+      var accent = isSuccess ? '#22c55e' : isFailed ? '#ef4444' : '#f59e0b';
+      var statusBg = isSuccess ? 'rgba(16,185,129,0.1)' : isFailed ? 'rgba(239,68,68,0.1)' : 'rgba(245,158,11,0.1)';
+      var statusBorder = isSuccess ? 'rgba(16,185,129,0.25)' : isFailed ? 'rgba(239,68,68,0.25)' : 'rgba(245,158,11,0.25)';
+      var statusLabel = isSuccess ? '\u2713 Successful' : isFailed ? '\u2717 Failed' : '\u25CF Pending';
+      var d = new Date(o.createdAt);
+      var dateStr = d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+      var timeStr = d.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true });
+      var orderId = '#CKD-ORD-' + String(orderNumMap[o.id] || 0).padStart(4, '0');
+      var logo = _ordCourseLogo(o.courseTitle);
+
+      html += '<div class="ord-card" style="border-left:3px solid ' + accent + ';">' +
+        '<div class="ord-card-logo" style="background:' + logo.bg + ';border-color:' + logo.border + ';">' + logo.html + '</div>' +
+        '<div class="ord-card-mid">' +
+        '<div class="ord-card-title">' + sanitize(o.courseTitle) + '</div>' +
+        '<div class="ord-card-oid">Order ID: ' + orderId + '</div>' +
+        '<div class="ord-card-date"><i class="far fa-calendar" style="font-size:0.66rem;"></i> ' + dateStr + ' \u2022 ' + timeStr + '</div>' +
+        '</div>' +
+        '<div class="ord-card-right">' +
+        '<div class="ord-card-price">\u20B9' + o.amount + '</div>' +
+        '<span class="ord-status" style="color:' + accent + ';background:' + statusBg + ';border-color:' + statusBorder + ';">' + statusLabel + '</span>' +
+        '</div>' +
+        '<button class="ord-details-btn" onclick="' + (o.courseId ? 'openCourseDetail(\'' + o.courseId + '\')' : 'navigate(\'courses\')') + '">View Details <i class="fas fa-chevron-right" style="font-size:0.62rem;"></i></button>' +
+        '</div>';
+    });
+    html += '</div>';
+  }
+
+  // ── Footer: count + pagination ──
+  var showFrom = total === 0 ? 0 : startIdx + 1;
+  var showTo = Math.min(startIdx + perPage, total);
+  html += '<div class="ord-footer">' +
+    '<span style="font-size:0.75rem;color:#64748b;">Showing ' + showFrom + ' to ' + showTo + ' of ' + total + ' orders</span>';
+  if (totalPages > 1) {
+    html += '<div class="ord-pagination">';
+    html += '<button class="ord-page-btn" ' + (_ordState.page <= 1 ? 'disabled' : 'onclick="_ordGoToPage(' + (_ordState.page - 1) + ')"') + '><i class="fas fa-chevron-left"></i></button>';
+    for (var p = 1; p <= totalPages; p++) {
+      html += '<button class="ord-page-btn ' + (p === _ordState.page ? 'ord-page-active' : '') + '" onclick="_ordGoToPage(' + p + ')">' + p + '</button>';
+    }
+    html += '<button class="ord-page-btn" ' + (_ordState.page >= totalPages ? 'disabled' : 'onclick="_ordGoToPage(' + (_ordState.page + 1) + ')"') + '><i class="fas fa-chevron-right"></i></button>';
+    html += '</div>';
+  }
   html += '</div>';
+
   content.innerHTML = html;
 }
 
@@ -947,28 +1127,78 @@ async function loadMallPage() {
   }
 }
 
+// Accent theme per reward type (visual only — derived from existing offer data)
+function _rwAccent(offer) {
+  var t = ((offer.title || '') + ' ' + (offer.description || '')).toLowerCase();
+  var faIcon = 'fa-gift';
+  var color = '#a78bfa';
+  if (t.includes('10%')) { color = '#a78bfa'; faIcon = 'fa-ticket-alt'; }
+  else if (t.includes('25%') || t.includes('discount')) { color = '#ec4899'; faIcon = 'fa-tag'; }
+  else if (t.includes('free') || t.includes('access')) { color = '#22c55e'; faIcon = 'fa-gift'; }
+  else if (t.includes('certificate') || t.includes('frame')) { color = '#3b82f6'; faIcon = 'fa-award'; }
+  else if (t.includes('doubt') || t.includes('1-on-1') || t.includes('instructor') || t.includes('session')) { color = '#f59e0b'; faIcon = 'fa-user-graduate'; }
+  return { color: color, faIcon: faIcon };
+}
+
 function _renderMallPage(content, data) {
-  var html = '<div style="background:rgba(22,22,38,0.75);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid rgba(251,191,36,0.12);border-radius:20px;padding:24px;text-align:center;margin-bottom:24px;">' +
-    '<div style="font-size:2.5rem;font-weight:800;color:#fbbf24;margin-bottom:4px;">\uD83E\uDE99 ' + data.balance + '</div>' +
-    '<div style="font-size:0.82rem;color:#64748b;">Your Coin Balance</div>' +
-    '<div style="font-size:0.72rem;color:#475569;margin-top:6px;">Keep learning to earn more rewards!</div></div>';
-  html += '<div style="background:rgba(22,22,38,0.6);border:1px solid rgba(139,92,246,0.1);border-radius:16px;padding:20px;margin-bottom:24px;">' +
-    '<div style="font-weight:700;color:#fff;margin-bottom:12px;display:flex;align-items:center;gap:8px;font-size:0.9rem;"><i class="fas fa-tag" style="color:#a78bfa;font-size:0.75rem;"></i> Have a Coupon?</div>' +
-    '<div style="display:flex;gap:10px;"><input id="mall-coupon-input" type="text" placeholder="Enter coupon code" style="flex:1;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:11px 14px;color:#fff;font-size:0.85rem;outline:none;text-transform:uppercase;" />' +
-    '<button onclick="applyCoupon()" style="background:linear-gradient(135deg,#6c47ff,#b251ff);border:none;border-radius:12px;padding:11px 20px;color:#fff;font-weight:700;font-size:0.82rem;cursor:pointer;transition:all 0.2s;" onmouseover="this.style.transform=\'translateY(-1px)\'" onmouseout="this.style.transform=\'translateY(0)\'">Apply</button></div>' +
-    '<div id="mall-coupon-msg" style="display:none;margin-top:8px;font-size:0.82rem;"></div></div>';
-  html += '<div style="font-weight:700;color:#fff;margin-bottom:14px;display:flex;align-items:center;gap:8px;font-size:0.95rem;"><i class="fas fa-gift" style="color:#fbbf24;font-size:0.8rem;"></i> Redeem Rewards</div>';
-  html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">';
+  var balance = (typeof data.balance !== 'undefined' && data.balance !== null) ? data.balance : 0;
+
+  // ── 1. Coin balance hero ──
+  var html = '<div class="rw-hero">' +
+    '<div class="rw-hero-glow"></div>' +
+    '<div class="rw-hero-left">' +
+    '<div class="rw-hero-coin"><i class="fas fa-coins"></i></div>' +
+    '<div>' +
+    '<div class="rw-hero-label">Your Coins</div>' +
+    '<div class="rw-hero-balance">' + balance + ' <span>Coins</span></div>' +
+    '<div class="rw-hero-sub">Earn more coins by learning and completing activities.</div>' +
+    '</div></div>' +
+    '<div class="rw-hero-decor"><i class="fas fa-gem"></i><i class="fas fa-star"></i><i class="fas fa-treasure-chest"></i></div>' +
+    '<button class="rw-history-btn" onclick="' + (typeof openCoinsPopup === 'function' ? 'openCoinsPopup()' : 'navigate(\'profile\')') + '"><i class="fas fa-history"></i> View History</button>' +
+    '</div>';
+
+  // ── 2. Coupon card ──
+  html += '<div class="rw-coupon">' +
+    '<div class="rw-coupon-left">' +
+    '<div class="rw-coupon-ic"><i class="fas fa-ticket-alt"></i></div>' +
+    '<div><div class="rw-coupon-title">Have a coupon?</div>' +
+    '<div class="rw-coupon-sub">Enter your coupon code to get exciting rewards.</div></div>' +
+    '</div>' +
+    '<div class="rw-coupon-form">' +
+    '<input id="mall-coupon-input" type="text" placeholder="Enter coupon code" class="rw-coupon-input" onkeydown="if(event.key===\'Enter\')applyCoupon()" />' +
+    '<button onclick="applyCoupon()" class="rw-coupon-apply">Apply</button>' +
+    '</div>' +
+    '<div id="mall-coupon-msg" style="display:none;flex-basis:100%;margin-top:6px;font-size:0.82rem;"></div>' +
+    '</div>';
+
+  // ── 3. Redeem Rewards header ──
+  html += '<div class="rw-section-head">' +
+    '<div class="rw-section-title"><span class="rw-section-emoji">\uD83C\uDF81</span> Redeem Rewards' +
+    '<span class="rw-spark rw-spark-1"><i class="fas fa-star"></i></span><span class="rw-spark rw-spark-2"><i class="fas fa-star"></i></span></div>' +
+    '<div class="rw-section-sub">Turn your coins into useful learning rewards.</div>' +
+    '</div>';
+
+  // ── 4. Reward cards grid ──
+  html += '<div class="rw-grid">';
   (data.offers || []).forEach(function(offer) {
-    var opacity = offer.available ? '1' : '0.5';
-    html += '<div style="background:rgba(22,22,38,0.6);border:1px solid ' + (offer.available ? 'rgba(251,191,36,0.12)' : 'rgba(255,255,255,0.05)') + ';border-radius:16px;padding:18px;opacity:' + opacity + ';transition:all 0.2s;" ' + (offer.available ? 'onmouseover="this.style.transform=\'translateY(-2px)\';this.style.borderColor=\'rgba(251,191,36,0.25)\'" onmouseout="this.style.transform=\'translateY(0)\';this.style.borderColor=\'rgba(251,191,36,0.12)\'"' : '') + '>' +
-      '<div style="font-size:1.5rem;margin-bottom:8px;">' + offer.icon + '</div>' +
-      '<div style="font-size:0.85rem;font-weight:700;color:#fff;margin-bottom:4px;">' + offer.title + '</div>' +
-      '<div style="font-size:0.72rem;color:#64748b;margin-bottom:14px;line-height:1.4;">' + offer.description + '</div>' +
-      '<button onclick="redeemOffer(\'' + offer.id + '\')" ' + (offer.available ? '' : 'disabled') + ' style="background:' + (offer.available ? 'linear-gradient(135deg,#f59e0b,#fbbf24)' : 'rgba(255,255,255,0.06)') + ';border:none;border-radius:10px;padding:9px 14px;color:' + (offer.available ? '#000' : '#64748b') + ';font-size:0.78rem;font-weight:700;cursor:' + (offer.available ? 'pointer' : 'not-allowed') + ';width:100%;transition:all 0.2s;">\uD83E\uDE99 ' + offer.coinsRequired + ' Coins</button>' +
+    var a = _rwAccent(offer);
+    var avail = !!offer.available;
+    html += '<div class="rw-card' + (avail ? '' : ' rw-card-locked') + '" style="--ac:' + a.color + ';">' +
+      '<div class="rw-card-top">' +
+      '<div class="rw-card-ic"><i class="fas ' + a.faIcon + '"></i></div>' +
+      '<div class="rw-card-info">' +
+      '<div class="rw-card-title">' + sanitize(offer.title || '') + '</div>' +
+      '<div class="rw-card-desc">' + sanitize(offer.description || '') + '</div>' +
+      '</div></div>' +
+      '<div class="rw-card-divider"></div>' +
+      '<div class="rw-card-bottom">' +
+      '<div class="rw-card-cost"><span class="rw-coin"><i class="fas fa-coins"></i></span> ' + offer.coinsRequired + ' <span class="rw-coin-lbl">Coins</span></div>' +
+      '<button class="rw-redeem-btn" onclick="redeemOffer(\'' + offer.id + '\')" ' + (avail ? '' : 'disabled') + '>' + (avail ? 'Redeem <i class="fas fa-arrow-right"></i>' : 'Locked') + '</button>' +
+      '</div>' +
       '</div>';
   });
   html += '</div>';
+
   content.innerHTML = html;
 }
 
@@ -1010,36 +1240,89 @@ async function redeemOffer(offerId) {
 
 var _selectedRating = 0;
 
+// 1–5 rating identity (label + accent color) — reused for selector, labels, badges, reviews
+var _RATING_META = {
+  1: { label: 'Very Poor',        emoji: '\uD83D\uDE1E', color: '#ef4444' },
+  2: { label: 'Needs Improvement', emoji: '\uD83D\uDE15', color: '#f97316' },
+  3: { label: 'Average',          emoji: '\uD83D\uDE42', color: '#f59e0b' },
+  4: { label: 'Good',             emoji: '\uD83D\uDE0A', color: '#a78bfa' },
+  5: { label: 'Excellent',        emoji: '\uD83E\uDD29', color: '#22c55e' },
+};
+function _rateColor(r) { return (_RATING_META[r] && _RATING_META[r].color) || '#94a3b8'; }
+
+// Current user's display name as the reviews API derives it (email local-part), for
+// current-user review detection. Falls back to profile name. No fabrication.
+function _rateCurrentUserName() {
+  try {
+    var u = JSON.parse(localStorage.getItem('ck_user') || sessionStorage.getItem('ck_user') || '{}');
+    if (u.email && u.email.indexOf('@') !== -1) return u.email.split('@')[0].toLowerCase();
+    var pe = document.getElementById('profile-email');
+    if (pe && pe.textContent && pe.textContent.indexOf('@') !== -1) return pe.textContent.split('@')[0].toLowerCase();
+  } catch (e) {}
+  return '';
+}
+
+function _rateUpdateCount() {
+  var ta = document.getElementById('rate-feedback');
+  var c = document.getElementById('rate-char-count');
+  if (ta && c) c.textContent = String((ta.value || '').length);
+}
+
+// Paint the star selector to reflect _selectedRating (shared by click + pre-fill)
+function _ratePaintStars() {
+  var container = document.getElementById('rate-stars');
+  if (!container) return;
+  container.querySelectorAll('span').forEach(function(s) {
+    var val = parseInt(s.dataset.value);
+    var on = val <= _selectedRating;
+    s.textContent = on ? '\u2605' : '\u2606';
+    s.style.color = on ? _rateColor(_selectedRating) : 'rgba(255,255,255,0.18)';
+    s.style.textShadow = on ? '0 0 12px ' + _rateColor(_selectedRating) + '66' : 'none';
+  });
+  var moodEl = document.getElementById('rate-mood-label');
+  if (moodEl) {
+    var meta = _RATING_META[_selectedRating];
+    if (meta) {
+      moodEl.style.display = 'inline-flex';
+      moodEl.textContent = meta.label + ' ' + meta.emoji;
+      moodEl.style.color = meta.color;
+      moodEl.style.background = meta.color + '1f';
+      moodEl.style.borderColor = meta.color + '40';
+    } else { moodEl.style.display = 'none'; }
+  }
+}
+
 function loadRateUsPage() {
   var container = document.getElementById('rate-stars');
   if (!container) return;
   _selectedRating = 0;
   container.innerHTML = '';
-  var moodLabels = ['', '\uD83D\uDE15 Needs improvement', '\uD83D\uDE42 Could be better', '\uD83D\uDE0A It\u2019s good!', '\uD83D\uDE04 Really good!', '\uD83E\uDD29 I love it!'];
   for (var i = 1; i <= 5; i++) {
     var star = document.createElement('span');
+    star.className = 'rating-star';
     star.textContent = '\u2606';
     star.dataset.value = i;
-    star.style.cssText = 'font-size:2.8rem;cursor:pointer;transition:all 0.2s;color:rgba(255,255,255,0.2);user-select:none;';
+    star.setAttribute('role', 'button');
+    star.setAttribute('tabindex', '0');
+    star.setAttribute('aria-label', i + ' star' + (i > 1 ? 's' : ''));
     star.onmouseover = function() { this.style.transform = 'scale(1.15)'; };
     star.onmouseout = function() { this.style.transform = 'scale(1)'; };
-    star.onclick = function() {
-      _selectedRating = parseInt(this.dataset.value);
-      container.querySelectorAll('span').forEach(function(s) {
-        var val = parseInt(s.dataset.value);
-        s.textContent = val <= _selectedRating ? '\u2605' : '\u2606';
-        s.style.color = val <= _selectedRating ? '#fbbf24' : 'rgba(255,255,255,0.2)';
-        s.style.textShadow = val <= _selectedRating ? '0 0 12px rgba(251,191,36,0.4)' : 'none';
-      });
-      var moodEl = document.getElementById('rate-mood-label');
-      if (moodEl) { moodEl.textContent = moodLabels[_selectedRating] || ''; moodEl.style.color = _selectedRating >= 4 ? '#fbbf24' : _selectedRating >= 3 ? '#6ee7b7' : '#f472b6'; }
-    };
+    star.onclick = function() { _selectedRating = parseInt(this.dataset.value); _ratePaintStars(); };
+    star.onkeydown = function(e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); _selectedRating = parseInt(this.dataset.value); _ratePaintStars(); } };
     container.appendChild(star);
   }
   var msg = document.getElementById('rate-msg');
   if (msg) msg.style.display = 'none';
   var moodEl = document.getElementById('rate-mood-label');
-  if (moodEl) moodEl.textContent = '';
+  if (moodEl) moodEl.style.display = 'none';
+  var ta = document.getElementById('rate-feedback');
+  if (ta) ta.value = '';
+  _rateUpdateCount();
+  // Reset to "Submit" mode; _renderAppRatings switches to "Update" if a review exists
+  var lbl = document.getElementById('rate-submit-label');
+  if (lbl) lbl.textContent = 'Submit Rating';
+  var already = document.getElementById('rate-already');
+  if (already) already.style.display = 'none';
 
   // Load existing app ratings
   _loadAppRatings();
@@ -1078,56 +1361,120 @@ async function _loadAppRatings() {
   } catch { if (!cached) reviewsDiv.innerHTML = ''; }
 }
 
+// Star row helper (filled/empty) with a color
+function _rateStarRow(rating, color) {
+  var out = '';
+  for (var i = 1; i <= 5; i++) {
+    out += '<i class="fas fa-star" style="font-size:0.72rem;color:' + (i <= rating ? color : 'rgba(255,255,255,0.16)') + ';"></i>';
+  }
+  return out;
+}
+
 function _renderAppRatings(reviewsDiv, data) {
   if (!data.success || data.totalReviews === 0) {
-    reviewsDiv.innerHTML = '<div class="card" style="text-align:center;padding:20px;color:var(--muted);font-size:0.85rem;">No reviews yet. Be the first to rate!</div>';
+    reviewsDiv.innerHTML = '<div class="rating-summary" style="text-align:center;padding:36px 24px;">' +
+      '<div class="rating-empty-ic"><i class="fas fa-star"></i></div>' +
+      '<div class="rating-empty-title">Be the first to rate CodingKida</div>' +
+      '<div class="rating-empty-sub">Your feedback helps other students and helps us improve.</div>' +
+      '</div>';
+    // No existing review → keep Submit mode
     return;
   }
-  var html = '<div style="background:rgba(17,19,34,0.85);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid rgba(255,255,255,0.04);border-radius:20px;padding:24px;">';
-  html += '<div style="display:flex;align-items:center;gap:16px;margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid rgba(255,255,255,0.05);">';
-  html += '<div style="text-align:center;"><div style="font-size:2.5rem;font-weight:900;color:#fff;">' + data.avgRating + '</div><div style="color:#fbbf24;font-size:0.8rem;margin-top:2px;">\u2605\u2605\u2605\u2605\u2605</div><div style="font-size:0.68rem;color:#64748b;margin-top:4px;">' + data.totalReviews + ' review' + (data.totalReviews > 1 ? 's' : '') + '</div></div>';
-  html += '<div style="flex:1;">';
+
+  // ── Overall Rating card ──
+  var html = '<div class="rating-summary">' +
+    '<div class="rating-summary-head">' +
+    '<span class="rating-summary-title">Overall Rating</span>' +
+    '<i class="fas fa-info-circle" style="font-size:0.72rem;color:#64748b;" title="Average of all student ratings"></i>' +
+    '</div>' +
+    '<div class="rating-summary-body">' +
+    '<div class="rating-summary-score">' +
+    '<div class="rating-avg">' + data.avgRating + '</div>' +
+    '<div class="rating-avg-stars">' + _rateStarRow(Math.round(data.avgRating), '#fbbf24') + '</div>' +
+    '<div class="rating-avg-count">Based on ' + data.totalReviews + ' review' + (data.totalReviews > 1 ? 's' : '') + '</div>' +
+    '</div>' +
+    '<div class="rating-distribution">';
   for (var s = 5; s >= 1; s--) {
     var count = data.ratingCounts[s] || 0;
     var pct = data.totalReviews > 0 ? Math.round(count / data.totalReviews * 100) : 0;
-    html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">';
-    html += '<span style="font-size:0.7rem;color:#94a3b8;width:18px;font-family:monospace;">' + s + '\u2605</span>';
-    html += '<div style="flex:1;height:6px;background:rgba(255,255,255,0.05);border-radius:10px;overflow:hidden;"><div style="width:' + pct + '%;height:100%;background:linear-gradient(to right,#fbbf24,#f59e0b);border-radius:10px;"></div></div>';
-    html += '<span style="font-size:0.68rem;color:#64748b;width:16px;text-align:right;font-family:monospace;">' + count + '</span>';
-    html += '</div>';
+    var barColor = _rateColor(s);
+    html += '<div class="rating-dist-row">' +
+      '<span class="rating-dist-label">' + s + ' <i class="fas fa-star" style="font-size:0.6rem;color:' + barColor + ';"></i></span>' +
+      '<div class="rating-dist-track"><div class="rating-dist-fill" style="--sp-target:' + pct + '%;background:' + barColor + ';"></div></div>' +
+      '<span class="rating-dist-count">' + count + '</span>' +
+      '</div>';
   }
+  html += '</div></div></div>';
+
+  // ── Recent Reviews (dedup by student, keep latest) ──
+  var reviews = (data.reviews || []).slice();
+  // Backend already upserts one record per user; this is a safe display-dedup by
+  // studentName keeping the newest createdAt (no stable userId is exposed here).
+  var latestByUser = {};
+  reviews.forEach(function(r) {
+    var key = (r.studentName || '').toLowerCase();
+    if (!latestByUser[key] || new Date(r.createdAt) > new Date(latestByUser[key].createdAt)) {
+      latestByUser[key] = r;
+    }
+  });
+  var deduped = Object.keys(latestByUser).map(function(k) { return latestByUser[k]; });
+  deduped.sort(function(a, b) { return new Date(b.createdAt) - new Date(a.createdAt); });
+
+  html += '<div class="rating-review-list-wrap">' +
+    '<div class="rating-review-head"><span class="rating-summary-title">Recent Reviews</span></div>' +
+    '<div class="rating-review-list">';
+  deduped.slice(0, 8).forEach(function(r) {
+    var meta = _RATING_META[r.rating] || { label: '', color: '#94a3b8' };
+    var date = new Date(r.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+    var initial = (r.studentName || '?').charAt(0).toUpperCase();
+    html += '<div class="rating-review-card" style="--rc:' + meta.color + ';">' +
+      '<div class="rating-review-avatar" style="background:' + meta.color + '22;border-color:' + meta.color + '40;color:' + meta.color + ';">' + initial + '</div>' +
+      '<div class="rating-review-body">' +
+      '<div class="rating-review-top">' +
+      '<span class="rating-review-name">' + sanitize(r.studentName) + '</span>' +
+      '<span class="rating-review-date">' + date + '</span>' +
+      '</div>' +
+      '<div class="rating-review-stars-row">' + _rateStarRow(r.rating, meta.color) +
+      (meta.label ? '<span class="rating-badge" style="color:' + meta.color + ';background:' + meta.color + '1f;border-color:' + meta.color + '3a;">' + meta.label + '</span>' : '') +
+      '</div>' +
+      (r.feedback ? '<div class="rating-review-text">' + sanitize(r.feedback) + '</div>' : '') +
+      '</div></div>';
+  });
   html += '</div></div>';
-  if (data.reviews && data.reviews.length > 0) {
-    html += '<div style="border-top:1px solid rgba(255,255,255,0.05);margin-top:16px;padding-top:16px;">';
-    html += '<div style="font-weight:700;font-size:0.85rem;color:#fff;margin-bottom:12px;display:flex;align-items:center;gap:6px;">\uD83D\uDCAC Recent Reviews</div>';
-    data.reviews.slice(0, 8).forEach(function(r) {
-      var stars = '';
-      for (var i = 1; i <= 5; i++) stars += i <= r.rating ? '\u2605' : '\u2606';
-      var date = new Date(r.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
-      var initial = (r.studentName || '?').charAt(0).toUpperCase();
-      var colors = ['#a78bfa','#f472b6','#67e8f9','#fbbf24','#6ee7b7'];
-      var avatarColor = colors[initial.charCodeAt(0) % colors.length];
-      html += '<div style="display:flex;align-items:flex-start;gap:10px;padding:10px;margin-bottom:8px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.04);border-radius:12px;transition:all 0.18s;" onmouseover="this.style.borderColor=\'rgba(139,92,246,0.15)\';this.style.transform=\'translateY(-1px)\'" onmouseout="this.style.borderColor=\'rgba(255,255,255,0.04)\';this.style.transform=\'translateY(0)\'">';
-      html += '<div style="width:32px;height:32px;min-width:32px;border-radius:50%;background:linear-gradient(135deg,' + avatarColor + '40,' + avatarColor + '20);display:flex;align-items:center;justify-content:center;font-size:0.72rem;font-weight:700;color:' + avatarColor + ';">' + initial + '</div>';
-      html += '<div style="flex:1;min-width:0;">';
-      html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;">';
-      html += '<span style="font-size:0.78rem;font-weight:600;color:#fff;">' + sanitize(r.studentName) + '</span>';
-      html += '<span style="font-size:0.65rem;color:#64748b;">' + date + '</span></div>';
-      html += '<div style="font-size:0.7rem;color:#fbbf24;margin-bottom:3px;">' + stars + '</div>';
-      if (r.feedback) html += '<div style="font-size:0.75rem;color:#94a3b8;line-height:1.4;">\u201C' + sanitize(r.feedback) + '\u201D</div>';
-      html += '</div></div>';
-    });
-    html += '</div>';
-  }
-  html += '</div>';
+
   reviewsDiv.innerHTML = html;
+
+  // ── Current-user review detection → pre-fill + Update mode ──
+  // Backend upserts by user, so the current user's latest review (if any) can be
+  // matched by their derived studentName. This drives NEW vs UPDATE form state.
+  var myName = _rateCurrentUserName();
+  if (myName && latestByUser[myName]) {
+    var mine = latestByUser[myName];
+    _selectedRating = mine.rating || 0;
+    _ratePaintStars();
+    var ta = document.getElementById('rate-feedback');
+    if (ta && !ta.value) { ta.value = mine.feedback || ''; _rateUpdateCount(); }
+    var lbl = document.getElementById('rate-submit-label');
+    if (lbl) lbl.textContent = 'Update Rating';
+    var already = document.getElementById('rate-already');
+    if (already) already.style.display = 'flex';
+  }
 }
 
+var _rateSubmitting = false;
 async function submitRating() {
+  if (_rateSubmitting) return; // guard against rapid double-clicks
   if (_selectedRating === 0) { alert('Please select a rating'); return; }
   var feedback = (document.getElementById('rate-feedback') || {}).value || '';
   var msg = document.getElementById('rate-msg');
+  var btn = document.getElementById('rate-submit-btn');
+  var lbl = document.getElementById('rate-submit-label');
+  var prevLbl = lbl ? lbl.textContent : 'Submit Rating';
   var token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+
+  _rateSubmitting = true;
+  if (btn) { btn.disabled = true; btn.style.opacity = '0.7'; }
+  if (lbl) lbl.textContent = 'Saving...';
 
   try {
     var res = await fetch(BASE_URL + '/api/feedback', {
@@ -1138,10 +1485,97 @@ async function submitRating() {
     if (msg) {
       msg.style.display = 'block';
       msg.style.color = data.success ? '#22c55e' : '#ef4444';
-      msg.textContent = data.success ? '🎉 Thank you for your feedback!' : '❌ ' + data.message;
+      msg.textContent = data.success ? '\uD83C\uDF89 Thank you for your feedback!' : '\u274C ' + data.message;
     }
-    if (data.success) _loadAppRatings();
-  } catch { if (msg) { msg.style.display = 'block'; msg.style.color = '#ef4444'; msg.textContent = 'Network error'; } }
+    if (data.success) { _loadAppRatings(); }
+    else if (lbl) { lbl.textContent = prevLbl; }
+  } catch {
+    if (msg) { msg.style.display = 'block'; msg.style.color = '#ef4444'; msg.textContent = 'Network error'; }
+    if (lbl) lbl.textContent = prevLbl;
+  } finally {
+    _rateSubmitting = false;
+    if (btn) { btn.disabled = false; btn.style.opacity = '1'; }
+  }
+}
+
+// ─── About Page (dynamic stats from existing frontend data — no new API) ──────
+
+// Parse a course "students" value into an actual number. Handles plain numbers
+// and shorthand strings like "45K", "1.2K", "2M" (the format used in course data).
+function _aboutParseStudents(v) {
+  if (v === null || v === undefined) return 0;
+  if (typeof v === 'number') return isFinite(v) ? v : 0;
+  var s = String(v).trim().toLowerCase().replace(/[, ]/g, '');
+  var m = s.match(/^([\d.]+)\s*([km])?/);
+  if (!m) return 0;
+  var num = parseFloat(m[1]) || 0;
+  if (m[2] === 'k') num *= 1000;
+  else if (m[2] === 'm') num *= 1000000;
+  return Math.round(num);
+}
+
+// Compact large-number format: 1000→1K+, 12500→12.5K+, 50000→50K+
+function _aboutFmtCount(n) {
+  n = Number(n) || 0;
+  if (n <= 0) return '\u2014';
+  if (n < 1000) return n + '+';
+  var k = n / 1000;
+  var s = (k >= 10 || k % 1 === 0) ? Math.round(k) : (Math.round(k * 10) / 10);
+  return s + 'K+';
+}
+
+function _aboutSetStat(id, value) {
+  var el = document.getElementById(id);
+  if (!el) return;
+  el.classList.remove('abt-skeleton');
+  el.textContent = value;
+}
+
+function loadAboutPage() {
+  // Students + Courses come from the existing courses cache (or MOCK_COURSES fallback).
+  // Each course carries a real `students` (enrollment) count; sum for a real total.
+  var courses = null;
+  try {
+    var cc = (typeof ckCacheGet === 'function') ? ckCacheGet('/api/courses') : null;
+    if (cc && cc.success && Array.isArray(cc.courses)) courses = cc.courses;
+  } catch (e) {}
+  if (!courses && typeof MOCK_COURSES !== 'undefined' && Array.isArray(MOCK_COURSES)) courses = MOCK_COURSES;
+
+  if (courses && courses.length) {
+    _aboutSetStat('about-stat-courses', courses.length + '+');
+    var totalStudents = courses.reduce(function(sum, c) { return sum + _aboutParseStudents(c.students); }, 0);
+    _aboutSetStat('about-stat-students', _aboutFmtCount(totalStudents));
+  } else {
+    // No data available — graceful fallback, never fabricate
+    _aboutSetStat('about-stat-courses', '\u2014');
+    _aboutSetStat('about-stat-students', '\u2014');
+    // Try a background courses load to fill in once available
+    if (typeof loadCourses === 'function') {
+      loadCourses().then(function(list) {
+        if (list && list.length) {
+          _aboutSetStat('about-stat-courses', list.length + '+');
+          var ts = list.reduce(function(sum, c) { return sum + _aboutParseStudents(c.students); }, 0);
+          _aboutSetStat('about-stat-students', _aboutFmtCount(ts));
+        }
+      }).catch(function(){});
+    }
+  }
+
+  // Rating reuses the existing app-rating feedback data (same source as Rate Us).
+  var rating = null, reviews = 0;
+  try {
+    var rc = (typeof ckCacheGet === 'function') ? ckCacheGet('/api/feedback/app_rating') : null;
+    if (rc && rc.success) { rating = rc.avgRating; reviews = rc.totalReviews || 0; }
+  } catch (e) {}
+  if (rating && Number(rating) > 0) {
+    _aboutSetStat('about-stat-rating', Number(rating).toFixed(1));
+    var rsub = document.getElementById('about-stat-rating-sub');
+    if (rsub) rsub.textContent = 'Based on ' + reviews + ' review' + (reviews === 1 ? '' : 's');
+  } else {
+    _aboutSetStat('about-stat-rating', '\u2014');
+    var rsub2 = document.getElementById('about-stat-rating-sub');
+    if (rsub2) rsub2.textContent = 'No ratings yet';
+  }
 }
 
 // ─── Help & Support ───────────────────────────────────────────────────────────
@@ -1518,33 +1952,118 @@ function _renderStars(rating) {
   return html;
 }
 
+/* Student Progress visual helpers (presentation only — reuse existing data) */
+function _spCourseLogo(title) {
+  var ct = (title || '').toLowerCase();
+  var img = function(src, bg, bd){ return { html: '<img src="' + src + '" alt="" class="sp-course-logo" style="width:34px;height:34px;object-fit:contain;" onerror="this.style.display=\'none\'"/>', bg: bg, border: bd }; };
+  if (ct.includes('java') && !ct.includes('javascript')) return img('assets/java-logo.png', 'rgba(249,115,22,0.12)', 'rgba(249,115,22,0.28)');
+  if (ct.includes('python')) return img('assets/python-logo.png', 'rgba(16,185,129,0.12)', 'rgba(16,185,129,0.28)');
+  if (ct === 'c' || ct.includes('c programming') || ct.includes('c lang')) return img('assets/c-logo.png', 'rgba(34,211,238,0.12)', 'rgba(34,211,238,0.28)');
+  var faIcon = 'fas fa-book';
+  if (ct.includes('javascript') || ct.includes(' js')) faIcon = 'fab fa-js';
+  else if (ct.includes('html') || ct.includes('web')) faIcon = 'fab fa-html5';
+  else if (ct.includes('react')) faIcon = 'fab fa-react';
+  else if (ct.includes('node')) faIcon = 'fab fa-node-js';
+  return { html: '<i class="' + faIcon + ' sp-course-logo" style="font-size:1.4rem;color:#c4b5fd;"></i>', bg: 'rgba(139,92,246,0.12)', border: 'rgba(139,92,246,0.28)' };
+}
+// Derive a visual learning state ONLY from existing completion data (+ existing achievement helper).
+function _spCourseState(course) {
+  var p = course.progressPercent || 0;
+  var mastered = false;
+  if (typeof getCourseAchievement === 'function') {
+    var ach = getCourseAchievement(course);
+    mastered = !!(ach && ach.isMaster);
+  }
+  if (mastered) return { label: 'Mastered', color: '#fbbf24', bg: 'rgba(251,191,36,0.14)', border: 'rgba(251,191,36,0.35)' };
+  if (p >= 100) return { label: 'Completed', color: '#4ade80', bg: 'rgba(34,197,94,0.14)', border: 'rgba(34,197,94,0.3)' };
+  if (p >= 75) return { label: 'Almost Complete', color: '#67e8f9', bg: 'rgba(34,211,238,0.12)', border: 'rgba(34,211,238,0.28)' };
+  if (p > 0) return { label: 'In Progress', color: '#a78bfa', bg: 'rgba(139,92,246,0.14)', border: 'rgba(139,92,246,0.3)' };
+  return { label: 'Not Started', color: '#94a3b8', bg: 'rgba(255,255,255,0.05)', border: 'rgba(255,255,255,0.1)' };
+}
+// Performance label derived from existing overallScore only.
+function _spPerfLabel(score) {
+  if (score >= 90) return 'Outstanding';
+  if (score >= 75) return 'Excellent';
+  if (score >= 50) return 'Doing Well';
+  if (score >= 25) return 'Getting Started';
+  return 'Just Beginning';
+}
+// Animated star row (reuses rating value; adds subtle staggered pop).
+function _spStars(rating) {
+  var html = '';
+  for (var i = 1; i <= 5; i++) {
+    var on = i <= rating;
+    html += '<i class="fas fa-star sp-star" style="font-size:1.15rem;color:' + (on ? '#fbbf24' : 'rgba(255,255,255,0.15)') + ';' + (on ? 'text-shadow:0 0 10px rgba(251,191,36,0.4);' : '') + 'animation-delay:' + (i * 0.06) + 's;"></i>';
+  }
+  return html;
+}
+// Compact metric block with mini progress bar (Lessons / Quiz / Exercises).
+function _spMetric(icon, color, label, pct, valueText, fillGradient) {
+  return '<div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.05);border-radius:12px;padding:12px 14px;">' +
+    '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">' +
+    '<span style="display:flex;align-items:center;gap:7px;font-size:0.72rem;color:#cbd5e1;font-weight:600;"><i class="fas ' + icon + '" style="color:' + color + ';font-size:0.72rem;"></i> ' + label + '</span>' +
+    '<span style="font-size:0.74rem;font-weight:800;color:#fff;">' + valueText + '</span>' +
+    '</div>' +
+    '<div class="sp-mini-track"><div class="sp-mini-fill" style="--sp-target:' + (pct || 0) + '%;background:' + fillGradient + ';"></div></div>' +
+    '</div>';
+}
+
 function _renderStudentProgress(data) {
   var content = document.getElementById('student-progress-content');
   if (!content) return;
 
-  // Overall Rating Card
-  var overallHtml = '<div style="background:rgba(22,22,38,0.75);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid rgba(139,92,246,0.15);border-radius:20px;padding:28px;margin-bottom:24px;position:relative;overflow:hidden;">' +
-    '<div style="position:absolute;top:-30%;right:-5%;width:150px;height:150px;background:radial-gradient(circle,rgba(139,92,246,0.06),transparent 65%);pointer-events:none;"></div>' +
-    '<div style="text-align:center;margin-bottom:20px;position:relative;z-index:1;">' +
-    '<div style="font-size:0.72rem;color:#64748b;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;">Overall Performance</div>' +
-    '<div style="display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:6px;">' + _renderStars(data.overallRating) + '</div>' +
-    '<div style="font-size:2rem;font-weight:800;color:#fff;">' + data.overallRating + ' / 5</div>' +
-    '<div style="font-size:0.78rem;color:#64748b;margin-top:4px;">Score: <span style="color:#a78bfa;font-weight:700;">' + data.overallScore + '%</span></div>' +
+  var score = data.overallScore || 0;
+  // Total XP — reuse existing XP system (no recalculation). Falls back gracefully.
+  var totalXp = null;
+  if (typeof getXPState === 'function') { try { totalXp = (getXPState() || {}).xp; } catch (e) { totalXp = null; } }
+  var lessonPctAll = data.totalLessons > 0 ? Math.round((data.totalLessonsCompleted / data.totalLessons) * 100) : 0;
+
+  // ── Overall Performance focal card (two-column: rating + learning score) ──
+  var overallHtml = '<div style="background:linear-gradient(135deg,rgba(46,26,74,0.55),rgba(22,22,38,0.75));backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid rgba(139,92,246,0.22);border-radius:22px;padding:26px 28px;margin-bottom:24px;position:relative;overflow:hidden;box-shadow:0 12px 36px rgba(0,0,0,0.3),0 0 24px rgba(139,92,246,0.06);">' +
+    '<div style="position:absolute;top:-35%;right:-2%;width:220px;height:220px;background:radial-gradient(circle,rgba(139,92,246,0.14),transparent 65%);pointer-events:none;"></div>' +
+    '<div style="position:absolute;bottom:-40%;left:20%;width:180px;height:180px;background:radial-gradient(circle,rgba(236,72,153,0.06),transparent 65%);pointer-events:none;"></div>' +
+    '<i class="fas fa-trophy sp-trophy" style="pointer-events:none;"></i>' +
+    '<div style="display:grid;grid-template-columns:1fr 1px 1.2fr;gap:26px;align-items:center;position:relative;z-index:1;">' +
+    // Left: rating
+    '<div>' +
+    '<div style="font-size:0.68rem;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:10px;">Overall Performance</div>' +
+    '<div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">' + _spStars(data.overallRating) + '</div>' +
+    '<div style="font-size:2.1rem;font-weight:800;color:#fff;line-height:1;">' + data.overallRating + ' <span style="font-size:1.1rem;color:#64748b;font-weight:700;">/ 5</span></div>' +
+    '<span style="display:inline-block;margin-top:10px;font-size:0.68rem;font-weight:700;color:#c4b5fd;background:rgba(139,92,246,0.15);border:1px solid rgba(139,92,246,0.3);border-radius:20px;padding:3px 12px;">' + _spPerfLabel(score) + '</span>' +
     '</div>' +
-    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;position:relative;z-index:1;">' +
-    '<div style="background:rgba(139,92,246,0.06);border:1px solid rgba(139,92,246,0.12);border-radius:14px;padding:14px;text-align:center;">' +
-    '<div style="font-size:1.2rem;font-weight:800;color:#fff;">' + data.totalLessonsCompleted + ' / ' + data.totalLessons + '</div>' +
-    '<div style="font-size:0.68rem;color:#64748b;margin-top:3px;">Lessons Completed</div></div>' +
-    '<div style="background:rgba(236,72,153,0.06);border:1px solid rgba(236,72,153,0.12);border-radius:14px;padding:14px;text-align:center;">' +
-    '<div style="font-size:1.2rem;font-weight:800;color:#fff;">' + data.courses.length + '</div>' +
-    '<div style="font-size:0.68rem;color:#64748b;margin-top:3px;">Courses</div></div>' +
+    // Divider
+    '<div style="width:1px;height:80px;background:linear-gradient(180deg,transparent,rgba(255,255,255,0.1),transparent);"></div>' +
+    // Right: learning score
+    '<div>' +
+    '<div style="font-size:0.68rem;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:8px;">Learning Score</div>' +
+    '<div style="font-size:2.6rem;font-weight:800;background:linear-gradient(90deg,#a78bfa,#ec4899);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;line-height:1;margin-bottom:12px;">' + score + '%</div>' +
+    '<div class="sp-progress-track" style="max-width:340px;"><div class="sp-progress-fill" style="--sp-target:' + score + '%;background:linear-gradient(90deg,#6366f1,#8b5cf6,#ec4899);box-shadow:0 0 10px rgba(139,92,246,0.5);"></div></div>' +
+    '<div style="font-size:0.76rem;color:#94a3b8;margin-top:10px;">Keep going! You\u2019re doing great.</div>' +
     '</div>' +
-    '<div style="text-align:center;position:relative;z-index:1;"><span onclick="document.getElementById(\'sp-rating-detail\').style.display=document.getElementById(\'sp-rating-detail\').style.display===\'none\'?\'block\':\'none\'" style="font-size:0.75rem;color:#a78bfa;cursor:pointer;font-weight:600;">▼ View Rating Breakdown</span></div>' +
+    '</div>' +
+    // Stat cards row
+    '<div style="display:grid;grid-template-columns:repeat(' + (totalXp !== null ? '3' : '2') + ',1fr);gap:14px;margin-top:22px;position:relative;z-index:1;">' +
+    '<div style="background:rgba(139,92,246,0.06);border:1px solid rgba(139,92,246,0.15);border-radius:16px;padding:16px 18px;display:flex;align-items:center;gap:14px;">' +
+    '<div style="width:44px;height:44px;border-radius:13px;background:rgba(139,92,246,0.14);display:flex;align-items:center;justify-content:center;flex-shrink:0;"><i class="fas fa-book-open" style="color:#a78bfa;font-size:0.95rem;"></i></div>' +
+    '<div><div style="font-size:1.35rem;font-weight:800;color:#fff;line-height:1;">' + data.totalLessonsCompleted + ' / ' + data.totalLessons + '</div><div style="font-size:0.7rem;color:#94a3b8;margin-top:3px;">Lessons Completed</div><div style="font-size:0.66rem;color:#6ee7b7;font-weight:600;margin-top:1px;">' + lessonPctAll + '% Completed</div></div>' +
+    '</div>' +
+    '<div style="background:rgba(34,211,238,0.05);border:1px solid rgba(34,211,238,0.15);border-radius:16px;padding:16px 18px;display:flex;align-items:center;gap:14px;">' +
+    '<div style="width:44px;height:44px;border-radius:13px;background:rgba(34,211,238,0.12);display:flex;align-items:center;justify-content:center;flex-shrink:0;"><i class="fas fa-graduation-cap" style="color:#67e8f9;font-size:0.95rem;"></i></div>' +
+    '<div><div style="font-size:1.35rem;font-weight:800;color:#fff;line-height:1;">' + data.courses.length + '</div><div style="font-size:0.7rem;color:#94a3b8;margin-top:3px;">Courses Enrolled</div><div style="font-size:0.66rem;color:#67e8f9;font-weight:600;margin-top:1px;">Keep learning</div></div>' +
+    '</div>' +
+    (totalXp !== null ?
+    '<div style="background:rgba(236,72,153,0.05);border:1px solid rgba(236,72,153,0.15);border-radius:16px;padding:16px 18px;display:flex;align-items:center;gap:14px;">' +
+    '<div style="width:44px;height:44px;border-radius:13px;background:rgba(236,72,153,0.12);display:flex;align-items:center;justify-content:center;flex-shrink:0;"><span style="font-size:0.72rem;font-weight:800;color:#f472b6;">XP</span></div>' +
+    '<div><div style="font-size:1.35rem;font-weight:800;color:#fff;line-height:1;">' + totalXp + ' XP</div><div style="font-size:0.7rem;color:#94a3b8;margin-top:3px;">Total XP Earned</div><div style="font-size:0.66rem;color:#f472b6;font-weight:600;margin-top:1px;">Level up!</div></div>' +
+    '</div>' : '') +
+    '</div>' +
+    // Rating breakdown toggle
+    '<div style="text-align:center;margin-top:18px;position:relative;z-index:1;"><span onclick="document.getElementById(\'sp-rating-detail\').style.display=document.getElementById(\'sp-rating-detail\').style.display===\'none\'?\'block\':\'none\'" style="font-size:0.75rem;color:#a78bfa;cursor:pointer;font-weight:600;">\u25BC View Rating Breakdown</span></div>' +
     // Rating breakdown (expandable)
-    '<div id="sp-rating-detail" style="display:none;margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,0.06);">' +
+    '<div id="sp-rating-detail" style="display:none;margin-top:18px;padding-top:16px;border-top:1px solid rgba(255,255,255,0.06);position:relative;z-index:1;">' +
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">' +
     // Quiz rating
-    '<div style="background:rgba(139,92,246,0.04);border:1px solid rgba(139,92,246,0.1);border-radius:16px;padding:18px;">' +
+    '<div style="background:rgba(139,92,246,0.04);border:1px solid rgba(139,92,246,0.12);border-radius:16px;padding:18px;">' +
     '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;"><i class="fas fa-brain" style="color:#a78bfa;font-size:0.8rem;"></i><span style="font-weight:700;color:#fff;font-size:0.88rem;">Quiz Performance</span></div>' +
     '<div style="margin-bottom:8px;">' + _renderStars(data.ratingBreakdown.quiz.rating) + ' <span style="color:#fff;font-weight:700;margin-left:4px;">' + data.ratingBreakdown.quiz.rating + '/5</span></div>' +
     '<div style="font-size:0.75rem;color:#94a3b8;line-height:1.8;">' +
@@ -1553,7 +2072,7 @@ function _renderStudentProgress(data) {
     'Correct: ' + data.ratingBreakdown.quiz.correct +
     '</div></div>' +
     // Exercise rating
-    '<div style="background:rgba(16,185,129,0.04);border:1px solid rgba(16,185,129,0.1);border-radius:16px;padding:18px;">' +
+    '<div style="background:rgba(16,185,129,0.04);border:1px solid rgba(16,185,129,0.12);border-radius:16px;padding:18px;">' +
     '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;"><i class="fas fa-code" style="color:#6ee7b7;font-size:0.8rem;"></i><span style="font-weight:700;color:#fff;font-size:0.88rem;">Exercise Performance</span></div>' +
     '<div style="margin-bottom:8px;">' + _renderStars(data.ratingBreakdown.exercise.rating) + ' <span style="color:#fff;font-weight:700;margin-left:4px;">' + data.ratingBreakdown.exercise.rating + '/5</span></div>' +
     '<div style="font-size:0.75rem;color:#94a3b8;line-height:1.8;">' +
@@ -1564,22 +2083,45 @@ function _renderStudentProgress(data) {
     '</div></div>' +
     '</div>';
 
-  // Per-course progress
+  // Per-course progress (premium dynamic cards)
   var coursesHtml = '';
   data.courses.forEach(function(course) {
-    coursesHtml += '<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:16px;margin-bottom:16px;overflow:hidden;">' +
-      // Course header
-      '<div onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display===\'none\'?\'block\':\'none\';this.querySelector(\'.sp-chevron\').classList.toggle(\'fa-chevron-down\');this.querySelector(\'.sp-chevron\').classList.toggle(\'fa-chevron-up\')" style="padding:18px 20px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;">' +
-      '<div style="display:flex;align-items:center;gap:14px;">' +
-      '<div style="width:42px;height:42px;border-radius:12px;background:' + (course.color || 'linear-gradient(135deg,#6c47ff,#ec4899)') + ';display:flex;align-items:center;justify-content:center;"><i class="' + (course.icon || 'fas fa-book') + '" style="color:#fff;font-size:1rem;"></i></div>' +
-      '<div><div style="font-size:1rem;font-weight:700;color:#fff;">' + sanitize(course.title) + '</div>' +
-      '<div style="font-size:0.75rem;color:var(--muted);">' + course.lessonsCompleted + '/' + course.totalLessons + ' lessons · Quiz: ' + course.quiz.accuracy + '% · Progress: ' + course.progressPercent + '%</div></div></div>' +
-      '<i class="fas fa-chevron-down sp-chevron" style="color:var(--muted);font-size:0.8rem;"></i>' +
-      '</div>' +
-      // Course content (modules + lessons) - collapsed by default
-      '<div style="display:none;padding:0 20px 20px;">';
+    var logo = _spCourseLogo(course.title);
+    var st = _spCourseState(course);
+    var p = course.progressPercent || 0;
+    var lessonPct = course.totalLessons > 0 ? Math.round((course.lessonsCompleted / course.totalLessons) * 100) : 0;
+    var quizPct = (course.quiz && course.quiz.accuracy !== null && course.quiz.accuracy !== undefined) ? course.quiz.accuracy : 0;
+    var exPct = (course.exercise && course.exercise.total > 0) ? Math.round((course.exercise.passed / course.exercise.total) * 100) : 0;
+    var progColor = p >= 100 ? 'linear-gradient(90deg,#10b981,#22c55e)' : 'linear-gradient(90deg,#6366f1,#8b5cf6,#ec4899)';
 
-    // Course quiz/exercise summary
+    coursesHtml += '<div class="sp-course-card" style="background:linear-gradient(135deg,rgba(28,28,46,0.7),rgba(22,22,38,0.6));border:1px solid ' + (st.label === 'Mastered' ? 'rgba(251,191,36,0.3)' : 'rgba(255,255,255,0.08)') + ';border-radius:18px;margin-bottom:16px;overflow:hidden;' + (st.label === 'Mastered' ? 'box-shadow:0 0 20px rgba(251,191,36,0.08);' : '') + '">' +
+      // Header (clickable toggle — detail div is after the always-visible metrics row)
+      '<div onclick="var d=this.nextElementSibling.nextElementSibling;var open=d.style.display===\'none\';d.style.display=open?\'block\':\'none\';this.querySelector(\'.sp-chevron\').style.transform=open?\'rotate(180deg)\':\'rotate(0deg)\'" style="padding:18px 20px;cursor:pointer;display:flex;align-items:center;gap:16px;">' +
+      '<div style="width:52px;height:52px;min-width:52px;border-radius:14px;background:' + logo.bg + ';border:1px solid ' + logo.border + ';display:flex;align-items:center;justify-content:center;box-shadow:inset 0 0 12px ' + logo.bg + ';">' + logo.html + '</div>' +
+      '<div style="flex:1;min-width:0;">' +
+      '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap;">' +
+      '<span style="font-size:1.02rem;font-weight:800;color:#fff;">' + sanitize(course.title) + '</span>' +
+      '<span style="font-size:0.6rem;font-weight:700;letter-spacing:0.4px;text-transform:uppercase;color:' + st.color + ';background:' + st.bg + ';border:1px solid ' + st.border + ';border-radius:20px;padding:2px 10px;">' + st.label + '</span>' +
+      '</div>' +
+      '<div style="font-size:0.72rem;color:#94a3b8;margin-bottom:8px;">' + course.lessonsCompleted + ' / ' + course.totalLessons + ' lessons completed</div>' +
+      '<div class="sp-progress-track"><div class="sp-progress-fill" style="--sp-target:' + p + '%;background:' + progColor + ';box-shadow:0 0 8px rgba(139,92,246,0.4);"></div></div>' +
+      '</div>' +
+      '<div style="text-align:right;flex-shrink:0;display:flex;align-items:center;gap:10px;">' +
+      '<span style="font-size:1.15rem;font-weight:800;color:' + (p >= 100 ? '#4ade80' : '#a78bfa') + ';">' + p + '%</span>' +
+      (p >= 100 ? '<i class="fas fa-check-circle" style="color:#22c55e;font-size:1.1rem;"></i>' : '') +
+      '<i class="fas fa-chevron-down sp-chevron" style="color:#64748b;font-size:0.8rem;transition:transform 0.25s ease;"></i>' +
+      '</div>' +
+      '</div>' +
+      // Metrics row (Lessons / Quiz / Exercises mini-bars)
+      '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;padding:0 20px 16px;">' +
+      _spMetric('fa-book', '#a78bfa', 'Lessons', lessonPct, course.lessonsCompleted + ' / ' + course.totalLessons, 'linear-gradient(90deg,#6366f1,#8b5cf6)') +
+      _spMetric('fa-question', '#c4b5fd', 'Quiz', quizPct, quizPct + '%', 'linear-gradient(90deg,#8b5cf6,#a855f7)') +
+      _spMetric('fa-code', '#67e8f9', 'Exercises', exPct, exPct + '%', 'linear-gradient(90deg,#38bdf8,#22d3ee)') +
+      '</div>' +
+      // Expandable detail (modules + lessons) — collapsed by default, preserved behavior
+      '<div style="display:none;padding:0 20px 20px;border-top:1px solid rgba(255,255,255,0.05);margin-top:2px;padding-top:16px;">';
+
+    // Course quiz/exercise summary (kept)
     coursesHtml += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px;">' +
       '<div style="background:rgba(108,71,255,0.1);border-radius:10px;padding:12px;text-align:center;"><div style="font-size:1.1rem;font-weight:800;color:#fff;">' + course.quiz.attempted + '/' + course.quiz.total + '</div><div style="font-size:0.68rem;color:var(--muted);">Quizzes Done</div></div>' +
       '<div style="background:rgba(34,197,94,0.1);border-radius:10px;padding:12px;text-align:center;"><div style="font-size:1.1rem;font-weight:800;color:#fff;">' + course.exercise.passed + '/' + course.exercise.total + '</div><div style="font-size:0.68rem;color:var(--muted);">Exercises Passed</div></div>' +
@@ -1612,7 +2154,6 @@ function _renderStudentProgress(data) {
           '<div style="font-size:0.82rem;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + sanitize(lesson.title) + '</div>' +
           '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">' + quizBadge + exerciseBadge + hwBadge + achieveBadge + '</div>' +
           '</div>' +
-          '<span style="font-size:0.7rem;color:var(--muted);flex-shrink:0;">' + (lesson.duration || '') + '</span>' +
           '</div>';
       });
 

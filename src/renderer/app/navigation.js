@@ -208,6 +208,11 @@ function _navigateInternal(page, addToHistory) {
   const target = document.getElementById('page-' + page);
   if (target) target.classList.add('active');
 
+  // Reset the shared scroll container to the top on every page switch so pages
+  // (My Report, Help & Support, Rate Us, Student Progress, etc.) always open at the top.
+  var _pageScroll = document.querySelector('.main-content');
+  if (_pageScroll) _pageScroll.scrollTop = 0;
+
   if (page === 'downloads') renderDownloads();
   if (page === 'offline-downloads') renderOfflineDownloads();
   if (page === 'parent-report') loadParentReport();
@@ -216,6 +221,7 @@ function _navigateInternal(page, addToHistory) {
   if (page === 'orders') loadOrdersPage();
   if (page === 'mall') loadMallPage();
   if (page === 'rate-us') loadRateUsPage();
+  if (page === 'about' && typeof loadAboutPage === 'function') loadAboutPage();
   if (page === 'student-progress') loadStudentProgress();
   if (page === 'coding' && typeof codingPgInit === 'function') {
     // Ensure page-coding is inside main-content (fixes placement issue)
@@ -234,6 +240,8 @@ function _navigateInternal(page, addToHistory) {
     if (t) StudentAPI.getDashboard().then(data => _applyDashboardData(data, false)).catch(() => {});
     // Preload profile sub-pages data in background
     if (page === 'profile' && t) {
+      // Repaint XP hero from stored XP state (persists across reloads)
+      if (typeof renderProfileXP === 'function') renderProfileXP();
       loadOrdersPage();
       loadMallPage();
       loadRateUsPage();

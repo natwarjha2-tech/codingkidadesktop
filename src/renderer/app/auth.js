@@ -504,32 +504,36 @@ async function _applyDashboardData(data, isFromCache) {
     if (profileCoursesContainer) {
       if (data.enrolledCourses && data.enrolledCourses.length > 0) {
         profileCoursesContainer.innerHTML = data.enrolledCourses.map(c => {
-          // Determine course icon based on title
+          // Determine course visual identity based on title.
+          // Prefer real PNG logos where an asset exists, else fall back to themed icons.
           var ct = (c.title || '').toLowerCase();
           var courseIcon = '';
           var iconColor = '#c4b5fd';
           var iconBg = 'rgba(139,92,246,0.2)';
           var iconBorder = 'rgba(139,92,246,0.2)';
-          if (ct.includes('java') && !ct.includes('javascript')) { courseIcon = '<i class="fab fa-java" style="font-size:1.3rem;"></i>'; iconColor = '#f97316'; iconBg = 'rgba(249,115,22,0.15)'; iconBorder = 'rgba(249,115,22,0.25)'; }
-          else if (ct.includes('python')) { courseIcon = '<i class="fab fa-python" style="font-size:1.1rem;"></i>'; iconColor = '#22c55e'; iconBg = 'rgba(16,185,129,0.15)'; iconBorder = 'rgba(16,185,129,0.25)'; }
-          else if (ct.includes('javascript') || ct.includes(' js')) { courseIcon = '<i class="fab fa-js" style="font-size:1.1rem;"></i>'; iconColor = '#fbbf24'; iconBg = 'rgba(251,191,36,0.15)'; iconBorder = 'rgba(251,191,36,0.25)'; }
-          else if (ct.includes('html') || ct.includes('web')) { courseIcon = '<i class="fab fa-html5" style="font-size:1.1rem;"></i>'; iconColor = '#f472b6'; iconBg = 'rgba(236,72,153,0.15)'; iconBorder = 'rgba(236,72,153,0.25)'; }
-          else if (ct.includes('react')) { courseIcon = '<i class="fab fa-react" style="font-size:1.1rem;"></i>'; iconColor = '#67e8f9'; iconBg = 'rgba(34,211,238,0.15)'; iconBorder = 'rgba(34,211,238,0.25)'; }
-          else if (ct.includes('node')) { courseIcon = '<i class="fab fa-node-js" style="font-size:1.1rem;"></i>'; iconColor = '#4ade80'; iconBg = 'rgba(34,197,94,0.15)'; iconBorder = 'rgba(34,197,94,0.25)'; }
-          else if (ct === 'c' || ct.includes('c programming') || ct.includes('c lang')) { courseIcon = '<span style="font-size:1.1rem;font-weight:800;font-family:Courier New,monospace;">C</span>'; iconColor = '#67e8f9'; iconBg = 'rgba(34,211,238,0.15)'; iconBorder = 'rgba(34,211,238,0.25)'; }
-          else if (ct.includes('c++') || ct.includes('cpp')) { courseIcon = '<span style="font-size:0.9rem;font-weight:800;font-family:Courier New,monospace;">C++</span>'; iconColor = '#a78bfa'; iconBg = 'rgba(139,92,246,0.15)'; iconBorder = 'rgba(139,92,246,0.25)'; }
-          else { courseIcon = '<span style="font-size:1.2rem;font-weight:800;font-family:Courier New,monospace;">' + sanitize(c.title.charAt(0)) + '</span>'; }
+          var _logoImg = function(src){ return '<img src="' + src + '" alt="" style="width:30px;height:30px;object-fit:contain;" onerror="this.style.display=\'none\'"/>'; };
+          if (ct.includes('java') && !ct.includes('javascript')) { courseIcon = _logoImg('assets/java-logo.png'); iconColor = '#f97316'; iconBg = 'rgba(249,115,22,0.12)'; iconBorder = 'rgba(249,115,22,0.25)'; }
+          else if (ct.includes('python')) { courseIcon = _logoImg('assets/python-logo.png'); iconColor = '#22c55e'; iconBg = 'rgba(16,185,129,0.12)'; iconBorder = 'rgba(16,185,129,0.25)'; }
+          else if (ct === 'c' || ct.includes('c programming') || ct.includes('c lang')) { courseIcon = _logoImg('assets/c-logo.png'); iconColor = '#67e8f9'; iconBg = 'rgba(34,211,238,0.12)'; iconBorder = 'rgba(34,211,238,0.25)'; }
+          else if (ct.includes('javascript') || ct.includes(' js')) { courseIcon = '<i class="fab fa-js" style="font-size:1.3rem;"></i>'; iconColor = '#fbbf24'; iconBg = 'rgba(251,191,36,0.12)'; iconBorder = 'rgba(251,191,36,0.25)'; }
+          else if (ct.includes('html') || ct.includes('web')) { courseIcon = '<i class="fab fa-html5" style="font-size:1.3rem;"></i>'; iconColor = '#f472b6'; iconBg = 'rgba(236,72,153,0.12)'; iconBorder = 'rgba(236,72,153,0.25)'; }
+          else if (ct.includes('react')) { courseIcon = '<i class="fab fa-react" style="font-size:1.3rem;"></i>'; iconColor = '#67e8f9'; iconBg = 'rgba(34,211,238,0.12)'; iconBorder = 'rgba(34,211,238,0.25)'; }
+          else if (ct.includes('node')) { courseIcon = '<i class="fab fa-node-js" style="font-size:1.3rem;"></i>'; iconColor = '#4ade80'; iconBg = 'rgba(34,197,94,0.12)'; iconBorder = 'rgba(34,197,94,0.25)'; }
+          else if (ct.includes('c++') || ct.includes('cpp')) { courseIcon = '<span style="font-size:0.95rem;font-weight:800;font-family:Courier New,monospace;">C++</span>'; iconColor = '#a78bfa'; iconBg = 'rgba(139,92,246,0.12)'; iconBorder = 'rgba(139,92,246,0.25)'; }
+          else { courseIcon = '<span style="font-size:1.25rem;font-weight:800;font-family:Courier New,monospace;">' + sanitize(c.title.charAt(0)) + '</span>'; }
 
-          return '<div style="margin-bottom:14px;background:rgba(22,22,38,0.6);padding:16px 18px;border-radius:16px;border:1px solid ' + iconBorder + ';display:flex;align-items:center;gap:14px;transition:all 0.25s;cursor:pointer;overflow:hidden;position:relative;" onmouseover="this.style.borderColor=\'' + iconColor + '50\';this.style.transform=\'translateY(-2px)\';this.style.boxShadow=\'0 6px 20px ' + iconBg + '\'" onmouseout="this.style.borderColor=\'' + iconBorder + '\';this.style.transform=\'translateY(0)\';this.style.boxShadow=\'none\'" onclick="openCourseDetail(\'' + c.id + '\')">' +
-          '<div style="width:46px;height:46px;min-width:46px;border-radius:14px;background:' + iconBg + ';border:1px solid ' + iconBorder + ';display:flex;align-items:center;justify-content:center;color:' + iconColor + ';">' + courseIcon + '</div>' +
+          var _pct = c.progressPercent || 0;
+          var _done = _pct >= 100;
+          return '<div style="margin-bottom:14px;background:linear-gradient(135deg,rgba(28,28,46,0.7),rgba(22,22,38,0.55));padding:16px 18px;border-radius:16px;border:1px solid ' + iconBorder + ';display:flex;align-items:center;gap:15px;transition:all 0.25s ease;cursor:pointer;overflow:hidden;position:relative;" onmouseover="this.style.borderColor=\'' + iconColor + '66\';this.style.transform=\'translateY(-2px)\';this.style.boxShadow=\'0 8px 24px ' + iconBg + '\'" onmouseout="this.style.borderColor=\'' + iconBorder + '\';this.style.transform=\'translateY(0)\';this.style.boxShadow=\'none\'" onclick="openCourseDetail(\'' + c.id + '\')">' +
+          '<div style="width:48px;height:48px;min-width:48px;border-radius:14px;background:' + iconBg + ';border:1px solid ' + iconBorder + ';display:flex;align-items:center;justify-content:center;color:' + iconColor + ';box-shadow:inset 0 0 12px ' + iconBg + ';">' + courseIcon + '</div>' +
           '<div style="flex:1;min-width:0;">' +
-          '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">' +
-          '<span style="font-weight:700;font-size:0.9rem;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:70%;">' + sanitize(c.title) + '</span>' +
-          '<span style="font-size:0.85rem;font-weight:800;color:' + ((c.progressPercent || 0) >= 100 ? '#22c55e' : iconColor) + ';flex-shrink:0;">' + (c.progressPercent || 0) + '%</span>' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;gap:10px;">' +
+          '<span style="font-weight:700;font-size:0.92rem;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:0.2px;">' + sanitize(c.title) + '</span>' +
+          '<span style="font-size:0.82rem;font-weight:800;color:' + (_done ? '#22c55e' : iconColor) + ';flex-shrink:0;">' + (_done ? '<i class="fas fa-check-circle" style="font-size:0.75rem;margin-right:3px;"></i>' : '') + _pct + '%</span>' +
           '</div>' +
-          '<div style="font-size:0.72rem;color:#64748b;margin-bottom:8px;">' + (c.completedLessons || 0) + ' of ' + (c.totalLessons || 0) + ' lessons completed</div>' +
-          '<div style="height:5px;background:rgba(255,255,255,0.06);border-radius:10px;overflow:hidden;position:relative;">' +
-          '<div class="enrolled-progress-fill" style="width:' + (c.progressPercent || 0) + '%;height:100%;border-radius:10px;background:linear-gradient(90deg,#6c47ff,#a855f7,#ec4899);box-shadow:0 0 6px rgba(139,92,246,0.4);animation:progressFillIn 1s ease-out;position:relative;overflow:hidden;"></div>' +
+          '<div style="font-size:0.7rem;color:#8b93a7;margin-bottom:9px;font-weight:500;">' + (c.completedLessons || 0) + ' of ' + (c.totalLessons || 0) + ' lessons completed</div>' +
+          '<div style="height:6px;background:rgba(255,255,255,0.06);border-radius:10px;overflow:hidden;position:relative;">' +
+          '<div class="enrolled-progress-fill" style="width:' + _pct + '%;height:100%;border-radius:10px;background:linear-gradient(90deg,#6c47ff,#a855f7,#ec4899);box-shadow:0 0 8px rgba(139,92,246,0.5);animation:progressFillIn 1s ease-out;position:relative;overflow:hidden;"></div>' +
           '</div>' +
           '</div>' +
           '</div>';

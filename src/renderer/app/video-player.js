@@ -167,6 +167,11 @@ function _vpInitPlayer(videoEl) {
   videoEl.addEventListener('play', function(){ document.getElementById('vp-play-icon').className='fas fa-pause'; });
   videoEl.addEventListener('pause', function(){ document.getElementById('vp-play-icon').className='fas fa-play'; });
   videoEl.addEventListener('timeupdate', function(){
+    // XP: award lesson-watch (+10) once when ~80% watched (frontend-only, anti-farm via action key)
+    if(_pendingLessonComplete&&videoEl.duration&&videoEl.currentTime/videoEl.duration>=0.8&&typeof awardXP==='function'){
+      var _wc=(_currentLessonContext&&_currentLessonContext.courseId)?_currentLessonContext.courseId:'x';
+      awardXP('lesson-watch:'+_wc+':'+_pendingLessonComplete, XP_REWARDS.lessonWatch80);
+    }
     if(!_lessonMarkedComplete&&_pendingLessonComplete&&videoEl.duration&&videoEl.currentTime/videoEl.duration>=0.9){_lessonMarkedComplete=true;markLessonComplete(_pendingLessonComplete);}
     var pct=videoEl.duration?(videoEl.currentTime/videoEl.duration)*100:0;
     var pb=document.getElementById('vp-prog-bar');if(pb)pb.style.width=pct+'%';
@@ -645,6 +650,11 @@ function updateDailyStreak() {
 async function markLessonComplete(lessonId) {
   const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
   if (!token || !lessonId) return;
+  // XP: award lesson-complete (+25) once per lesson (frontend-only)
+  if (typeof awardXP === 'function') {
+    var _cc = (_currentLessonContext && _currentLessonContext.courseId) ? _currentLessonContext.courseId : 'x';
+    awardXP('lesson-complete:' + _cc + ':' + lessonId, XP_REWARDS.lessonComplete);
+  }
   apiRequest('/api/lessons/' + lessonId + '/progress', {
     method: 'POST',
     body: JSON.stringify({ completed: true }),
