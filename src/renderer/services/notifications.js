@@ -332,47 +332,107 @@ function notifAppUpdateAvailable(version) {
 // NOTIFICATION ACTION HANDLER
 // ═══════════════════════════════════════════════════════
 
+/**
+ * On notification click:
+ * - Mark as read
+ * - Hide the dropdown panel
+ * - Open a detail popup modal showing the notification's full details
+ *   (NO page redirect / navigation — as per product requirement)
+ */
 function notifHandleClick(notifId) {
   var notif = _notifItems.find(function(n) { return n.id === notifId; });
   if (!notif) return;
 
   notifMarkAsRead(notifId);
+  _notifHidePanel();
+  _notifShowDetailPopup(notif);
+}
 
-  var action = notif.action;
-  if (action) {
-    if (action.type === 'deeplink' && action.target) {
-      // Parse target path to page name
-      var target = String(action.target);
-      if (target.startsWith('/courses/') && target.length > 9) {
-        var courseId = target.replace('/courses/', '');
-        if (typeof openCourseDetail === 'function') openCourseDetail(courseId);
-        else if (typeof navigate === 'function') navigate('courses');
-      } else if (target === '/achievements' || target === 'achievements') {
-        if (typeof navigate === 'function') navigate('achievements');
-      } else if (target === '/courses' || target === 'courses') {
-        if (typeof navigate === 'function') navigate('courses');
-      } else if (target === '/coding' || target === 'coding') {
-        if (typeof navigate === 'function') navigate('coding');
-      } else if (typeof navigate === 'function') {
-        // Fallback: navigate to dashboard
-        navigate('dashboard');
-      }
-    } else if (action.type === 'navigate' && action.target) {
-      if (typeof navigate === 'function') navigate(action.target);
-    } else if (action.type === 'external' && action.url) {
-      if (window.electron && window.electron.openExternal) {
-        window.electron.openExternal(action.url);
-      }
-    } else if (action.type === 'openCourse' && action.courseId) {
-      if (typeof openCourseDetail === 'function') openCourseDetail(action.courseId);
-    } else if (action.type === 'restart_update') {
-      if (window.electron && window.electron.quitAndInstallUpdate) {
-        window.electron.quitAndInstallUpdate();
-      }
-    }
+// ═══════════════════════════════════════════════════════
+// UI: DETAIL POPUP MODAL (shown on notification click)
+// ═══════════════════════════════════════════════════════
+
+/**
+ * Render a centered modal overlay showing the full details of a
+ * single notification (icon, title, full message, timestamp, close button).
+ * Reuses existing helpers: _notifGetIcon, _notifTimeAgo, _notifSanitize.
+ */
+function _notifShowDetailPopup(notif) {
+  if (!notif) return;
+
+  // Remove any existing popup first (avoid stacking)
+  _notifCloseDetailPopup();
+
+  var icon = _notifGetIcon(notif.type);
+  var timeAgo = _notifTimeAgo(notif.timestamp);
+
+  var overlay = document.createElement('div');
+  overlay.id = 'notif-detail-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,0.55);' +
+    'display:flex;align-items:center;justify-content:center;padding:20px;' +
+    'backdrop-filter:blur(2px);animation:notifFadeIn 0.15s ease;';
+
+  var showUpdateBtn = notif.action && notif.action.type === 'restart_update' &&
+    window.electron && window.electron.quitAndInstallUpdate;
+
+  var html = '';
+  html += '<div id="notif-detail-card" style="width:100%;max-width:420px;background:#15151f;' +
+    'border:1px solid rgba(255,255,255,0.08);border-radius:16px;overflow:hidden;' +
+    'box-shadow:0 20px 60px rgba(0,0,0,0.5);animation:notifPopIn 0.18s ease;">';
+
+  // Header row: icon + close button
+  html += '  <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 18px;border-bottom:1px solid rgba(255,255,255,0.06);">';
+  html += '    <div style="width:40px;height:40px;border-radius:12px;background:' + icon.bg + ';display:flex;align-items:center;justify-content:center;font-size:1.1rem;">' + icon.emoji + '</div>';
+  html += '    <button onclick="_notifCloseDetailPopup()" title="Close" style="width:30px;height:30px;border-radius:8px;background:rgba(255,255,255,0.06);border:none;color:rgba(255,255,255,0.6);cursor:pointer;font-size:1rem;display:flex;align-items:center;justify-content:center;transition:background 0.15s;" onmouseover="this.style.background=\'rgba(255,255,255,0.12)\'" onmouseout="this.style.background=\'rgba(255,255,255,0.06)\'">&times;</button>';
+  html += '  </div>';
+
+  // Body: title + full message + timestamp
+  html += '  <div style="padding:18px;">';
+  html += '    <div style="font-size:1rem;font-weight:700;color:#fff;margin-bottom:8px;line-height:1.35;">' + _notifSanitize(notif.title) + '</div>';
+  html += '    <div style="font-size:0.85rem;color:rgba(255,255,255,0.75);line-height:1.6;white-space:pre-wrap;word-break:break-word;">' + _notifSanitize(notif.message) + '</div>';
+  html += '    <div style="font-size:0.7rem;color:rgba(255,255,255,0.35);margin-top:14px;">' + timeAgo + '</div>';
+  html += '  </div>';
+
+  // Footer: close (+ optional restart/update button for app_update)
+  html += '  <div style="display:flex;gap:10px;justify-content:flex-end;padding:14px 18px;border-top:1px solid rgba(255,255,255,0.06);">';
+  if (showUpdateBtn) {
+    html += '    <button onclick="_notifCloseDetailPopup();if(window.electron&&window.electron.quitAndInstallUpdate){window.electron.quitAndInstallUpdate();}" style="padding:8px 16px;border-radius:9px;background:#7c3aed;border:none;color:#fff;font-size:0.8rem;font-weight:600;cursor:pointer;">Restart &amp; Update</button>';
+  }
+  html += '    <button onclick="_notifCloseDetailPopup()" style="padding:8px 16px;border-radius:9px;background:rgba(255,255,255,0.08);border:none;color:#fff;font-size:0.8rem;font-weight:600;cursor:pointer;">Close</button>';
+  html += '  </div>';
+
+  html += '</div>';
+
+  overlay.innerHTML = html;
+
+  // Close when clicking outside the card
+  overlay.addEventListener('click', function(e) {
+    if (e.target === overlay) _notifCloseDetailPopup();
+  });
+
+  // Inject keyframes once
+  if (!document.getElementById('notif-detail-anim')) {
+    var styleEl = document.createElement('style');
+    styleEl.id = 'notif-detail-anim';
+    styleEl.textContent = '@keyframes notifFadeIn{from{opacity:0}to{opacity:1}}' +
+      '@keyframes notifPopIn{from{opacity:0;transform:scale(0.94)}to{opacity:1;transform:scale(1)}}';
+    document.head.appendChild(styleEl);
   }
 
-  _notifHidePanel();
+  document.body.appendChild(overlay);
+
+  // Close on Escape key
+  document.addEventListener('keydown', _notifDetailEscHandler);
+}
+
+function _notifDetailEscHandler(e) {
+  if (e.key === 'Escape') _notifCloseDetailPopup();
+}
+
+function _notifCloseDetailPopup() {
+  var overlay = document.getElementById('notif-detail-overlay');
+  if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
+  document.removeEventListener('keydown', _notifDetailEscHandler);
 }
 
 // ═══════════════════════════════════════════════════════
@@ -473,6 +533,14 @@ function _notifGetIcon(type) {
     case 'achievement':        return { emoji: '🏆', bg: 'rgba(251,191,36,0.15)' };
     case 'weekly_streak':      return { emoji: '🔥', bg: 'rgba(251,146,60,0.15)' };
     case 'leaderboard_winner': return { emoji: '🥇', bg: 'rgba(251,191,36,0.15)' };
+    case 'coins_earned':       return { emoji: '🪙', bg: 'rgba(251,191,36,0.15)' };
+    case 'coins_spent':        return { emoji: '🪙', bg: 'rgba(139,92,246,0.15)' };
+    case 'badge_lost':         return { emoji: '📊', bg: 'rgba(96,165,250,0.15)' };
+    case 'password_changed':   return { emoji: '🔒', bg: 'rgba(239,68,68,0.15)' };
+    case 'new_homework':       return { emoji: '📝', bg: 'rgba(34,197,94,0.15)' };
+    case 'coupon_redeemed':    return { emoji: '🎁', bg: 'rgba(168,85,247,0.15)' };
+    case 'welcome':            return { emoji: '🚀', bg: 'rgba(139,92,246,0.15)' };
+    case 'download_expiring':  return { emoji: '⏳', bg: 'rgba(251,146,60,0.15)' };
     case 'custom':             return { emoji: '📣', bg: 'rgba(139,92,246,0.15)' };
     default:                   return { emoji: '🔔', bg: 'rgba(255,255,255,0.08)' };
   }

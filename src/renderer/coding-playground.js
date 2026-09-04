@@ -189,6 +189,9 @@ function codingPgRenderList() {
     return;
   }
 
+  // Only user's own custom problems (My Problems tab) can be deleted.
+  var isMyTab = _pgActiveTab === 'my';
+
   var html = '';
   problems.forEach(function(p, i) {
     var isActive = _pgActiveProblem && _pgActiveProblem.id === p.id;
@@ -200,6 +203,10 @@ function codingPgRenderList() {
     html += '    <div class="coding-pg-item-meta">' + sanitize(p.category) + '</div>';
     html += '  </div>';
     html += '  <span class="coding-pg-diff ' + diffClass + '">' + p.difficulty + '</span>';
+    // Custom problems only: 3-dots menu → Delete
+    if (isMyTab) {
+      html += '  <button class="coding-pg-item-menu-btn" title="More" onclick="event.stopPropagation();codingPgToggleItemMenu(event,\'' + p.id + '\')" style="background:none;border:none;color:var(--ce-text-muted,#94a3b8);cursor:pointer;font-size:0.95rem;padding:4px 6px;border-radius:6px;flex-shrink:0;transition:background 0.15s,color 0.15s;" onmouseover="this.style.background=\'rgba(255,255,255,0.08)\';this.style.color=\'#fff\'" onmouseout="this.style.background=\'none\';this.style.color=\'var(--ce-text-muted,#94a3b8)\'"><i class="fas fa-ellipsis-v"></i></button>';
+    }
     html += '</div>';
   });
   listEl.innerHTML = html + '<div style="height:16px;"></div>';
@@ -1250,6 +1257,162 @@ function codingPgAddProblem() {
   var modal = document.getElementById('coding-pg-add-modal');
   if (modal) modal.remove();
   codingPgSwitchTab('my');
+}
+
+// ═══════════════════════════════════════════════════════
+// DELETE CUSTOM PROBLEM (My Problems only — 3-dots menu → confirm)
+// ═══════════════════════════════════════════════════════
+
+/**
+ * Ensure the small fade/pop keyframes used by the menu + confirm modal exist.
+ * Self-contained (does not depend on the notifications module).
+ */
+function _codingPgEnsureAnim() {
+  if (document.getElementById('coding-pg-anim')) return;
+  var styleEl = document.createElement('style');
+  styleEl.id = 'coding-pg-anim';
+  styleEl.textContent = '@keyframes cpgFadeIn{from{opacity:0}to{opacity:1}}' +
+    '@keyframes cpgPopIn{from{opacity:0;transform:scale(0.94)}to{opacity:1;transform:scale(1)}}';
+  document.head.appendChild(styleEl);
+}
+
+/**
+ * Toggle a small dropdown menu (Delete option) for a custom problem.
+ * Opened from the 3-dots button on a My-Problems list item.
+ */
+function codingPgToggleItemMenu(evt, problemId) {
+  if (evt && evt.stopPropagation) evt.stopPropagation();
+  _codingPgEnsureAnim();
+
+  // If a menu for the same problem is already open, close it (toggle behaviour)
+  var existing = document.getElementById('coding-pg-item-menu');
+  var wasSameOpen = existing && existing.getAttribute('data-problem-id') === problemId;
+  _codingPgCloseItemMenu();
+  if (wasSameOpen) return;
+
+  var btn = evt && evt.currentTarget ? evt.currentTarget : null;
+  if (!btn) return;
+  var rect = btn.getBoundingClientRect();
+
+  var menu = document.createElement('div');
+  menu.id = 'coding-pg-item-menu';
+  menu.setAttribute('data-problem-id', problemId);
+  menu.style.cssText = 'position:fixed;z-index:100000;min-width:130px;background:#1c1c28;' +
+    'border:1px solid rgba(255,255,255,0.1);border-radius:10px;overflow:hidden;' +
+    'box-shadow:0 10px 30px rgba(0,0,0,0.5);animation:cpgFadeIn 0.12s ease;';
+  // Position just below the button, right-aligned to it
+  menu.style.top = (rect.bottom + 4) + 'px';
+  menu.style.left = (Math.max(8, rect.right - 130)) + 'px';
+
+  menu.innerHTML =
+    '<button onclick="codingPgConfirmDeleteProblem(\'' + problemId + '\')" ' +
+    'style="display:flex;align-items:center;gap:8px;width:100%;padding:10px 14px;background:none;border:none;' +
+    'color:#f87171;font-size:0.82rem;font-weight:600;cursor:pointer;text-align:left;transition:background 0.15s;" ' +
+    'onmouseover="this.style.background=\'rgba(239,68,68,0.12)\'" onmouseout="this.style.background=\'none\'">' +
+    '<i class="fas fa-trash-alt"></i> Delete</button>';
+
+  document.body.appendChild(menu);
+
+  // Close on outside click / Escape (registered on next tick to avoid catching this click)
+  setTimeout(function() {
+    document.addEventListener('click', _codingPgItemMenuOutside, true);
+    document.addEventListener('keydown', _codingPgItemMenuEsc);
+  }, 0);
+}
+
+function _codingPgItemMenuOutside(e) {
+  var menu = document.getElementById('coding-pg-item-menu');
+  if (menu && !menu.contains(e.target)) _codingPgCloseItemMenu();
+}
+
+function _codingPgItemMenuEsc(e) {
+  if (e.key === 'Escape') _codingPgCloseItemMenu();
+}
+
+function _codingPgCloseItemMenu() {
+  var menu = document.getElementById('coding-pg-item-menu');
+  if (menu && menu.parentNode) menu.parentNode.removeChild(menu);
+  document.removeEventListener('click', _codingPgItemMenuOutside, true);
+  document.removeEventListener('keydown', _codingPgItemMenuEsc);
+}
+
+/**
+ * Show a compact styled confirmation modal before deleting a custom problem.
+ */
+function codingPgConfirmDeleteProblem(problemId) {
+  _codingPgCloseItemMenu();
+  _codingPgEnsureAnim();
+
+  // Safety: only allow deleting the user's own custom problems
+  var problem = _pgMyProblems.find(function(p) { return p.id === problemId; });
+  if (!problem) return;
+
+  // Remove any existing confirm modal first
+  var old = document.getElementById('coding-pg-delete-overlay');
+  if (old && old.parentNode) old.parentNode.removeChild(old);
+
+  var overlay = document.createElement('div');
+  overlay.id = 'coding-pg-delete-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:100001;background:rgba(0,0,0,0.55);' +
+    'display:flex;align-items:center;justify-content:center;padding:20px;' +
+    'backdrop-filter:blur(2px);animation:cpgFadeIn 0.15s ease;';
+
+  var html = '';
+  html += '<div style="width:100%;max-width:340px;background:#15151f;border:1px solid rgba(255,255,255,0.08);' +
+    'border-radius:14px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.5);animation:cpgPopIn 0.18s ease;">';
+  html += '  <div style="padding:18px 18px 12px;">';
+  html += '    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">';
+  html += '      <div style="width:34px;height:34px;border-radius:10px;background:rgba(239,68,68,0.15);display:flex;align-items:center;justify-content:center;font-size:0.95rem;color:#f87171;flex-shrink:0;"><i class="fas fa-trash-alt"></i></div>';
+  html += '      <div style="font-size:0.95rem;font-weight:700;color:#fff;">Delete this problem?</div>';
+  html += '    </div>';
+  html += '    <div style="font-size:0.82rem;color:rgba(255,255,255,0.65);line-height:1.5;">Are you sure you want to delete <span style="color:#fff;font-weight:600;">"' + sanitize(problem.title) + '"</span>? This action cannot be undone.</div>';
+  html += '  </div>';
+  html += '  <div style="display:flex;gap:10px;justify-content:flex-end;padding:12px 18px;border-top:1px solid rgba(255,255,255,0.06);">';
+  html += '    <button onclick="_codingPgCloseDeleteModal()" style="padding:8px 16px;border-radius:9px;background:rgba(255,255,255,0.08);border:none;color:#fff;font-size:0.8rem;font-weight:600;cursor:pointer;">Cancel</button>';
+  html += '    <button onclick="_codingPgDeleteProblem(\'' + problemId + '\')" style="padding:8px 16px;border-radius:9px;background:#ef4444;border:none;color:#fff;font-size:0.8rem;font-weight:600;cursor:pointer;">Delete</button>';
+  html += '  </div>';
+  html += '</div>';
+
+  overlay.innerHTML = html;
+  overlay.addEventListener('click', function(e) {
+    if (e.target === overlay) _codingPgCloseDeleteModal();
+  });
+
+  document.body.appendChild(overlay);
+  document.addEventListener('keydown', _codingPgDeleteModalEsc);
+}
+
+function _codingPgDeleteModalEsc(e) {
+  if (e.key === 'Escape') _codingPgCloseDeleteModal();
+}
+
+function _codingPgCloseDeleteModal() {
+  var overlay = document.getElementById('coding-pg-delete-overlay');
+  if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
+  document.removeEventListener('keydown', _codingPgDeleteModalEsc);
+}
+
+/**
+ * Actually delete the custom problem (after confirmation).
+ */
+function _codingPgDeleteProblem(problemId) {
+  var idx = _pgMyProblems.findIndex(function(p) { return p.id === problemId; });
+  if (idx === -1) { _codingPgCloseDeleteModal(); return; }
+
+  _pgMyProblems.splice(idx, 1);
+  codingPgSaveMyProblems();
+
+  // If the deleted problem was open, reset the editor area back to welcome
+  if (_pgActiveProblem && _pgActiveProblem.id === problemId) {
+    _pgActiveProblem = null;
+    var welcome = document.getElementById('coding-pg-welcome');
+    var editorArea = document.getElementById('coding-pg-editor-area');
+    if (editorArea) editorArea.style.display = 'none';
+    if (welcome) welcome.style.display = 'flex';
+  }
+
+  _codingPgCloseDeleteModal();
+  codingPgRenderList();
 }
 
 // ═══════════════════════════════════════════════════════

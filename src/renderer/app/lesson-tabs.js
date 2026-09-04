@@ -100,6 +100,19 @@ function renderQuizTab(quizData) {
 
   // Support single quiz object or array
   const quizzes = Array.isArray(quizData) ? quizData : [quizData];
+
+  // Check if user previously attempted this quiz (for re-attempt warning)
+  var lessonId = _currentLessonForTabs ? _currentLessonForTabs.lessonId : '';
+  var userId = (typeof getCurrentUserId === 'function') ? getCurrentUserId() : '';
+  var attemptKey = 'ck_quiz_attempted_' + userId + '_' + lessonId;
+  var previouslyAttempted = localStorage.getItem(attemptKey) === 'true';
+
+  if (previouslyAttempted) {
+    html += '<div style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:10px;padding:10px 14px;margin-bottom:14px;">';
+    html += '<div style="font-size:0.82rem;font-weight:700;color:#fbbf24;">⚠️ You attempted this quiz before. Try again only for Practice.</div>';
+    html += '<div style="font-size:0.72rem;color:var(--muted);margin-top:4px;">No coins or leaderboard changes on re-attempts.</div>';
+    html += '</div>';
+  }
   
   quizzes.forEach((quiz, qIndex) => {
     const letters = ['A', 'B', 'C', 'D', 'E', 'F'];
@@ -196,6 +209,38 @@ async function submitQuiz(qIndex) {
       }
       loadUserCoins(); // Refresh coins widget
     }).catch(() => {});
+  }
+
+  // Track quiz completion — mark as attempted + show completion message
+  var userId = (typeof getCurrentUserId === 'function') ? getCurrentUserId() : '';
+  if (lessonId && userId) {
+    localStorage.setItem('ck_quiz_attempted_' + userId + '_' + lessonId, 'true');
+  }
+
+  // Check if this was the last question — show completion summary
+  var allCards = document.querySelectorAll('.quiz-question-card');
+  var totalQuestions = allCards.length;
+  var answeredCount = 0;
+  var correctCount = 0;
+  allCards.forEach(function(c) {
+    var selectedOpt = c.querySelector('.quiz-option.selected');
+    if (selectedOpt) {
+      answeredCount++;
+      if (selectedOpt.classList.contains('correct')) correctCount++;
+    }
+  });
+
+  if (answeredCount === totalQuestions) {
+    // All questions answered — show completion summary
+    var completionEl = document.getElementById('quiz-completion-summary');
+    if (!completionEl) {
+      completionEl = document.createElement('div');
+      completionEl.id = 'quiz-completion-summary';
+      completionEl.style.cssText = 'background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.3);border-radius:12px;padding:14px 18px;margin-top:16px;text-align:center;';
+      var tabCard = document.querySelector('#vp-quiz .tab-card');
+      if (tabCard) tabCard.appendChild(completionEl);
+    }
+    completionEl.innerHTML = '<div style="font-size:1rem;font-weight:800;color:#22c55e;margin-bottom:4px;">🎉 You completed this quiz with ' + correctCount + '/' + totalQuestions + ' Correct</div>';
   }
 }
 
