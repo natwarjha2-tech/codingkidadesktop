@@ -314,7 +314,18 @@ async function playDownloadedVideo(index) {
   const downloads = JSON.parse(localStorage.getItem(storageKey) || '[]');
   const d = downloads[index];
   if (!d) return;
+
+  // If courseId and moduleId are available, use the standard course playback path
+  // This loads all tabs (Notes, Quiz, Exercise, Homework) properly from the API
+  if (d.courseId && d.moduleId && d.lessonId) {
+    openVideoFromBackend(d.courseId, d.moduleId, d.lessonId);
+    return;
+  }
+
+  // Fallback for older watchlist entries without courseId/moduleId
   try {
+    // Restore online UI in case we came from offline Downloads playback
+    _restoreOnlineVideoUI();
     document.getElementById('video-title').textContent = d.title || '';
     document.getElementById('video-meta').textContent = (d.courseTitle || '') + (d.moduleTitle ? ' · ' + d.moduleTitle : '');
     // Get fresh signed URL before playing — stored URL may be expired
@@ -333,12 +344,12 @@ async function playDownloadedVideo(index) {
     await loadVideo(playUrl);
     _currentVideoData = { ...d, videoUrl: playUrl };
     _updateSaveBtn(true);
-    const notesEl = document.getElementById('vp-notes');
-    if (notesEl) renderNotesTab('', []);
-    const quizEl = document.getElementById('vp-quiz');
-    if (quizEl) renderQuizTab(null);
-    const exEl = document.getElementById('vp-exercise');
-    if (exEl) renderExerciseTab(null);
+    // Load tab content from API (same as course content playback)
+    const _wlToken = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+    renderNotesTab('', []);
+    _lazyLoadQuiz(d.lessonId, _wlToken);
+    _lazyLoadExercise(d.lessonId, _wlToken);
+    _lazyLoadHomework(d.lessonId, _wlToken);
     document.querySelectorAll('.vp-tab').forEach((t, i) => t.classList.toggle('active', i === 0));
     document.querySelectorAll('.vp-tab-panel').forEach((p, i) => p.classList.toggle('active', i === 0));
     navigate('video');
@@ -585,20 +596,24 @@ async function renderOfflineDownloads() {
  * Called when openVideoFromBackend is used for online lesson.
  */
 function _restoreOnlineVideoUI() {
-  // Show all tabs
-  document.querySelectorAll('.vp-tab').forEach(function(t){ t.style.display = ''; });
+  // Show all tabs and restore functionality
+  var tabsBar = document.querySelector('.vp-tabs');
+  if(tabsBar) { tabsBar.style.display = ''; tabsBar.style.pointerEvents = ''; tabsBar.style.opacity = ''; }
+  document.querySelectorAll('.vp-tab').forEach(function(t){ t.style.display = ''; t.style.pointerEvents = ''; t.style.opacity = ''; });
+  // Show all tab panels (reset display)
+  document.querySelectorAll('.vp-tab-panel').forEach(function(p){ p.style.display = ''; });
   // Show right sidebar
   var rightPanel = document.querySelector('.vp-right');
   if(rightPanel) rightPanel.style.display = '';
   // Restore grid
   var vpBody = document.querySelector('.vp-body');
   if(vpBody) vpBody.style.gridTemplateColumns = '';
-  // Restore engagement bar
+  // Restore engagement bar (clear all inline overrides applied for offline mode)
   var engagementBar = document.getElementById('vp-engagement-bar');
-  if(engagementBar) { engagementBar.style.pointerEvents = ''; engagementBar.style.opacity = ''; }
+  if(engagementBar) { engagementBar.style.marginTop = ''; engagementBar.style.pointerEvents = ''; engagementBar.style.opacity = ''; }
   // Restore video height constraints
   var vpVideoWrap = document.querySelector('.vp-video-wrap');
-  if(vpVideoWrap) vpVideoWrap.style.maxHeight = '';
+  if(vpVideoWrap) { vpVideoWrap.style.maxHeight = ''; vpVideoWrap.style.overflow = ''; }
   var vpVideo = document.getElementById('video-player');
   if(vpVideo) { vpVideo.style.maxHeight = ''; vpVideo.style.objectFit = ''; }
   var vpIframe = document.getElementById('video-iframe');
@@ -631,17 +646,6 @@ async function playOfflineContent(lessonId, type) {
  * Shows Notes only if a PDF is also downloaded for this lesson.
  */
 function _applyOfflinePlaybackUI(lessonId, userId) {
-  // Hide online-only tabs (these require network/backend data)
-  var tabs = document.querySelectorAll('.vp-tab');
-  tabs.forEach(function(tab) {
-    var panel = tab.getAttribute('onclick') || '';
-    if(panel.includes('vp-quiz') || panel.includes('vp-exercise') || panel.includes('vp-homework') || panel.includes('vp-rate') || panel.includes('vp-chat')) {
-      tab.style.display = 'none';
-    } else {
-      tab.style.display = '';
-    }
-  });
-
   // Hide right sidebar (Course Content / Progress — requires online data)
   var rightPanel = document.querySelector('.vp-right');
   if(rightPanel) rightPanel.style.display = 'none';
@@ -653,7 +657,7 @@ function _applyOfflinePlaybackUI(lessonId, userId) {
   // Constrain video height so video + controls + content below all fit in viewport
   // Uses max-height with calc to leave room for topbar (~60px), engagement bar (~50px), tabs (~46px), notes (~100px)
   var vpVideoWrap = document.querySelector('.vp-video-wrap');
-  if(vpVideoWrap) vpVideoWrap.style.maxHeight = 'calc(100vh - 260px)';
+  if(vpVideoWrap) { vpVideoWrap.style.maxHeight = 'calc(100vh - 260px)'; vpVideoWrap.style.overflow = 'hidden'; }
   // Ensure custom video player container is visible (it starts display:none in HTML)
   var customPlayer = document.getElementById('custom-video-player');
   if(customPlayer) customPlayer.style.display = 'block';
@@ -667,39 +671,60 @@ function _applyOfflinePlaybackUI(lessonId, userId) {
   // Show engagement bar (Downloads bypasses openVideoFromBackend which normally shows it)
   // Disabled since like/dislike require network
   var engagementBar = document.getElementById('vp-engagement-bar');
-  if(engagementBar) { engagementBar.style.display = 'flex'; engagementBar.style.pointerEvents = 'none'; engagementBar.style.opacity = '0.5'; }
+  if(engagementBar) { engagementBar.style.display = 'flex'; engagementBar.style.marginTop = '12px'; engagementBar.style.pointerEvents = 'none'; engagementBar.style.opacity = '0.5'; }
+
+  // Tabs: keep them visible but Notes-only active. Disable online-only tabs
+  // (Quiz/Exercise/Homework/Rate/AI Mentor) since they require network data.
+  var tabsBar = document.querySelector('.vp-tabs');
+  if(tabsBar) { tabsBar.style.display = ''; tabsBar.style.pointerEvents = ''; tabsBar.style.opacity = ''; }
+  document.querySelectorAll('.vp-tab').forEach(function(tab){
+    var panel = tab.getAttribute('onclick') || '';
+    var isOnlineOnly = panel.includes('vp-quiz') || panel.includes('vp-exercise') || panel.includes('vp-homework') || panel.includes('vp-rate') || panel.includes('vp-chat');
+    if(isOnlineOnly) {
+      tab.classList.remove('active');
+      tab.style.pointerEvents = 'none';
+      tab.style.opacity = '0.5';
+    } else {
+      tab.classList.add('active');
+      tab.style.pointerEvents = '';
+      tab.style.opacity = '';
+      tab.style.display = '';
+    }
+  });
+
+  // Show only the Notes panel (like course content does)
+  document.querySelectorAll('.vp-tab-panel').forEach(function(p){ p.classList.remove('active'); p.style.display = 'none'; });
+  var notesPanel = document.getElementById('vp-notes');
+  if(notesPanel) { notesPanel.style.display = ''; notesPanel.classList.add('active'); }
 
   // Hide Next Lesson float (requires online course context)
   var nextFloat = document.getElementById('next-lesson-float');
   if(nextFloat) nextFloat.style.display = 'none';
 
-  // Check if PDF/Notes is also downloaded for this lesson
+  // Render Notes tab with offline PDF (same as course content)
   if(window.electron && window.electron.getDownloads) {
     window.electron.getDownloads({ userId: userId }).then(function(res) {
       if(res.success) {
         var pdfItem = res.downloads.find(function(d){ return d.lessonId === lessonId && d.type === 'pdf'; });
-        var notesEl = document.getElementById('vp-notes');
-        if(notesEl) {
-          if(pdfItem) {
-            notesEl.innerHTML = '<div class="tab-card notes-card"><div class="notes-card-content"><div class="tab-card-title"><i class="fas fa-file-alt"></i> Lesson Notes</div><p class="notes-card-desc">Offline notes available for this lesson.</p><div style="margin-top:16px;display:flex;gap:10px;"><button class="btn btn-outline btn-sm" style="padding:10px 20px;border-radius:10px;display:flex;align-items:center;gap:8px;" onclick="playOfflineContent(\'' + lessonId + '\',\'pdf\')"><i class="fas fa-file-pdf" style="color:#ef4444;"></i> View PDF Notes</button></div></div></div>';
-          } else {
-            notesEl.innerHTML = '<div class="tab-card"><div class="tab-card-title"><i class="fas fa-file-alt"></i> Lesson Notes</div><p style="color:var(--muted);font-size:0.85rem;">Notes not downloaded for offline use. Download the PDF from the lesson page when online.</p></div>';
-          }
+        if(pdfItem) {
+          // Use renderNotesTab with a local serve URL for the offline PDF
+          window.electron.playDownload({ lessonId: lessonId, type: 'pdf', userId: userId }).then(function(pdfResult) {
+            if(pdfResult.success) {
+              renderNotesTab(pdfResult.serveUrl, []);
+            } else {
+              renderNotesTab('', []);
+            }
+          }).catch(function(){ renderNotesTab('', []); });
+        } else {
+          renderNotesTab('', []);
         }
+      } else {
+        renderNotesTab('', []);
       }
-    }).catch(function(){});
+    }).catch(function(){ renderNotesTab('', []); });
   } else {
-    var notesEl = document.getElementById('vp-notes');
-    if(notesEl) notesEl.innerHTML = '<div class="tab-card"><div class="tab-card-title"><i class="fas fa-file-alt"></i> Lesson Notes</div><p style="color:var(--muted);font-size:0.85rem;">Notes unavailable in offline mode.</p></div>';
+    renderNotesTab('', []);
   }
-
-  // Ensure Notes tab is active
-  tabs.forEach(function(t){ t.classList.remove('active'); });
-  var notesTab = document.querySelector('.vp-tab[onclick*="vp-notes"]');
-  if(notesTab) notesTab.classList.add('active');
-  document.querySelectorAll('.vp-tab-panel').forEach(function(p){ p.classList.remove('active'); });
-  var notesPanel = document.getElementById('vp-notes');
-  if(notesPanel) notesPanel.classList.add('active');
 }
 
 async function deleteOfflineContent(lessonId, type) {

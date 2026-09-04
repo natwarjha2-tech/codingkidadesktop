@@ -859,7 +859,7 @@
           </div>
 
           <!-- Engagement Bar: Like/Dislike, Views, Subscribe -->
-          <div id="vp-engagement-bar" style="display:none;padding:10px 0;display:flex;align-items:center;gap:12px;margin-bottom:4px;">
+          <div id="vp-engagement-bar" style="display:none;padding:10px 0;display:flex;align-items:center;gap:12px;margin-bottom:4px;margin-top:8px;">
             <!-- Like -->
             <button id="vp-like-btn" onclick="_vpReact('like')" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:#fff;cursor:pointer;height:32px;padding:0 12px;border-radius:20px;font-size:0.78rem;font-weight:600;display:flex;align-items:center;gap:6px;transition:all 0.2s;" onmouseover="this.style.background='rgba(34,197,94,0.15)';this.style.borderColor='rgba(34,197,94,0.4)'" onmouseout="if(!this.classList.contains('active')){this.style.background='rgba(255,255,255,0.05)';this.style.borderColor='rgba(255,255,255,0.1)'}">
               <i class="fas fa-thumbs-up"></i> <span id="vp-like-count">0</span>
@@ -868,10 +868,6 @@
             <button id="vp-dislike-btn" onclick="_vpReact('dislike')" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:#fff;cursor:pointer;height:32px;padding:0 12px;border-radius:20px;font-size:0.78rem;font-weight:600;display:flex;align-items:center;gap:6px;transition:all 0.2s;" onmouseover="this.style.background='rgba(239,68,68,0.15)';this.style.borderColor='rgba(239,68,68,0.4)'" onmouseout="if(!this.classList.contains('active')){this.style.background='rgba(255,255,255,0.05)';this.style.borderColor='rgba(255,255,255,0.1)'}">
               <i class="fas fa-thumbs-down"></i> <span id="vp-dislike-count">0</span>
             </button>
-            <!-- Views -->
-            <span style="font-size:0.75rem;color:var(--muted);display:flex;align-items:center;gap:5px;margin-left:4px;">
-              <i class="fas fa-eye" style="font-size:0.7rem;"></i> <span id="vp-view-count">0</span> views
-            </span>
             <!-- Spacer -->
             <div style="flex:1;"></div>
             <!-- Subscribe -->
