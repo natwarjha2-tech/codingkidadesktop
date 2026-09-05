@@ -18,6 +18,10 @@ jobs:
         with:
           node-version: 20
           cache: 'npm'
+      - name: Get version from package.json
+        id: version
+        run: echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
+        shell: bash
       - run: npm install
       - run: npm run package
         env:
@@ -25,8 +29,8 @@ jobs:
       - name: Upload to Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: build-${{ github.run_number }}
-          name: Build ${{ github.run_number }}
+          tag_name: v${{ steps.version.outputs.version }}
+          name: CodingKida v${{ steps.version.outputs.version }}
           files: release/*.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -39,6 +43,9 @@ jobs:
         with:
           node-version: 20
           cache: 'npm'
+      - name: Get version from package.json
+        id: version
+        run: echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
       - run: npm install
       - run: npm run package
         env:
@@ -46,8 +53,8 @@ jobs:
       - name: Upload to Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: build-${{ github.run_number }}
-          name: Build ${{ github.run_number }}
+          tag_name: v${{ steps.version.outputs.version }}
+          name: CodingKida v${{ steps.version.outputs.version }}
           files: release/*.dmg
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -60,6 +67,9 @@ jobs:
         with:
           node-version: 20
           cache: 'npm'
+      - name: Get version from package.json
+        id: version
+        run: echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
       - run: npm install
       - run: npm run package
         env:
@@ -67,8 +77,8 @@ jobs:
       - name: Upload to Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: build-${{ github.run_number }}
-          name: Build ${{ github.run_number }}
+          tag_name: v${{ steps.version.outputs.version }}
+          name: CodingKida v${{ steps.version.outputs.version }}
           files: release/*.AppImage
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
