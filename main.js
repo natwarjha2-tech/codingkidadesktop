@@ -11,6 +11,17 @@ try {
   autoUpdater = require('electron-updater').autoUpdater;
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
+
+  // Verbose logging so update activity is visible in a log file
+  try {
+    const log = require('electron-log');
+    log.transports.file.level = 'info';
+    autoUpdater.logger = log;
+    console.log('[updater] electron-log attached. Log file:', log.transports.file.getFile().path);
+  } catch {
+    // electron-log not installed; fall back to console logging
+    autoUpdater.logger = console;
+  }
 } catch {
   // electron-updater not available in dev mode, skip
 }
@@ -181,9 +192,26 @@ app.whenReady().then(() => {
 
   // Check for updates after window loads (non-blocking)
   if (autoUpdater) {
+    console.log('[updater] current app version:', app.getVersion(), 'isPackaged:', app.isPackaged);
+
     setTimeout(() => {
-      autoUpdater.checkForUpdatesAndNotify().catch(() => {});
+      console.log('[updater] checking for updates...');
+      autoUpdater.checkForUpdatesAndNotify().catch((err) => {
+        console.error('[updater] check failed:', err && err.message ? err.message : err);
+      });
     }, 5000);
+
+    autoUpdater.on('checking-for-update', () => {
+      console.log('[updater] checking-for-update event fired');
+    });
+
+    autoUpdater.on('update-not-available', (info) => {
+      console.log('[updater] update-not-available. Server version:', info && info.version);
+    });
+
+    autoUpdater.on('error', (err) => {
+      console.error('[updater] error:', err && err.message ? err.message : err);
+    });
 
     autoUpdater.on('update-available', (info) => {
       if (mainWindow && mainWindow.webContents) {
