@@ -1,6 +1,6 @@
 {
   "name": "codingkidadesktop",
-  "version": "1.1.4",
+  "version": "1.1.5",
   "description": "CodingKida Desktop App built with Electron",
   "main": "main.js",
   "scripts": {
@@ -30,6 +30,9 @@
       "repo": "codingkidadesktop"
     },
     "artifactName": "${productName}-${version}-${os}.${ext}",
+    "nsis": {
+      "artifactName": "${productName}-${version}-win.${ext}"
+    },
     "win": {
       "target": "nsis",
       "icon": "src/renderer/assets/logo.png"
