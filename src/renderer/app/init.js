@@ -89,7 +89,7 @@ document.addEventListener('keydown', (e) => {
     loadStudentData();
     StudentAPI.getDashboard().then(data => _applyDashboardData(data, false)).catch(() => {});
   }
-  loadCourses().then(courses => renderCourseGrid(courses)).catch(() => renderCourseGrid(MOCK_COURSES));
+  loadCourses().then(courses => { renderCourseGrid(courses); renderDashboardRecommended(courses); }).catch(() => { renderCourseGrid(MOCK_COURSES); renderDashboardRecommended(MOCK_COURSES); });
   initCourseFilters();
 
   // Refresh dashboard on window focus (payment browser se wapas aane pe)
@@ -106,7 +106,7 @@ document.addEventListener('keydown', (e) => {
   if (window.electron && window.electron.ipcRenderer) {
     window.electron.ipcRenderer.on('enrollment-complete', () => {
       StudentAPI.getDashboard().then(d => _applyDashboardData(d, false)).catch(() => {});
-      loadCourses().then(courses => renderCourseGrid(courses)).catch(() => {});
+      loadCourses().then(courses => { renderCourseGrid(courses); renderDashboardRecommended(courses); }).catch(() => {});
     });
 
     // Listen for app update notifications from main process

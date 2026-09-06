@@ -2527,11 +2527,11 @@ body {
 .pr-dash { display: flex; flex-direction: column; gap: 20px; }
 
 /* KPI band */
-.pr-kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.pr-kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px; }
 .pr-kpi { min-width: 0; width: 100%; box-sizing: border-box; }
 .pr-kpi { position: relative; overflow: hidden; display: flex; align-items: center; gap: 14px; background: rgba(14,12,30,0.8); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border: 1px solid rgba(139,92,246,0.14); border-radius: 16px; padding: 16px 18px; transition: transform 0.22s ease, border-color 0.22s ease, box-shadow 0.22s ease; box-shadow: 0 4px 16px rgba(0,0,0,0.22); }
 .pr-kpi:hover { transform: translateY(-3px); box-shadow: 0 10px 26px rgba(0,0,0,0.3); }
-.pr-kpi-glow { position: absolute; top: -30%; right: -12%; width: 90px; height: 90px; pointer-events: none; }
+.pr-kpi-glow { display: none; }
 .pr-kpi-ic { width: 44px; height: 44px; min-width: 44px; border-radius: 13px; border: 1px solid transparent; display: flex; align-items: center; justify-content: center; font-size: 0.95rem; position: relative; z-index: 1; }
 .pr-kpi-body { position: relative; z-index: 1; min-width: 0; }
 .pr-kpi-value { font-size: 1.7rem; font-weight: 800; color: #F8FAFC; line-height: 1; margin-bottom: 4px; font-variant-numeric: tabular-nums; }
@@ -2646,8 +2646,8 @@ body {
 /* ===== REDEEM REWARDS / CK MALL — premium redesign (presentation only) ===== */
 
 /* Coin balance hero */
-.rw-hero { position: relative; overflow: hidden; display: flex; align-items: center; gap: 20px; background: linear-gradient(120deg, rgba(44,26,84,0.85), rgba(24,18,48,0.9)); border: 1px solid rgba(139,92,246,0.25); border-radius: 20px; padding: 22px 28px; margin-bottom: 18px; box-shadow: 0 12px 34px rgba(0,0,0,0.3), 0 0 30px rgba(139,92,246,0.06); }
-.rw-hero-glow { position: absolute; top: -40%; right: 18%; width: 260px; height: 260px; background: radial-gradient(circle, rgba(139,92,246,0.18), transparent 65%); pointer-events: none; }
+.rw-hero { position: relative; overflow: hidden; display: flex; align-items: center; gap: 20px; background: rgba(24,18,48,0.9); border: 1px solid rgba(139,92,246,0.16); border-radius: 20px; padding: 22px 28px; margin-bottom: 18px; box-shadow: 0 12px 34px rgba(0,0,0,0.3); }
+.rw-hero-glow { display: none; }
 .rw-hero-left { display: flex; align-items: center; gap: 18px; position: relative; z-index: 1; }
 .rw-hero-coin { width: 62px; height: 62px; min-width: 62px; border-radius: 18px; background: linear-gradient(135deg, rgba(251,191,36,0.22), rgba(245,158,11,0.12)); border: 1px solid rgba(251,191,36,0.35); display: flex; align-items: center; justify-content: center; box-shadow: 0 0 18px rgba(251,191,36,0.18); }
 .rw-hero-coin i { font-size: 1.6rem; color: #fbbf24; }
@@ -2727,8 +2727,8 @@ body {
 .rating-page { box-sizing: border-box; }
 
 /* Header */
-.rating-header { position: relative; overflow: hidden; display: flex; align-items: center; gap: 24px; background: linear-gradient(120deg, rgba(44,26,84,0.7), rgba(18,16,36,0.9)); border: 1px solid rgba(139,92,246,0.22); border-radius: 20px; padding: 20px 40px 20px 28px; margin-bottom: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.28), 0 0 24px rgba(139,92,246,0.05); }
-.rating-header-glow { position: absolute; top: -40%; right: 8%; width: 220px; height: 220px; background: radial-gradient(circle, rgba(139,92,246,0.16), transparent 65%); pointer-events: none; }
+.rating-header { position: relative; overflow: hidden; display: flex; align-items: center; gap: 24px; background: rgba(18,16,36,0.9); border: 1px solid rgba(139,92,246,0.16); border-radius: 20px; padding: 20px 40px 20px 28px; margin-bottom: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.28); }
+.rating-header-glow { display: none; }
 .rating-header-left { flex: 1; min-width: 0; display: flex; align-items: center; gap: 16px; position: relative; z-index: 1; }
 .rating-header-ic { width: 54px; height: 54px; min-width: 54px; border-radius: 15px; background: linear-gradient(135deg, rgba(251,191,36,0.22), rgba(245,158,11,0.1)); border: 1px solid rgba(251,191,36,0.35); display: flex; align-items: center; justify-content: center; box-shadow: 0 0 16px rgba(251,191,36,0.16); }
 .rating-header-ic i { font-size: 1.3rem; color: #fbbf24; }
@@ -2850,4 +2850,82 @@ body {
   .abt-stat, .abt-link, .abt-link-arrow { transition: none; }
   .abt-stat:hover { transform: none; }
   .abt-skeleton { animation: none; }
+}
+
+
+/* ===== PROFILE PAGE — restore previous CodingKida navy/purple theme (color-only, scoped) =====
+   Current inline surfaces use near-black rgba(22,22,38)/rgba(18,18,32) which blend into the
+   background. The previous version used a lighter navy-blue card surface. These overrides only
+   change the background/border of the top-level Profile cards — no layout, structure, arrows,
+   or JS. Scoped strictly to #page-profile so no other page is affected. */
+
+/* Top-level card surfaces (profile hero, student info, account settings, more options, etc.) */
+#page-profile [style*="background:rgba(22,22,38,0.75)"],
+#page-profile [style*="background:rgba(18,18,32,0.9)"] {
+  background: rgba(26, 32, 58, 0.92) !important;   /* navy-blue lift (previous theme surface) */
+  border-color: rgba(139, 92, 246, 0.18) !important;
+}
+
+/* Nested inset panels inside those cards (e.g. Account Information / Security / list rows)
+   get a subtle navy tint so they read as raised surfaces on the navy card, like before. */
+#page-profile [style*="background:rgba(255,255,255,0.02)"] {
+  background: rgba(255, 255, 255, 0.035) !important;
+}
+
+/* ===== CodingKida theme surface — unify the 8 Profile sub-pages =====
+   Restores the SAME previous CodingKida navy card surface used by the Profile
+   cards (rgba(26,32,58,0.92) + border rgba(139,92,246,0.18)) across:
+   My Report, Refer & Earn, Help & Support, My Orders, CK Mall, Rate Us, About,
+   Student Progress. Presentation only — reuses the existing theme values above,
+   no new palette, no new classes, no duplicated declarations. Scoped to each
+   page's existing card classes + the inline-styled cards on those pages. */
+
+/* (a) Page-scoped card CLASSES already used by these pages. One grouped rule. */
+.pr-kpi, .pr-card,
+.ord-header, .ord-kpi, .ord-card,
+.rating-header, .rating-form-card, .rating-already, .rating-summary, .rating-review-list-wrap,
+.rw-hero, .rw-coupon, .rw-card,
+.abt-stat {
+  background: rgba(26, 32, 58, 0.92) !important;
+  border-color: rgba(139, 92, 246, 0.18) !important;
+}
+
+/* (b) Inline-styled cards on these pages (report hero, mall hero, about hero +
+   panels, help cards, referral cards, and JS-rendered Student-Progress cards)
+   share the same raw background strings the Profile override already handles.
+   Reuse that exact pattern, scoped to these 8 page containers only. */
+#page-parent-report [style*="background:rgba(14,12,30,0.88)"],
+#page-mall [style*="background:rgba(18,18,32,0.9)"],
+#page-about [style*="background:rgba(18,18,32,0.9)"],
+#page-about [style*="background:rgba(22,22,38,0.75)"],
+#page-help [style*="background:rgba(18,18,32,0.9)"],
+#page-help [style*="background:rgba(22,22,38,0.75)"],
+#page-help [style*="background:rgba(22,22,38,0.6)"],
+#page-referral [style*="background:rgba(17,19,34,0.85)"],
+#page-referral [style*="background:rgba(17,19,34,0.7)"],
+#page-referral [style*="background:linear-gradient(135deg,rgba(88,28,135,0.2)"],
+#page-student-progress [style*="rgba(22,22,38,0.75)"],
+#page-student-progress [style*="rgba(22,22,38,0.6)"] {
+  background: rgba(26, 32, 58, 0.92) !important;
+  border-color: rgba(139, 92, 246, 0.18) !important;
+}
+
+
+/* ===== ABOUT HERO — premium logo glow + typewriter (About-scoped, presentation only) ===== */
+.about-hero-glow { position: absolute; top: -30%; left: 50%; transform: translateX(-50%); width: 260px; height: 200px; background: radial-gradient(circle, rgba(139,92,246,0.14), transparent 68%); pointer-events: none; }
+.about-hero-logo { width: 64px; height: 64px; border-radius: 18px; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px; background: rgba(139,92,246,0.08); border: 1px solid rgba(139,92,246,0.25); box-shadow: 0 8px 26px rgba(139,92,246,0.22), 0 0 0 6px rgba(139,92,246,0.05); overflow: hidden; }
+
+/* Description: reserve space so the typewriter never shifts layout */
+.about-desc { font-size: 0.84rem; color: #94a3b8; max-width: 420px; margin: 0 auto; line-height: 1.55; min-height: 2.6em; }
+/* Typing caret shown only while animating */
+.about-desc.about-typing::after { content: '|'; color: #a78bfa; margin-left: 1px; animation: about-caret 0.9s step-end infinite; }
+@keyframes about-caret { 50% { opacity: 0; } }
+
+/* Version: hidden until the description finishes, then fades in */
+.about-version { font-size: 0.72rem; color: #64748b; margin-top: 12px; opacity: 0; transition: opacity 0.5s ease; }
+.about-version.about-show { opacity: 1; }
+
+@media (prefers-reduced-motion: reduce) {
+  .about-desc.about-typing::after { display: none; animation: none; }
+  .about-version { transition: none; }
 }

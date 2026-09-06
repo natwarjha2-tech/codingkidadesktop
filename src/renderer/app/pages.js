@@ -1531,7 +1531,49 @@ function _aboutSetStat(id, value) {
   el.textContent = value;
 }
 
+// Typewriter for the About hero description; fades in the version after it finishes.
+// Plays once per About visit (loadAboutPage runs on each navigate). Respects reduced motion.
+var _aboutTypeTimer = null;
+function _aboutTypewriter() {
+  var desc = document.getElementById('about-desc');
+  var version = document.getElementById('about-version');
+  if (!desc) return;
+  var full = desc.getAttribute('data-text') || desc.textContent || '';
+
+  // Cancel any in-progress run (e.g. quick re-navigation) to avoid overlap
+  if (_aboutTypeTimer) { clearTimeout(_aboutTypeTimer); _aboutTypeTimer = null; }
+
+  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (reduce) {
+    desc.classList.remove('about-typing');
+    desc.textContent = full;
+    if (version) version.classList.add('about-show');
+    return;
+  }
+
+  desc.classList.add('about-typing');
+  desc.textContent = '';
+  if (version) version.classList.remove('about-show');
+
+  var i = 0;
+  var step = function() {
+    if (i <= full.length) {
+      desc.textContent = full.slice(0, i);
+      i++;
+      _aboutTypeTimer = setTimeout(step, 28); // gentle, professional pace
+    } else {
+      desc.classList.remove('about-typing');
+      _aboutTypeTimer = null;
+      if (version) version.classList.add('about-show'); // fade in after typing
+    }
+  };
+  step();
+}
+
 function loadAboutPage() {
+  // Replay the hero typewriter on each visit to the About page
+  _aboutTypewriter();
+
   // Students + Courses come from the existing courses cache (or MOCK_COURSES fallback).
   // Each course carries a real `students` (enrollment) count; sum for a real total.
   var courses = null;

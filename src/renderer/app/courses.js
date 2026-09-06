@@ -28,7 +28,127 @@ function mapCourse(c) {
     students: c.students ? c.students.toString() : '0',
     hours: c.totalHours || 0,
     totalVideos: c.totalVideos || 0,
+    // Real module count from backend (_count.modules) — used as a lesson-count
+    // fallback when the list response doesn't include modules[].lessons[].
+    modulesCount: (c._count && typeof c._count.modules === 'number') ? c._count.modules : 0,
   };
+}
+
+// ─── Shared course-card helpers (used by BOTH the Courses grid and the
+//     Dashboard "Recommended for You" grid so metadata stays dynamic + DRY) ───
+
+// Render a dynamic star row from a real numeric rating (0–5).
+function courseStarsHTML(rating) {
+  var r = Math.max(0, Math.min(5, Number(rating) || 0));
+  var full = Math.floor(r);
+  var half = (r - full) >= 0.5 ? 1 : 0;
+  var empty = 5 - full - half;
+  var out = '';
+  for (var i = 0; i < full; i++) out += '<i class="fas fa-star"></i>';
+  if (half) out += '<i class="fas fa-star-half-alt"></i>';
+  for (var j = 0; j < empty; j++) out += '<i class="far fa-star"></i>';
+  return out;
+}
+
+// Real lesson count for a course. Prefer actual lessons if present (detail
+// shape), else the real video count, else the backend module count. Never fake.
+function courseLessonCount(c) {
+  var fromModules = (c.modules || []).reduce(function(n, m) { return n + (m.lessons || []).length; }, 0);
+  if (fromModules > 0) return fromModules;
+  if (c.totalVideos && Number(c.totalVideos) > 0) return Number(c.totalVideos);
+  if (c.modulesCount && Number(c.modulesCount) > 0) return Number(c.modulesCount);
+  return 0;
+}
+
+// Initial duration label from existing real data (totalHours) when available.
+// Returns '--' when no duration data exists (async video detection may fill it).
+function courseDurationLabel(c) {
+  var h = Number(c.hours) || 0;
+  if (h > 0) return h + ' Hour' + (h === 1 ? '' : 's');
+  return '--';
+}
+
+// Build one course card's inner HTML with fully dynamic metadata.
+// `opts.onClickId` overrides the id passed to openCourseDetail (defaults to c.id).
+function buildCourseCardHTML(c, i, opts) {
+  opts = opts || {};
+  var fallbackGradients = [
+    'linear-gradient(135deg,#6c47ff,#3b1fa8)',
+    'linear-gradient(135deg,#ec4899,#be185d)',
+    'linear-gradient(135deg,#f97316,#c2410c)',
+    'linear-gradient(135deg,#10b981,#065f46)',
+    'linear-gradient(135deg,#3b82f6,#1d4ed8)',
+    'linear-gradient(135deg,#8b5cf6,#6d28d9)',
+  ];
+  var gradient = c.gradient && c.gradient.includes('gradient') ? c.gradient : fallbackGradients[i % fallbackGradients.length];
+  var accent = '#6c47ff';
+  if (gradient.includes('#ec4899') || gradient.includes('236,72,153')) accent = '#ec4899';
+  else if (gradient.includes('#f97316') || gradient.includes('249,115,22')) accent = '#f97316';
+  var tl = (c.title || '').toLowerCase().trim();
+  var bannerImg = '';
+  if (tl === 'c' || tl.includes('c programming') || tl.startsWith('c ')) bannerImg = 'assets/C.png.jpeg';
+  else if (tl.includes('java')) bannerImg = 'assets/Java.png.jpeg';
+  else if (tl.includes('python')) bannerImg = 'assets/Python.png.jpeg';
+  var headerContent = bannerImg
+    ? '<img src="' + bannerImg + '" alt="" style="width:100%;height:100%;object-fit:cover;object-position:center center;position:absolute;inset:0;z-index:1;" draggable="false"/>'
+    : '<i class="' + c.icon + '" style="font-size:4rem;color:rgba(255,255,255,0.95);z-index:1;filter:drop-shadow(0 4px 12px rgba(0,0,0,0.4));"></i>';
+
+  // Dynamic metadata — no hardcoded rating / stars / lessons / students.
+  var hasRating = Number(c.rating) > 0;
+  var ratingText = hasRating ? Number(c.rating).toFixed(1).replace(/\.0$/, '') : 'New';
+  var starsHTML = hasRating
+    ? courseStarsHTML(c.rating)
+    : '<i class="far fa-star"></i><i class="far fa-star"></i><i class="far fa-star"></i><i class="far fa-star"></i><i class="far fa-star"></i>';
+  var lessonCount = courseLessonCount(c);
+  var durationLabel = courseDurationLabel(c);
+  var studentCount = c.students || '0';
+  var clickId = opts.onClickId != null ? opts.onClickId : c.id;
+
+  return `
+    <div class="course-card hover-glow" style="background:#161B22; border:1px solid rgba(255,255,255,0.06); border-radius:20px; overflow:hidden; cursor:default; box-shadow:0 8px 24px rgba(0,0,0,0.3); transition:transform 0.25s, box-shadow 0.25s;">
+      <div style="aspect-ratio:16/9; background:${gradient}; display:flex; align-items:center; justify-content:center; position:relative; overflow:hidden;">
+        <div style="position:absolute;inset:0;background:linear-gradient(to bottom,transparent 40%,rgba(0,0,0,0.4));z-index:2;"></div>
+        ${headerContent}
+      </div>
+      <div style="padding:18px;">
+        <h3 style="font-size:1.05rem; font-weight:800; color:#fff; margin-bottom:6px; line-height:1.3;">${sanitize(c.title)}</h3>
+        <p style="font-size:0.8rem; color:var(--muted); margin-bottom:12px; line-height:1.5; min-height:36px;">${sanitize(c.subtitle)}</p>
+        <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
+          <span style="display:flex;align-items:center;gap:4px;font-size:0.82rem;font-weight:700;color:#F59E0B;"><i class="fas fa-star"></i> ${ratingText}</span>
+          <span style="font-size:0.72rem;color:#F59E0B;">${starsHTML}</span>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;">
+          <span style="display:inline-flex;align-items:center;gap:4px;padding:4px 9px;border-radius:6px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);font-size:0.7rem;font-weight:600;color:rgba(255,255,255,0.65);"><i class="fas fa-book-open" style="font-size:0.6rem;opacity:0.7;"></i> ${lessonCount} Lessons</span>
+          <span data-card-duration="${c.id}" style="display:inline-flex;align-items:center;gap:4px;padding:4px 9px;border-radius:6px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);font-size:0.7rem;font-weight:600;color:rgba(255,255,255,0.65);"><i class="fas fa-clock" style="font-size:0.6rem;opacity:0.7;"></i> ${durationLabel}</span>
+          <span style="display:inline-flex;align-items:center;gap:4px;padding:4px 9px;border-radius:6px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);font-size:0.7rem;font-weight:600;color:rgba(255,255,255,0.65);"><i class="fas fa-user-graduate" style="font-size:0.6rem;opacity:0.7;"></i> ${studentCount} Students</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <button onclick="openCourseDetail('${clickId}')" onmouseenter="this.style.transform='translateY(-2px)';this.style.boxShadow='0 6px 22px ${accent}66'" onmouseleave="this.style.transform='translateY(0)';this.style.boxShadow='0 4px 16px ${accent}44'" style="flex:1;display:flex;align-items:center;justify-content:center;gap:8px;padding:11px 16px;border-radius:12px;border:none;background:linear-gradient(135deg,${accent},${accent}cc);color:#fff;font-size:0.82rem;font-weight:700;cursor:pointer;box-shadow:0 4px 16px ${accent}44;transition:transform 0.2s ease,box-shadow 0.2s ease;">Start Learning <i class="fas fa-arrow-right" style="font-size:0.65rem;"></i></button>
+          <span style="padding:8px 12px;border-radius:8px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);font-size:0.72rem;font-weight:700;color:rgba(255,255,255,0.7);">👑 Pro</span>
+        </div>
+      </div>
+    </div>`;
+}
+
+// Async: fill the duration chip(s) for a set of courses using real video
+// metadata when lesson videoUrls are available. Shared by both grids.
+function hydrateCourseDurations(courses) {
+  courses.forEach(function(c) {
+    var lessons = [];
+    (c.modules || []).forEach(function(m) {
+      (m.lessons || []).forEach(function(l) {
+        if (l.videoUrl) lessons.push(l);
+      });
+    });
+    if (lessons.length > 0) {
+      detectAllDurations(lessons).then(function(durationMap) {
+        var totalSec = 0;
+        Object.keys(durationMap).forEach(function(k) { totalSec += durationMap[k]; });
+        var el = document.querySelector('[data-card-duration="' + c.id + '"]');
+        if (el) el.innerHTML = '<i class="fas fa-clock" style="font-size:0.6rem;opacity:0.7;"></i> ' + formatCourseDuration(totalSec);
+      });
+    }
+  });
 }
 
 async function loadCourses(category, search) {
@@ -41,7 +161,9 @@ async function loadCourses(category, search) {
         if (data && data.success && data.courses) {
           ckCacheSet('/api/courses', data);
           // Silently update UI if data changed
-          renderCourseGrid(data.courses.map(mapCourse));
+          var mapped = data.courses.map(mapCourse);
+          renderCourseGrid(mapped);
+          renderDashboardRecommended(mapped);
         }
       }).catch(function() {});
       return cached.courses.map(mapCourse);
@@ -70,73 +192,36 @@ function renderCourseGrid(courses) {
       '</div>';
     return;
   }
-  // Fallback gradients for courses without color
-  const fallbackGradients = [
-    'linear-gradient(135deg,#6c47ff,#3b1fa8)',
-    'linear-gradient(135deg,#ec4899,#be185d)',
-    'linear-gradient(135deg,#f97316,#c2410c)',
-    'linear-gradient(135deg,#10b981,#065f46)',
-    'linear-gradient(135deg,#3b82f6,#1d4ed8)',
-    'linear-gradient(135deg,#8b5cf6,#6d28d9)',
-  ];
-  grid.innerHTML = courses.map((c, i) => {
-    const gradient = c.gradient && c.gradient.includes('gradient') ? c.gradient : fallbackGradients[i % fallbackGradients.length];
-    var accent = '#6c47ff';
-    if (gradient.includes('#ec4899') || gradient.includes('236,72,153')) accent = '#ec4899';
-    else if (gradient.includes('#f97316') || gradient.includes('249,115,22')) accent = '#f97316';
-    var diff = 'Beginner', diffColor = '#22c55e';
-    if (c.title && (c.title.toLowerCase().includes('java') || c.title.toLowerCase().includes('mern') || c.title.toLowerCase().includes('dsa'))) { diff = 'Intermediate'; diffColor = '#f97316'; }
-    var tl = (c.title || '').toLowerCase().trim();
-    var bannerImg = '';
-    if (tl === 'c' || tl.includes('c programming') || tl.startsWith('c ')) bannerImg = 'assets/C.png.jpeg';
-    else if (tl.includes('java')) bannerImg = 'assets/Java.png.jpeg';
-    else if (tl.includes('python')) bannerImg = 'assets/Python.png.jpeg';
-    var headerContent = bannerImg
-      ? '<img src="' + bannerImg + '" alt="" style="width:100%;height:100%;object-fit:cover;object-position:center center;position:absolute;inset:0;z-index:1;" draggable="false"/>'
-      : '<i class="' + c.icon + '" style="font-size:4rem;color:rgba(255,255,255,0.95);z-index:1;filter:drop-shadow(0 4px 12px rgba(0,0,0,0.4));"></i>';
-    return `
-    <div class="course-card hover-glow" style="background:#161B22; border:1px solid rgba(255,255,255,0.06); border-radius:20px; overflow:hidden; cursor:default; box-shadow:0 8px 24px rgba(0,0,0,0.3); transition:transform 0.25s, box-shadow 0.25s;">
-      <div style="aspect-ratio:16/9; background:${gradient}; display:flex; align-items:center; justify-content:center; position:relative; overflow:hidden;">
-        <div style="position:absolute;inset:0;background:linear-gradient(to bottom,transparent 40%,rgba(0,0,0,0.4));z-index:2;"></div>
-        ${headerContent}
-      </div>
-      <div style="padding:18px;">
-        <h3 style="font-size:1.05rem; font-weight:800; color:#fff; margin-bottom:6px; line-height:1.3;">${sanitize(c.title)}</h3>
-        <p style="font-size:0.8rem; color:var(--muted); margin-bottom:12px; line-height:1.5; min-height:36px;">${sanitize(c.subtitle)}</p>
-        <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
-          <span style="display:flex;align-items:center;gap:4px;font-size:0.82rem;font-weight:700;color:#F59E0B;"><i class="fas fa-star"></i> ${c.rating || '4.8'}</span>
-          <span style="font-size:0.72rem;color:#F59E0B;">★★★★★</span>
-        </div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;">
-          <span style="display:inline-flex;align-items:center;gap:4px;padding:4px 9px;border-radius:6px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);font-size:0.7rem;font-weight:600;color:rgba(255,255,255,0.65);"><i class="fas fa-book-open" style="font-size:0.6rem;opacity:0.7;"></i> ${(c.modules||[]).reduce(function(n,m){return n+(m.lessons||[]).length;},0)} Lessons</span>
-          <span data-card-duration="${c.id}" style="display:inline-flex;align-items:center;gap:4px;padding:4px 9px;border-radius:6px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);font-size:0.7rem;font-weight:600;color:rgba(255,255,255,0.65);"><i class="fas fa-clock" style="font-size:0.6rem;opacity:0.7;"></i> --</span>
-          <span style="display:inline-flex;align-items:center;gap:4px;padding:4px 9px;border-radius:6px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);font-size:0.7rem;font-weight:600;color:rgba(255,255,255,0.65);"><i class="fas fa-user-graduate" style="font-size:0.6rem;opacity:0.7;"></i> ${c.students || '0'} Students</span>
-        </div>
-        <div style="display:flex;align-items:center;gap:8px;">
-          <button onclick="openCourseDetail('${c.id}')" onmouseenter="this.style.transform='translateY(-2px)';this.style.boxShadow='0 6px 22px ${accent}66'" onmouseleave="this.style.transform='translateY(0)';this.style.boxShadow='0 4px 16px ${accent}44'" style="flex:1;display:flex;align-items:center;justify-content:center;gap:8px;padding:11px 16px;border-radius:12px;border:none;background:linear-gradient(135deg,${accent},${accent}cc);color:#fff;font-size:0.82rem;font-weight:700;cursor:pointer;box-shadow:0 4px 16px ${accent}44;transition:transform 0.2s ease,box-shadow 0.2s ease;">Start Learning <i class="fas fa-arrow-right" style="font-size:0.65rem;"></i></button>
-          <span style="padding:8px 12px;border-radius:8px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);font-size:0.72rem;font-weight:700;color:rgba(255,255,255,0.7);">👑 Pro</span>
-        </div>
-      </div>
-    </div>`;
-  }).join('');
+  // Uses the shared, fully-dynamic card builder (no hardcoded metadata).
+  grid.innerHTML = courses.map(function(c, i) { return buildCourseCardHTML(c, i); }).join('');
 
-  // Async: detect real durations for each course card
-  courses.forEach(function(c) {
-    var lessons = [];
-    (c.modules || []).forEach(function(m) {
-      (m.lessons || []).forEach(function(l) {
-        if(l.videoUrl) lessons.push(l);
-      });
+  // Async: detect real durations for each course card when lesson videos exist.
+  hydrateCourseDurations(courses);
+}
+
+// Populate the Dashboard "Recommended for You" grid dynamically from the SAME
+// course data source (loadCourses → /api/courses), reusing the shared card
+// builder so metadata (rating, stars, lessons, hours, students) is never
+// hardcoded. Prefers C / Java / Python (to match the featured set), then fills
+// with the first available courses.
+function renderDashboardRecommended(courses) {
+  var grid = document.getElementById('dashboard-recommended-grid');
+  if (!grid) return;
+  if (!courses || courses.length === 0) return; // keep existing static markup if no data
+  var pick = [];
+  var wanted = ['python', 'java', 'c'];
+  wanted.forEach(function(key) {
+    var match = courses.find(function(c) {
+      var t = (c.title || '').toLowerCase().trim();
+      if (key === 'c') return t === 'c' || t.includes('c programming') || t.startsWith('c ');
+      return t.includes(key) && !(key === 'java' && t.includes('javascript'));
     });
-    if(lessons.length > 0) {
-      detectAllDurations(lessons).then(function(durationMap) {
-        var totalSec = 0;
-        Object.keys(durationMap).forEach(function(k) { totalSec += durationMap[k]; });
-        var el = document.querySelector('[data-card-duration="' + c.id + '"]');
-        if(el) el.innerHTML = '<i class="fas fa-clock" style="font-size:0.6rem;opacity:0.7;"></i> ' + formatCourseDuration(totalSec);
-      });
-    }
+    if (match && pick.indexOf(match) === -1) pick.push(match);
   });
+  courses.forEach(function(c) { if (pick.length < 3 && pick.indexOf(c) === -1) pick.push(c); });
+  pick = pick.slice(0, 3);
+  grid.innerHTML = pick.map(function(c, i) { return buildCourseCardHTML(c, i); }).join('');
+  hydrateCourseDurations(pick);
 }
 
 async function openCourseDetail(courseId) {

@@ -264,6 +264,9 @@ function refreshAllData() {
   if (pageId === 'dashboard' || pageId === 'profile') {
     StudentAPI.getDashboard().then(function(data) { _applyDashboardData(data, false); }).catch(function() {});
   }
+  if (pageId === 'dashboard') {
+    loadCourses().then(function(courses) { renderDashboardRecommended(courses); }).catch(function() {});
+  }
   if (pageId === 'courses') {
     loadCourses().then(function(courses) { renderCourseGrid(courses); }).catch(function() {});
   }
