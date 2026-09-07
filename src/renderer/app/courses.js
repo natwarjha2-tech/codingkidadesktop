@@ -25,9 +25,17 @@ function mapCourse(c) {
     category: c.category || 'Programming',
     instructor: c.instructor || '',
     instructorMeta: c.institute || '',
-    students: c.students ? c.students.toString() : '0',
+    // Real enrolled-student count (purchasers) from backend, not reviewers.
+    students: (typeof c.enrolledStudents === 'number') ? c.enrolledStudents.toString() : (c.students ? c.students.toString() : '0'),
     hours: c.totalHours || 0,
     totalVideos: c.totalVideos || 0,
+    // Real total lesson count across all modules (from backend list route).
+    lessonCount: (typeof c.lessonCount === 'number') ? c.lessonCount : 0,
+    // Real total duration in seconds (backend-computed from lesson durations).
+    totalDurationSeconds: (typeof c.totalDurationSeconds === 'number') ? c.totalDurationSeconds : 0,
+    // Slim modules (lesson id + videoUrl) so the grid can detect real durations
+    // from the video files — same technique as the course-detail page.
+    modules: Array.isArray(c.modules) ? c.modules : [],
     // Real module count from backend (_count.modules) — used as a lesson-count
     // fallback when the list response doesn't include modules[].lessons[].
     modulesCount: (c._count && typeof c._count.modules === 'number') ? c._count.modules : 0,
@@ -55,17 +63,34 @@ function courseStarsHTML(rating) {
 function courseLessonCount(c) {
   var fromModules = (c.modules || []).reduce(function(n, m) { return n + (m.lessons || []).length; }, 0);
   if (fromModules > 0) return fromModules;
+  // Real total lesson count from the list API (matches the course-detail page).
+  if (c.lessonCount && Number(c.lessonCount) > 0) return Number(c.lessonCount);
   if (c.totalVideos && Number(c.totalVideos) > 0) return Number(c.totalVideos);
   if (c.modulesCount && Number(c.modulesCount) > 0) return Number(c.modulesCount);
   return 0;
 }
 
-// Initial duration label from existing real data (totalHours) when available.
-// Returns '--' when no duration data exists (async video detection may fill it).
+// Parse a stored lesson duration into seconds. Supports plain seconds ("14",
+// "383"), "MM:SS" ("6:23") and "HH:MM:SS". Unset values ("00:00"/"0"/"")→0.
+function _parseLessonDuration(d) {
+  if (!d) return 0;
+  var s = String(d).trim();
+  if (!s || s === '00:00' || s === '0') return 0;
+  if (s.indexOf(':') === -1) { var n = parseInt(s, 10); return isNaN(n) ? 0 : n; }
+  var p = s.split(':').map(function(x){ return parseInt(x, 10); });
+  if (p.some(function(n){ return isNaN(n); })) return 0;
+  if (p.length === 3) return p[0]*3600 + p[1]*60 + p[2];
+  if (p.length === 2) return p[0]*60 + p[1];
+  return p[0] || 0;
+}
+
+// Duration label — pure DB value (totalDurationSeconds from the API, summed
+// from stored per-lesson durations). Shows "0 Mins" when the DB has no
+// duration. No client-side video detection.
 function courseDurationLabel(c) {
-  var h = Number(c.hours) || 0;
-  if (h > 0) return h + ' Hour' + (h === 1 ? '' : 's');
-  return '--';
+  var secs = Number(c.totalDurationSeconds) || 0;
+  if (secs > 0 && typeof formatCourseDuration === 'function') return formatCourseDuration(secs);
+  return '0 Mins';
 }
 
 // Build one course card's inner HTML with fully dynamic metadata.
@@ -132,23 +157,11 @@ function buildCourseCardHTML(c, i, opts) {
 
 // Async: fill the duration chip(s) for a set of courses using real video
 // metadata when lesson videoUrls are available. Shared by both grids.
+// Duration comes purely from the DB via the API (totalDurationSeconds), set by
+// courseDurationLabel() at render time. No client-side video detection — if the
+// DB has no duration, the card shows 0. Kept as a no-op so existing callers work.
 function hydrateCourseDurations(courses) {
-  courses.forEach(function(c) {
-    var lessons = [];
-    (c.modules || []).forEach(function(m) {
-      (m.lessons || []).forEach(function(l) {
-        if (l.videoUrl) lessons.push(l);
-      });
-    });
-    if (lessons.length > 0) {
-      detectAllDurations(lessons).then(function(durationMap) {
-        var totalSec = 0;
-        Object.keys(durationMap).forEach(function(k) { totalSec += durationMap[k]; });
-        var el = document.querySelector('[data-card-duration="' + c.id + '"]');
-        if (el) el.innerHTML = '<i class="fas fa-clock" style="font-size:0.6rem;opacity:0.7;"></i> ' + formatCourseDuration(totalSec);
-      });
-    }
-  });
+  void courses;
 }
 
 async function loadCourses(category, search) {
@@ -266,6 +279,7 @@ function renderCourseDetailFromBackend(course) {
   if(heroInstructor) heroInstructor.textContent = course.instructor || '';
   var heroRating = document.getElementById('cd-hero-rating');
   if(heroRating) heroRating.textContent = '--';
+  // "Reviews" stat = number of people who added a review (filled async below).
   var heroStudents = document.getElementById('cd-hero-students');
   if(heroStudents) heroStudents.textContent = '0';
 
@@ -326,27 +340,12 @@ function renderCourseDetailFromBackend(course) {
     modules.forEach(function(m){ totalVids += (m.lessons || []).length; });
     var infoVideos = document.getElementById('cd-videos');
     if(infoVideos) infoVideos.textContent = totalVids + ' videos';
-    // Duration = TOTAL from all cached durations
+    // Duration: pure DB value — sum of stored per-lesson durations. No video
+    // detection. Shows 0 when the DB has no duration.
     var totalSec = 0;
-    var pending = 0;
-    var resolved = 0;
-    allLessons.forEach(function(l) {
-      if(l.videoUrl && _videoDurationCache[l.videoUrl] !== undefined) {
-        totalSec += _videoDurationCache[l.videoUrl];
-      } else if(l.videoUrl) {
-        pending++;
-        detectVideoDuration(l.videoUrl).then(function(sec) {
-          totalSec += sec;
-          resolved++;
-          if(resolved >= pending) {
-            var infoDuration = document.getElementById('cd-hours');
-            if(infoDuration) infoDuration.textContent = _formatHMS(totalSec);
-          }
-        });
-      }
-    });
+    allLessons.forEach(function(l) { totalSec += _parseLessonDuration(l.duration); });
     var infoDuration = document.getElementById('cd-hours');
-    if(infoDuration) infoDuration.textContent = pending > 0 ? 'Loading...' : _formatHMS(totalSec);
+    if(infoDuration) infoDuration.textContent = _formatHMS(totalSec);
   }
   // Helper: format seconds to HHh MMm SSs
   function _formatHMS(sec) {
@@ -398,8 +397,9 @@ function renderCourseDetailFromBackend(course) {
   if(instrAvatar) instrAvatar.textContent = course.instructor ? course.instructor.charAt(0).toUpperCase() : 'I';
   var instrName = document.getElementById('cd-instructor-name');
   if(instrName) instrName.textContent = course.instructor || '';
+  // Instructor rating removed — no reliable instructor-level rating data.
   var instrRating = document.getElementById('cd-instructor-rating');
-  if(instrRating) instrRating.innerHTML = '<i class="fas fa-star" style="color:#fbbf24;font-size:0.65rem;"></i> ' + (course.rating || '4.8') + ' (' + (course.students || 0) + ' Reviews)';
+  if(instrRating) { instrRating.innerHTML = ''; instrRating.style.display = 'none'; }
 
   // --- Course Content ---
   var modulesContainer = document.getElementById('cd-modules');
@@ -499,7 +499,10 @@ function renderCourseDetailFromBackend(course) {
         iconHtml = '<div class="cd-lesson-icon cd-lesson-icon-locked"><i class="fas fa-lock"></i></div>';
       }
 
-      var duration = '--';
+      // Per-lesson duration straight from the DB (stored seconds / MM:SS).
+      // Works for any length, including under a minute (e.g. "14 Sec").
+      var _lessonSecs = (typeof _parseLessonDuration === 'function') ? _parseLessonDuration(lesson.duration) : 0;
+      var duration = _lessonSecs > 0 ? formatDuration(_lessonSecs) : '--';
       var rightHtml = '';
       if (isCompleted) {
         rightHtml = '<span class="cd-badge cd-badge-completed">Completed</span><i class="fas fa-check-circle cd-status-icon cd-status-completed"></i>';
@@ -583,20 +586,8 @@ function renderCourseDetailFromBackend(course) {
 
   navigate('course-detail');
 
-  // Async: detect real video durations from metadata and update UI
-  var lessonsWithUrls = allLessons.filter(function(l){ return l.videoUrl && l.videoUrl !== ''; });
-  if(lessonsWithUrls.length > 0) {
-    detectAllDurations(lessonsWithUrls).then(function(durationMap) {
-      var totalSec = 0;
-      // Update each lesson duration in the DOM
-      allLessons.forEach(function(l) {
-        var sec = durationMap[l.id] || 0;
-        totalSec += sec;
-        var el = document.querySelector('[data-lesson-id="' + l.id + '"]');
-        if(el) el.textContent = formatDuration(sec);
-      });
-    });
-  }
+  // Per-lesson durations are rendered directly from the DB (lesson.duration)
+  // in the row markup above — no client-side video detection needed.
 
   // Async: fetch lesson ratings and calculate course average + total students
   if(allLessons.length > 0) {
@@ -610,18 +601,20 @@ function renderCourseDetailFromBackend(course) {
       }).catch(function(){ return { avg: 0, students: 0 }; });
     });
     Promise.all(ratingPromises).then(function(results) {
-      var totalStudents = 0;
+      var totalReviews = 0;
       var ratingSum = 0;
       var ratedCount = 0;
       results.forEach(function(r) {
-        totalStudents += r.students;
+        totalReviews += r.students; // r.students = totalReviews per lesson
         if(r.avg > 0) { ratingSum += r.avg; ratedCount++; }
       });
+      // Rating = average of real lesson feedback ratings.
       var avgRating = ratedCount > 0 ? Math.min((ratingSum / ratedCount), 5.0) : 0;
       var heroRatingEl = document.getElementById('cd-hero-rating');
       if(heroRatingEl) heroRatingEl.textContent = avgRating > 0 ? avgRating.toFixed(1) : '--';
+      // "Reviews" stat = total number of people who added a review.
       var heroStudentsEl = document.getElementById('cd-hero-students');
-      if(heroStudentsEl) heroStudentsEl.textContent = totalStudents;
+      if(heroStudentsEl) heroStudentsEl.textContent = String(totalReviews);
     });
   }
 }
@@ -631,7 +624,8 @@ function renderCourseDetailFromMock(course) {
   document.getElementById('cd-videos').textContent = (course.totalVideos || 0) + ' videos';
   document.getElementById('cd-instructor-avatar').textContent = course.instructor ? course.instructor.charAt(0) : 'I';
   document.getElementById('cd-instructor-name').textContent = course.instructor || '';
-  document.getElementById('cd-instructor-rating').innerHTML = '<i class="fas fa-star" style="color:#fbbf24;font-size:0.65rem;"></i> ' + (course.rating || '4.8') + ' (' + (course.students || 0) + ' Reviews)';
+  var _mockInstrRating = document.getElementById('cd-instructor-rating');
+  if (_mockInstrRating) { _mockInstrRating.innerHTML = ''; _mockInstrRating.style.display = 'none'; }
   var priceBtnMock = document.getElementById('cd-price-btn');
   priceBtnMock.textContent = course.free ? 'Free Course' : 'Unlock Course';
   priceBtnMock.onclick = course.free ? null : () => openPaymentPage();
