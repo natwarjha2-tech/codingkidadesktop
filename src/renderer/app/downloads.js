@@ -384,8 +384,15 @@ async function downloadOffline() {
   const btn = document.getElementById('offline-download-btn');
   if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Downloading...'; btn.style.background = 'rgba(255,255,255,0.1)'; }
 
-  const { lessonId, title, courseTitle, moduleTitle, videoUrl } = _currentVideoData;
+  const { lessonId, title, courseTitle, moduleTitle } = _currentVideoData;
   const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+
+  // Download the CURRENTLY SELECTED quality (e.g. 720p/480p/360p) instead of
+  // always the original. Falls back to the original if none selected.
+  var videoUrl = (typeof _vpCurrentUrl === 'string' && _vpCurrentUrl)
+    ? _vpCurrentUrl
+    : (window._vpOriginalUrl || _currentVideoData.videoUrl);
+  var selectedQuality = (typeof _vpCurrentQuality === 'string' && _vpCurrentQuality) ? _vpCurrentQuality : 'Original';
 
   // Get signed URL immediately before passing to main process — minimises TTL gap
   async function getSignedUrl(url) {
@@ -409,7 +416,11 @@ async function downloadOffline() {
 
   try {
     const dlUrl = await getSignedUrl(videoUrl);
-    const result = await window.electron.downloadContent({ url: dlUrl, lessonId, title, type: 'video', userId, courseTitle, moduleTitle });
+    // Note the selected quality in the saved title so it's visible in Downloads.
+    var dlTitle = (selectedQuality && selectedQuality !== 'Original')
+      ? (title + ' (' + selectedQuality + ')')
+      : title;
+    const result = await window.electron.downloadContent({ url: dlUrl, lessonId, title: dlTitle, type: 'video', userId, courseTitle, moduleTitle });
     if (btn) {
       btn.disabled = result.success;
       btn.innerHTML = result.success
