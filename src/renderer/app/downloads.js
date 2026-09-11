@@ -3,6 +3,16 @@
  * Watchlist (localStorage), offline downloads (Electron IPC).
  */
 
+// Format a byte count into a human-readable size (KB / MB / GB).
+function _formatBytes(bytes) {
+  var b = Number(bytes) || 0;
+  if (b <= 0) return '';
+  if (b < 1024) return b + ' B';
+  if (b < 1024 * 1024) return (b / 1024).toFixed(0) + ' KB';
+  if (b < 1024 * 1024 * 1024) return (b / (1024 * 1024)).toFixed(1) + ' MB';
+  return (b / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+}
+
 // ─── Downloads (Watchlist) ───────────────────────────────────────────────────
 
 function _showWatchlistToast(message, isError) {
@@ -190,11 +200,8 @@ function _renderWlList() {
     Object.keys(grouped[course]).forEach(function(m){ lessonCount += grouped[course][m].length; });
 
     // Determine course logo
-    var cLower = course.toLowerCase().trim();
-    var logoSrc = '';
-    if(cLower === 'c' || cLower.includes('c programming')) logoSrc = 'assets/c-logo.png';
-    else if(cLower.includes('java')) logoSrc = 'assets/java-logo.png';
-    else if(cLower.includes('python')) logoSrc = 'assets/python-logo.png';
+    var _theme = (typeof getSubjectTheme === 'function') ? getSubjectTheme(course) : null;
+    var logoSrc = _theme ? _theme.logo : '';
 
     var isFirst = courseIdx === 0;
     courseIdx++;
@@ -204,6 +211,8 @@ function _renderWlList() {
     html += '<div class="wl-course-header" onclick="this.parentElement.classList.toggle(\'wl-course-open\')">';
     if(logoSrc) {
       html += '<img src="' + logoSrc + '" class="wl-course-logo" draggable="false"/>';
+    } else if(_theme) {
+      html += '<div class="wl-course-avatar" style="background:' + _theme.gradient + ';"><i class="' + _theme.icon + '" style="color:#fff;font-size:0.9rem;"></i></div>';
     } else {
       html += '<div class="wl-course-avatar">' + sanitize(course).charAt(0) + '</div>';
     }
@@ -525,11 +534,8 @@ async function renderOfflineDownloads() {
     Object.keys(grouped[course]).forEach(function(m){ totalItems += grouped[course][m].length; });
 
     // Course logo
-    var cLower = course.toLowerCase().trim();
-    var logoSrc = '';
-    if(cLower === 'c' || cLower.includes('c programming')) logoSrc = 'assets/c-logo.png';
-    else if(cLower.includes('java')) logoSrc = 'assets/java-logo.png';
-    else if(cLower.includes('python')) logoSrc = 'assets/python-logo.png';
+    var _theme2 = (typeof getSubjectTheme === 'function') ? getSubjectTheme(course) : null;
+    var logoSrc = _theme2 ? _theme2.logo : '';
 
     var isFirst = dlCourseIdx === 0;
     dlCourseIdx++;
@@ -538,6 +544,8 @@ async function renderOfflineDownloads() {
     html += '<div class="dl-course-header" onclick="this.parentElement.classList.toggle(\'dl-course-open\')">';
     if(logoSrc) {
       html += '<img src="' + logoSrc + '" class="dl-course-logo" draggable="false"/>';
+    } else if(_theme2) {
+      html += '<div class="dl-course-avatar" style="background:' + _theme2.gradient + ';"><i class="' + _theme2.icon + '" style="color:#fff;font-size:0.9rem;"></i></div>';
     } else {
       html += '<div class="dl-course-avatar">' + sanitize(course).charAt(0) + '</div>';
     }
@@ -562,7 +570,8 @@ async function renderOfflineDownloads() {
         html += '<div>';
         videoItems.forEach(function(d) {
           html += '<div class="dl-lesson"><div class="dl-lesson-body"><div class="dl-lesson-icon" style="color:#22c55e;border-color:#22c55e30;"><i class="fas fa-play-circle"></i></div><div class="dl-lesson-content"><span class="dl-lesson-title">' + sanitize(d.title) + '</span><span class="dl-lesson-meta"><span class="dl-type-badge">Video</span>';
-          if(d.daysLeft !== undefined) html += ' <span class="dl-expiry">Expires in ' + d.daysLeft + ' day' + (d.daysLeft !== 1 ? 's' : '') + '</span>';
+          if(_formatBytes(d.fileSize)) html += '<span class="dl-size">' + _formatBytes(d.fileSize) + '</span>';
+          if(d.daysLeft !== undefined) html += '<span class="dl-expiry">' + d.daysLeft + ' day' + (d.daysLeft !== 1 ? 's' : '') + ' left</span>';
           html += '</span></div></div><div class="dl-lesson-actions"><button class="dl-action-btn" onclick="playOfflineContent(\'' + d.lessonId + '\',\'' + d.type + '\')"><i class="fas fa-play"></i> Watch</button><button class="dl-remove-btn" onclick="deleteOfflineContent(\'' + d.lessonId + '\',\'' + d.type + '\')" title="Remove"><i class="fas fa-trash-alt"></i></button></div></div>';
         });
         html += '</div></div>';
@@ -574,8 +583,9 @@ async function renderOfflineDownloads() {
         html += '<div onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display===\'none\'?\'block\':\'none\';this.querySelector(\'i\').classList.toggle(\'fa-chevron-down\');this.querySelector(\'i\').classList.toggle(\'fa-chevron-right\')" style="display:flex;align-items:center;gap:6px;padding:6px 12px;cursor:pointer;border-top:1px solid rgba(255,255,255,0.04);margin-top:2px;"><i class="fas fa-chevron-down" style="font-size:0.55rem;color:var(--muted);transition:transform 0.2s;width:10px;"></i><i class="fas fa-book-open" style="color:#a78bfa;font-size:0.7rem;"></i><span style="font-size:0.72rem;font-weight:700;color:#a78bfa;text-transform:uppercase;letter-spacing:0.4px;">Study Material</span><span style="font-size:0.62rem;color:var(--muted);margin-left:auto;">' + pdfItems.length + '</span></div>';
         html += '<div>';
         pdfItems.forEach(function(d) {
-          html += '<div class="dl-lesson"><div class="dl-lesson-body"><div class="dl-lesson-icon" style="color:#ef4444;border-color:#ef444430;"><i class="fas fa-file-pdf"></i></div><div class="dl-lesson-content"><span class="dl-lesson-title">' + sanitize(d.title) + '</span><span class="dl-lesson-meta"><span class="dl-type-badge">' + (d.lessonId && d.lessonId.startsWith('material_') ? 'Study Material' : 'PDF Notes') + '</span>';
-          if(d.daysLeft !== undefined) html += ' <span class="dl-expiry">Expires in ' + d.daysLeft + ' day' + (d.daysLeft !== 1 ? 's' : '') + '</span>';
+          html += '<div class="dl-lesson"><div class="dl-lesson-body"><div class="dl-lesson-icon" style="color:#ef4444;border-color:#ef444430;"><i class="fas fa-file-pdf"></i></div><div class="dl-lesson-content"><span class="dl-lesson-title">' + sanitize(d.title) + '</span><span class="dl-lesson-meta"><span class="dl-type-badge">' + (d.lessonId && d.lessonId.startsWith('material_') ? 'PDF · Study Material' : 'PDF · Notes') + '</span>';
+          if(_formatBytes(d.fileSize)) html += '<span class="dl-size">' + _formatBytes(d.fileSize) + '</span>';
+          if(d.daysLeft !== undefined) html += '<span class="dl-expiry">' + d.daysLeft + ' day' + (d.daysLeft !== 1 ? 's' : '') + ' left</span>';
           html += '</span></div></div><div class="dl-lesson-actions"><button class="dl-action-btn" onclick="playOfflineContent(\'' + d.lessonId + '\',\'' + d.type + '\')"><i class="fas fa-eye"></i> View</button><button class="dl-remove-btn" onclick="deleteOfflineContent(\'' + d.lessonId + '\',\'' + d.type + '\')" title="Remove"><i class="fas fa-trash-alt"></i></button></div></div>';
         });
         html += '</div></div>';
@@ -739,7 +749,57 @@ async function deleteOfflineContent(lessonId, type) {
  * Download study material PDF (module-level, no lesson required)
  * Used by Study Material section in course detail
  */
-async function downloadStudyMaterial(fileUrl, title, moduleTitle, courseTitle) {
+// Fetch a FRESH signed URL for an S3 file (signed URLs expire ~15-60 min, so a
+// cached one from a course opened days ago will 403). Falls back to the given
+// URL if signing fails. Requires a valid auth token.
+async function _freshSignedUrl(fileUrl, forDownload) {
+  if (!fileUrl || fileUrl.indexOf('amazonaws.com') === -1) return fileUrl;
+  var token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+  try {
+    var res = await fetch(BASE_URL + '/api/media/signed-url', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      body: JSON.stringify({ url: fileUrl, forDownload: !!forDownload }),
+    });
+    if (res.ok) { var d = await res.json(); if (d.signedUrl) return d.signedUrl; }
+  } catch {}
+  return fileUrl;
+}
+
+// Stable per-material download key so we can detect "already downloaded".
+function _materialLessonId(matId) { return 'material_' + (matId || 'unknown'); }
+
+// View a study material. IMPORTANT: this must NOT go through openPdfInApp()'s
+// lesson-aware branch (which uses _currentVideoData.lessonId and would try to
+// open a *video lesson's* downloaded PDF instead of this material).
+// 1) If THIS material is already downloaded offline, serve the decrypted local copy.
+// 2) Otherwise fetch a FRESH signed URL and render it directly in the canvas.
+async function viewStudyMaterial(matId, fileUrl) {
+  if (!fileUrl && !matId) { alert('No file available.'); return; }
+  var userId = getCurrentUserId();
+
+  // 1) Offline copy of THIS material (lessonId = material_<matId>)
+  if (matId && userId && window.electron && window.electron.playDownload) {
+    try {
+      var offline = await window.electron.playDownload({ lessonId: _materialLessonId(matId), type: 'pdf', userId: userId });
+      if (offline && offline.success && offline.serveUrl) {
+        _openPdfInCanvas(offline.serveUrl);
+        return;
+      }
+    } catch {}
+  }
+
+  // 2) Online — fresh signed URL, rendered directly (bypass lesson context)
+  if (!fileUrl) { alert('No file available.'); return; }
+  try {
+    var fresh = await _freshSignedUrl(fileUrl, false);
+    _openPdfInCanvas(fresh);
+  } catch {
+    alert('Could not open PDF. Please check your connection.');
+  }
+}
+
+async function downloadStudyMaterial(matId, fileUrl, title, moduleTitle, courseTitle) {
   if (!window.electron || !window.electron.downloadContent) {
     alert('Downloads only available in the desktop app.');
     return;
@@ -747,22 +807,15 @@ async function downloadStudyMaterial(fileUrl, title, moduleTitle, courseTitle) {
   if (!fileUrl) { alert('No file available.'); return; }
   var userId = getCurrentUserId();
   if (!userId) { alert('Please log in to download.'); return; }
-  var token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
 
   try {
-    // Get signed URL if S3
-    var dlUrl = fileUrl;
-    if (fileUrl.includes('amazonaws.com')) {
-      var res = await fetch(BASE_URL + '/api/media/signed-url', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-        body: JSON.stringify({ url: fileUrl, forDownload: true }),
-      });
-      if (res.ok) { var d = await res.json(); if (d.signedUrl) dlUrl = d.signedUrl; }
-    }
+    // Always fetch a FRESH signed URL — the one rendered may be expired.
+    var dlUrl = await _freshSignedUrl(fileUrl, true);
+
     var result = await window.electron.downloadContent({
       url: dlUrl,
-      lessonId: 'material_' + Date.now(),
+      // Stable id so the material is trackable (enables "already downloaded").
+      lessonId: _materialLessonId(matId),
       title: title || 'Study Material',
       type: 'pdf',
       userId: userId,
@@ -770,11 +823,43 @@ async function downloadStudyMaterial(fileUrl, title, moduleTitle, courseTitle) {
       moduleTitle: moduleTitle || '',
     });
     if (result.success) {
+      // Includes the "Already downloaded." case — treat as done.
       alert('✅ Downloaded: ' + (title || 'Study Material'));
+      _disableMaterialDownloadBtn(matId);
     } else {
-      alert('⚠️ Download failed: ' + (result.error || 'Unknown error'));
+      // Surface the real reason so we can see why (expired link, 403, 404, etc.)
+      alert('⚠️ Download failed: ' + (result.message || result.error || 'Unknown error'));
     }
   } catch (err) {
-    alert('⚠️ Download failed. Check your connection.');
+    alert('⚠️ Download failed: ' + (err && err.message ? err.message : 'Check your connection.'));
   }
+}
+
+// Disable + relabel a material's Download button once it's downloaded.
+function _disableMaterialDownloadBtn(matId, daysLeft) {
+  var btn = document.getElementById('matdl-' + matId);
+  if (!btn) return;
+  btn.innerHTML = '<i class="fas fa-check"></i> Downloaded' + (daysLeft ? ' (' + daysLeft + 'd)' : '');
+  btn.style.pointerEvents = 'none';
+  btn.style.opacity = '0.7';
+  btn.style.borderColor = 'rgba(34,197,94,0.6)';
+  btn.onclick = null;
+}
+
+// On course-detail render, mark materials that are already downloaded so their
+// Download button shows "Downloaded" and is disabled.
+function markDownloadedStudyMaterials() {
+  if (!window.electron || !window.electron.getDownloads) return;
+  var userId = getCurrentUserId();
+  if (!userId) return;
+  window.electron.getDownloads({ userId: userId }).then(function(result) {
+    if (!result || !result.success || !result.downloads) return;
+    result.downloads.forEach(function(d) {
+      // Material downloads use lessonId 'material_<matId>' and type 'pdf'.
+      if (d.type === 'pdf' && d.lessonId && d.lessonId.indexOf('material_') === 0) {
+        var matId = d.lessonId.substring('material_'.length);
+        _disableMaterialDownloadBtn(matId, d.daysLeft);
+      }
+    });
+  }).catch(function(){});
 }

@@ -361,9 +361,20 @@ ipcMain.handle('download-content', async (event, { url, lessonId, title, type, u
     const meta = readMeta();
     const metaKey = userId + '_' + lessonId + '_' + type;
     if (meta[metaKey]) {
-      return { success: true, message: 'Already downloaded.' };
+      // Only treat as "already downloaded" if the actual encrypted file exists
+      // and is non-empty. Otherwise self-heal by re-downloading (fixes cases
+      // where a prior attempt left a stale/incomplete metadata entry).
+      try {
+        const existingPath = path.join(DOWNLOADS_DIR, meta[metaKey].fileName);
+        if (fs.existsSync(existingPath) && fs.statSync(existingPath).size > 16) {
+          return { success: true, message: 'Already downloaded.' };
+        }
+      } catch {}
+      // Stale entry — remove it and continue to re-download.
+      delete meta[metaKey];
     }
     const buffer = await fetchBuffer(url);
+    const fileSize = buffer.length; // real (unencrypted) byte size
     const encrypted = encryptBuffer(buffer, userId);
     const fileName = userId + '_' + lessonId + '_' + type + '.ckd';
     const filePath = path.join(DOWNLOADS_DIR, fileName);
@@ -371,7 +382,7 @@ ipcMain.handle('download-content', async (event, { url, lessonId, title, type, u
     const expiresAt = Date.now() + EXPIRY_DAYS * 24 * 60 * 60 * 1000;
     meta[metaKey] = {
       lessonId, title, type, userId, courseTitle, moduleTitle,
-      fileName, expiresAt, downloadedAt: Date.now(),
+      fileName, expiresAt, downloadedAt: Date.now(), fileSize,
       mimeType: type === 'pdf' ? 'application/pdf' : 'video/mp4',
     };
     writeMeta(meta);
@@ -398,7 +409,16 @@ ipcMain.handle('get-downloads', async (event, { userId }) => {
         changed = true;
         continue;
       }
-      valid.push({ ...item, daysLeft: Math.ceil((item.expiresAt - now) / (24 * 60 * 60 * 1000)) });
+      // Backfill size for older downloads that predate fileSize tracking:
+      // use the encrypted file's on-disk size minus the 16-byte IV.
+      let fileSize = item.fileSize;
+      if (typeof fileSize !== 'number' || fileSize <= 0) {
+        try {
+          const fp = path.join(DOWNLOADS_DIR, item.fileName);
+          if (fs.existsSync(fp)) fileSize = Math.max(0, fs.statSync(fp).size - 16);
+        } catch {}
+      }
+      valid.push({ ...item, fileSize, daysLeft: Math.ceil((item.expiresAt - now) / (24 * 60 * 60 * 1000)) });
     }
     if (changed) writeMeta(meta);
     return { success: true, downloads: valid };

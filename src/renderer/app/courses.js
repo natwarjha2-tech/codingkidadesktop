@@ -93,30 +93,59 @@ function courseDurationLabel(c) {
   return '0 Mins';
 }
 
+// ─── Subject theming ─────────────────────────────────────────────────────────
+// C / Java / Python use real banner+logo images. The newer subjects (DSA, Web
+// Development, AI, Robotics, Problem Solving, etc.) have no images, so we give
+// each a distinctive themed gradient + Font Awesome icon for a polished, branded
+// look consistent with the existing three. Matched by title keywords.
+function getSubjectTheme(title) {
+  var t = (title || '').toLowerCase().trim();
+
+  // Image-based subjects (existing polished design)
+  if (t === 'c' || t.includes('c programming') || t.startsWith('c ')) {
+    return { banner: 'assets/C.png.jpeg', logo: 'assets/c-logo.png', gradient: 'linear-gradient(135deg,#3b82f6,#1d4ed8)', accent: '#3b82f6', icon: 'fas fa-copyright' };
+  }
+  if (t.includes('java') && !t.includes('javascript')) {
+    return { banner: 'assets/Java.png.jpeg', logo: 'assets/java-logo.png', gradient: 'linear-gradient(135deg,#f97316,#c2410c)', accent: '#f97316', icon: 'fab fa-java' };
+  }
+  if (t.includes('python')) {
+    return { banner: 'assets/Python.png.jpeg', logo: 'assets/python-logo.png', gradient: 'linear-gradient(135deg,#3b82f6,#facc15)', accent: '#3b82f6', icon: 'fab fa-python' };
+  }
+
+  // Themed subjects (new) — each has a custom SVG banner + logo.
+  if (t.includes('dsa') || t.includes('data structure') || t.includes('algorithm')) {
+    return { banner: 'assets/dsa-banner.svg', logo: 'assets/dsa-logo.svg', gradient: 'linear-gradient(135deg,#8b5cf6,#6d28d9)', accent: '#8b5cf6', icon: 'fas fa-sitemap' };
+  }
+  if (t.includes('web')) {
+    return { banner: 'assets/web-banner.svg', logo: 'assets/web-logo.svg', gradient: 'linear-gradient(135deg,#06b6d4,#2563eb)', accent: '#06b6d4', icon: 'fas fa-globe' };
+  }
+  if (t.includes('robot')) {
+    return { banner: 'assets/robotics-banner.svg', logo: 'assets/robotics-logo.svg', gradient: 'linear-gradient(135deg,#64748b,#0f172a)', accent: '#64748b', icon: 'fas fa-robot' };
+  }
+  if (t.includes('artificial') || t === 'ai' || t.startsWith('ai ') || t.includes(' ai') || t.includes('machine learning') || t.includes('ml')) {
+    return { banner: 'assets/ai-banner.svg', logo: 'assets/ai-logo.svg', gradient: 'linear-gradient(135deg,#ec4899,#8b5cf6)', accent: '#ec4899', icon: 'fas fa-brain' };
+  }
+  if (t.includes('problem')) {
+    return { banner: 'assets/problem-banner.svg', logo: 'assets/problem-logo.svg', gradient: 'linear-gradient(135deg,#10b981,#059669)', accent: '#10b981', icon: 'fas fa-lightbulb' };
+  }
+
+  // Default
+  return { banner: '', logo: '', gradient: 'linear-gradient(135deg,#6c47ff,#3b1fa8)', accent: '#6c47ff', icon: 'fas fa-book' };
+}
+
 // Build one course card's inner HTML with fully dynamic metadata.
 // `opts.onClickId` overrides the id passed to openCourseDetail (defaults to c.id).
 function buildCourseCardHTML(c, i, opts) {
   opts = opts || {};
-  var fallbackGradients = [
-    'linear-gradient(135deg,#6c47ff,#3b1fa8)',
-    'linear-gradient(135deg,#ec4899,#be185d)',
-    'linear-gradient(135deg,#f97316,#c2410c)',
-    'linear-gradient(135deg,#10b981,#065f46)',
-    'linear-gradient(135deg,#3b82f6,#1d4ed8)',
-    'linear-gradient(135deg,#8b5cf6,#6d28d9)',
-  ];
-  var gradient = c.gradient && c.gradient.includes('gradient') ? c.gradient : fallbackGradients[i % fallbackGradients.length];
-  var accent = '#6c47ff';
-  if (gradient.includes('#ec4899') || gradient.includes('236,72,153')) accent = '#ec4899';
-  else if (gradient.includes('#f97316') || gradient.includes('249,115,22')) accent = '#f97316';
-  var tl = (c.title || '').toLowerCase().trim();
-  var bannerImg = '';
-  if (tl === 'c' || tl.includes('c programming') || tl.startsWith('c ')) bannerImg = 'assets/C.png.jpeg';
-  else if (tl.includes('java')) bannerImg = 'assets/Java.png.jpeg';
-  else if (tl.includes('python')) bannerImg = 'assets/Python.png.jpeg';
+  // Themed look per subject (image banner for C/Java/Python; gradient+icon for
+  // DSA, Web, AI, Robotics, Problem Solving, etc.).
+  var theme = getSubjectTheme(c.title);
+  var gradient = theme.gradient;
+  var accent = theme.accent;
+  var bannerImg = theme.banner;
   var headerContent = bannerImg
     ? '<img src="' + bannerImg + '" alt="" style="width:100%;height:100%;object-fit:cover;object-position:center center;position:absolute;inset:0;z-index:1;" draggable="false"/>'
-    : '<i class="' + c.icon + '" style="font-size:4rem;color:rgba(255,255,255,0.95);z-index:1;filter:drop-shadow(0 4px 12px rgba(0,0,0,0.4));"></i>';
+    : '<i class="' + theme.icon + '" style="font-size:4rem;color:rgba(255,255,255,0.95);z-index:1;filter:drop-shadow(0 4px 12px rgba(0,0,0,0.4));"></i>';
 
   // Dynamic metadata — no hardcoded rating / stars / lessons / students.
   var hasRating = Number(c.rating) > 0;
@@ -283,17 +312,18 @@ function renderCourseDetailFromBackend(course) {
   var heroStudents = document.getElementById('cd-hero-students');
   if(heroStudents) heroStudents.textContent = '0';
 
-  // Hero logo (dynamic, works for any course)
+  // Hero logo (themed per subject). Image logo for C/Java/Python; a themed
+  // gradient badge + icon for newer subjects (DSA, Web, AI, Robotics, etc.).
   var heroLogo = document.getElementById('cd-hero-logo');
   if(heroLogo) {
-    var tl = (course.title || '').toLowerCase().trim();
-    var logoImg = '';
-    if (tl === 'c' || tl.includes('c programming') || tl.startsWith('c ')) logoImg = 'assets/c-logo.png';
-    else if (tl.includes('java')) logoImg = 'assets/java-logo.png';
-    else if (tl.includes('python')) logoImg = 'assets/python-logo.png';
-    heroLogo.innerHTML = logoImg
-      ? '<img src="' + logoImg + '" alt="" draggable="false"/>'
-      : '<i class="fas fa-code"></i>';
+    var _theme = getSubjectTheme(course.title);
+    if (_theme.logo) {
+      heroLogo.style.background = '';
+      heroLogo.innerHTML = '<img src="' + _theme.logo + '" alt="" draggable="false"/>';
+    } else {
+      heroLogo.style.background = _theme.gradient;
+      heroLogo.innerHTML = '<i class="' + _theme.icon + '" style="color:#fff;"></i>';
+    }
   }
 
   // CTA button
@@ -549,10 +579,17 @@ function renderCourseDetailFromBackend(course) {
         matItem.onmouseout = function() { matItem.style.background='rgba(255,255,255,0.02)'; };
 
         var fileUrl = mat.fileUrl || '';
+        var matId = mat.id || '';
         var btnsHtml = '';
         if (canAccess && fileUrl) {
-          btnsHtml = '<button onclick="event.stopPropagation();openPdfInApp(\'' + fileUrl.replace(/'/g, "\\'") + '\')" style="background:rgba(108,71,255,0.12);border:1px solid rgba(108,71,255,0.3);color:#a78bfa;border-radius:6px;padding:3px 8px;font-size:0.68rem;font-weight:600;cursor:pointer;white-space:nowrap;">View</button>' +
-            '<button onclick="event.stopPropagation();downloadStudyMaterial(\'' + fileUrl.replace(/'/g, "\\'") + '\',\'' + sanitize(mat.title).replace(/'/g, "\\'") + '\',\'' + sanitize(mod.title).replace(/'/g, "\\'") + '\',\'' + sanitize(course.title).replace(/'/g, "\\'") + '\')" style="background:rgba(34,197,94,0.12);border:1px solid rgba(34,197,94,0.3);color:#4ade80;border-radius:6px;padding:3px 8px;font-size:0.68rem;font-weight:600;cursor:pointer;white-space:nowrap;margin-left:4px;">Download</button>';
+          var _t = sanitize(mat.title).replace(/'/g, "\\'");
+          var _mt = sanitize(mod.title).replace(/'/g, "\\'");
+          var _ct = sanitize(course.title).replace(/'/g, "\\'");
+          var _u = fileUrl.replace(/'/g, "\\'");
+          // Pass the STABLE material id so downloads are trackable (enables the
+          // "already downloaded → disable" state, and re-signs the URL at click).
+          btnsHtml = '<button onclick="event.stopPropagation();viewStudyMaterial(\'' + matId + '\',\'' + _u + '\')" style="background:rgba(108,71,255,0.12);border:1px solid rgba(108,71,255,0.3);color:#a78bfa;border-radius:6px;padding:3px 8px;font-size:0.68rem;font-weight:600;cursor:pointer;white-space:nowrap;">View</button>' +
+            '<button id="matdl-' + matId + '" onclick="event.stopPropagation();downloadStudyMaterial(\'' + matId + '\',\'' + _u + '\',\'' + _t + '\',\'' + _mt + '\',\'' + _ct + '\')" style="background:rgba(34,197,94,0.12);border:1px solid rgba(34,197,94,0.3);color:#4ade80;border-radius:6px;padding:3px 8px;font-size:0.68rem;font-weight:600;cursor:pointer;white-space:nowrap;margin-left:4px;">Download</button>';
         } else {
           btnsHtml = '<i class="fas fa-lock" style="color:var(--muted);font-size:0.7rem;"></i>';
         }
@@ -588,6 +625,9 @@ function renderCourseDetailFromBackend(course) {
 
   // Per-lesson durations are rendered directly from the DB (lesson.duration)
   // in the row markup above — no client-side video detection needed.
+
+  // Reflect already-downloaded study materials — disable their Download button.
+  if (typeof markDownloadedStudyMaterials === 'function') markDownloadedStudyMaterials();
 
   // Async: fetch lesson ratings and calculate course average + total students
   if(allLessons.length > 0) {

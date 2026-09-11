@@ -1195,10 +1195,15 @@ body {
 .dl-lesson-body { display:flex; align-items:center; gap:12px; flex:1; min-width:0; }
 .dl-lesson-icon { width:34px; height:34px; border-radius:9px; display:flex; align-items:center; justify-content:center; font-size:0.85rem; flex-shrink:0; background:rgba(255,255,255,0.03); border:1px solid; }
 .dl-lesson-content { min-width:0; flex:1; }
-.dl-lesson-title { font-size:0.84rem; font-weight:700; color:#fff; display:block; margin-bottom:3px; }
-.dl-lesson-meta { font-size:0.68rem; color:var(--muted); display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
-.dl-type-badge { padding:2px 7px; border-radius:4px; background:rgba(139,92,246,0.1); color:#a78bfa; font-size:0.62rem; font-weight:700; }
-.dl-expiry { color:#f59e0b; font-size:0.65rem; }
+.dl-lesson-title { font-size:0.9rem; font-weight:700; color:#fff; display:block; margin-bottom:6px; }
+.dl-lesson-meta { font-size:0.72rem; color:var(--muted); display:flex; align-items:center; gap:7px; flex-wrap:wrap; }
+/* Meta chips — readable pill badges with icons */
+.dl-lesson-meta > span { display:inline-flex; align-items:center; gap:5px; padding:3px 9px; border-radius:999px; font-size:0.7rem; font-weight:700; line-height:1; }
+.dl-type-badge { background:rgba(139,92,246,0.14); color:#c4b5fd; border:1px solid rgba(139,92,246,0.25); }
+.dl-size { background:rgba(255,255,255,0.06); color:rgba(255,255,255,0.8); border:1px solid rgba(255,255,255,0.1); }
+.dl-size::before { content:"\f1c1"; font-family:"Font Awesome 6 Free","Font Awesome 5 Free",FontAwesome; font-weight:900; font-size:0.62rem; opacity:0.75; }
+.dl-expiry { background:rgba(245,158,11,0.12); color:#fbbf24; border:1px solid rgba(245,158,11,0.25); }
+.dl-expiry::before { content:"\f017"; font-family:"Font Awesome 6 Free","Font Awesome 5 Free",FontAwesome; font-weight:900; font-size:0.62rem; opacity:0.85; }
 .dl-lesson-actions { display:flex; align-items:center; gap:8px; flex-shrink:0; margin-left:12px; }
 .dl-action-btn { display:inline-flex; align-items:center; gap:6px; padding:8px 16px; border-radius:8px; background:linear-gradient(135deg,#6c47ff,#a855f7); border:none; color:#fff; font-size:0.74rem; font-weight:700; cursor:pointer; transition:all 0.2s; white-space:nowrap; }
 .dl-action-btn:hover { transform:translateY(-1px); box-shadow:0 4px 14px rgba(108,71,255,0.3); }
