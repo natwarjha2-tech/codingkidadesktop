@@ -101,6 +101,16 @@ function ckCacheSet(endpoint, data) {
 }
 
 /**
+ * Remove a single cached endpoint for the current user (force refresh next time)
+ */
+function ckCacheRemove(endpoint) {
+  var userId = getCurrentUserId();
+  if (!userId) return;
+  var key = 'ck_pcache_' + userId + '_' + endpoint.replace(/[^a-zA-Z0-9]/g, '_');
+  try { localStorage.removeItem(key); } catch (e) {}
+}
+
+/**
  * Remove all cache for a specific user
  */
 function ckCacheClearUser(userId) {

@@ -1154,7 +1154,7 @@ function _renderMallPage(content, data) {
     '<div class="rw-hero-sub">Earn more coins by learning and completing activities.</div>' +
     '</div></div>' +
     '<div class="rw-hero-decor"><i class="fas fa-gem"></i><i class="fas fa-star"></i><i class="fas fa-treasure-chest"></i></div>' +
-    '<button class="rw-history-btn" onclick="' + (typeof openCoinsPopup === 'function' ? 'openCoinsPopup()' : 'navigate(\'profile\')') + '"><i class="fas fa-history"></i> View History</button>' +
+    '<button class="rw-history-btn" onclick="_mallScrollToHistory()"><i class="fas fa-history"></i> View History</button>' +
     '</div>';
 
   // ── 2. Coupon card ──
@@ -1199,7 +1199,93 @@ function _renderMallPage(content, data) {
   });
   html += '</div>';
 
+  // ── 5. Redemption / Discount history ──
+  html += '<div id="mall-history" class="rw-section-head" style="margin-top:26px;">' +
+    '<div class="rw-section-title"><span class="rw-section-emoji">\uD83D\uDCDC</span> Redemption History</div>' +
+    '<div class="rw-section-sub">Your redeemed rewards, discounts and coin activity.</div>' +
+    '</div>';
+  html += '<div id="mall-history-list" class="rw-history-list">' +
+    '<div class="rw-history-empty">Loading your history…</div>' +
+    '</div>';
+
   content.innerHTML = html;
+
+  // Populate history from coins + discounts (async, non-blocking).
+  _loadMallHistory();
+}
+
+function _mallScrollToHistory() {
+  var el = document.getElementById('mall-history');
+  if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// Render redemption history in the CK Mall page from /api/coins (transactions)
+// and /api/discount (usable discounts). Shows what was redeemed and any
+// discount that is still available to use at checkout.
+async function _loadMallHistory() {
+  var listEl = document.getElementById('mall-history-list');
+  if (!listEl) return;
+  var token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+
+  var txCached = ckCacheGet('/api/coins');
+  var discCached = ckCacheGet('/api/discount');
+  if ((txCached && txCached.success) || (discCached && discCached.success)) {
+    _renderMallHistory(listEl, txCached, discCached);
+  }
+
+  try {
+    var results = await Promise.all([
+      fetch(BASE_URL + '/api/coins', { headers: { Authorization: 'Bearer ' + token } }).then(function (r) { return r.json(); }).catch(function () { return null; }),
+      fetch(BASE_URL + '/api/discount', { headers: { Authorization: 'Bearer ' + token } }).then(function (r) { return r.json(); }).catch(function () { return null; }),
+    ]);
+    var coinsData = results[0];
+    var discData = results[1];
+    if (coinsData && coinsData.success) ckCacheSet('/api/coins', coinsData);
+    if (discData && discData.success) ckCacheSet('/api/discount', discData);
+    _renderMallHistory(listEl, coinsData, discData);
+  } catch (e) {
+    if (!txCached && !discCached) listEl.innerHTML = '<div class="rw-history-empty">Could not load history.</div>';
+  }
+}
+
+function _renderMallHistory(listEl, coinsData, discData) {
+  if (!listEl) return;
+  var rows = '';
+
+  // Usable (unconsumed) discounts first — highlighted as ready to use.
+  var discounts = (discData && discData.success && Array.isArray(discData.discounts)) ? discData.discounts : [];
+  discounts.forEach(function (d) {
+    rows += '<div class="rw-history-item rw-history-active">' +
+      '<div class="rw-history-ic" style="background:rgba(34,197,94,0.12);color:#22c55e;"><i class="fas fa-ticket-alt"></i></div>' +
+      '<div class="rw-history-main">' +
+      '<div class="rw-history-title">' + sanitize(d.label || (d.percent + '% Discount')) + '</div>' +
+      '<div class="rw-history-sub">Ready to use at checkout</div>' +
+      '</div>' +
+      '<div class="rw-history-amt rw-history-amt-badge">' + d.percent + '% OFF</div>' +
+      '</div>';
+  });
+
+  // Coin transactions (earned + spent), most recent first.
+  var txs = (coinsData && coinsData.success && Array.isArray(coinsData.transactions)) ? coinsData.transactions : [];
+  txs.forEach(function (tx) {
+    var earned = tx.type === 'EARNED';
+    var when = '';
+    try { when = new Date(tx.createdAt).toLocaleDateString(); } catch (e) {}
+    rows += '<div class="rw-history-item">' +
+      '<div class="rw-history-ic" style="background:' + (earned ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)') + ';color:' + (earned ? '#22c55e' : '#ef4444') + ';"><i class="fas ' + (earned ? 'fa-coins' : 'fa-gift') + '"></i></div>' +
+      '<div class="rw-history-main">' +
+      '<div class="rw-history-title">' + sanitize(tx.reason || (earned ? 'Coins earned' : 'Coins spent')) + '</div>' +
+      '<div class="rw-history-sub">' + sanitize(when) + '</div>' +
+      '</div>' +
+      '<div class="rw-history-amt" style="color:' + (earned ? '#22c55e' : '#ef4444') + ';">' + (earned ? '+' : '-') + tx.coins + '</div>' +
+      '</div>';
+  });
+
+  if (!rows) {
+    listEl.innerHTML = '<div class="rw-history-empty">No redemptions yet. Redeem a reward above to see it here.</div>';
+    return;
+  }
+  listEl.innerHTML = rows;
 }
 
 async function applyCoupon() {
@@ -1217,7 +1303,13 @@ async function applyCoupon() {
     });
     var data = await res.json();
     msg.style.display = 'block';
-    if (data.success) { msg.style.color = '#22c55e'; msg.textContent = '✅ ' + data.message + ' — ' + data.coupon.discount + '% off!'; }
+    if (data.success) {
+      msg.style.color = '#22c55e';
+      msg.textContent = '✅ ' + data.message + (data.coupon ? ' — ' + data.coupon.discount + '% off!' : '');
+      // Invalidate discount cache so payment page + history reflect the new coupon.
+      try { ckCacheRemove('/api/discount'); } catch (e) {}
+      _loadMallHistory();
+    }
     else { msg.style.color = '#ef4444'; msg.textContent = '❌ ' + data.message; }
   } catch { msg.style.display = 'block'; msg.style.color = '#ef4444'; msg.textContent = 'Network error'; }
 }
@@ -1231,7 +1323,13 @@ async function redeemOffer(offerId) {
       body: JSON.stringify({ offerId: offerId }),
     });
     var data = await res.json();
-    if (data.success) { alert('✅ ' + data.message + '\nNew balance: ' + data.newBalance + ' coins'); loadMallPage(); }
+    if (data.success) {
+      alert('✅ ' + data.message + '\nNew balance: ' + data.newBalance + ' coins');
+      // Invalidate caches so coins, discount and history all refresh.
+      try { ckCacheRemove('/api/coins'); } catch (e) {}
+      try { ckCacheRemove('/api/discount'); } catch (e) {}
+      loadMallPage();
+    }
     else { alert('❌ ' + data.message); }
   } catch { alert('Network error'); }
 }
@@ -1574,6 +1672,10 @@ function loadAboutPage() {
   // Replay the hero typewriter on each visit to the About page
   _aboutTypewriter();
 
+  // Keep the support email in the About "Contact" link in sync with backend config.
+  if (typeof _loadSupportWhatsApp === 'function') _loadSupportWhatsApp();
+  if (typeof _renderSupportContact === 'function') _renderSupportContact();
+
   // Students + Courses come from the existing courses cache (or MOCK_COURSES fallback).
   // Each course carries a real `students` (enrollment) count; sum for a real total.
   var courses = null;
@@ -1631,6 +1733,10 @@ var _helpFaqs = [
 ];
 
 function loadHelpPage() {
+  // Refresh the support number from backend each time Help opens, and paint
+  // the currently-known number into the UI immediately.
+  if (typeof _loadSupportWhatsApp === 'function') _loadSupportWhatsApp();
+  if (typeof _renderSupportContact === 'function') _renderSupportContact();
   var faqEl = document.getElementById('help-faq-list');
   if (!faqEl) return;
   faqEl.innerHTML = _helpFaqs.map(function(f, i) {
@@ -1653,14 +1759,103 @@ function helpToggleFaq(i) {
   if (icon) icon.style.transform = open ? 'rotate(0deg)' : 'rotate(180deg)';
 }
 
+// CodingKida support WhatsApp number (international format, no +/spaces).
+// This is a FALLBACK only. The real number is fetched at runtime from the
+// backend (/api/app-config), which reads it from the SUPPORT_WHATSAPP env var
+// on Vercel — so it can be changed anytime without shipping a new desktop build.
+var CK_SUPPORT_WHATSAPP = '919999999999';
+// CodingKida support email (FALLBACK — real value fetched from /api/app-config).
+var CK_SUPPORT_EMAIL = 'support@codingkida.com';
+
+// Fetch the configurable support number/email from the backend and cache them.
+// Falls back silently to the last cached value / hardcoded default on failure,
+// so the WhatsApp buttons always work even offline or if the API is down.
+function _loadSupportWhatsApp() {
+  try {
+    // Use last-known-good cached values immediately (survive restarts).
+    var cached = localStorage.getItem('ck_support_whatsapp');
+    if (cached && /^[0-9]{6,}$/.test(cached)) CK_SUPPORT_WHATSAPP = cached;
+    var cachedEmail = localStorage.getItem('ck_support_email');
+    if (cachedEmail && /.+@.+\..+/.test(cachedEmail)) CK_SUPPORT_EMAIL = cachedEmail;
+  } catch (e) { /* ignore */ }
+
+  try {
+    var base = (typeof CONFIG !== 'undefined' && CONFIG.API_BASE_URL) || '';
+    fetch(base + '/api/app-config')
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (!data || !data.success) return;
+        var num = ('' + (data.supportWhatsapp || '')).replace(/[^0-9]/g, '');
+        if (num.length >= 6) {
+          CK_SUPPORT_WHATSAPP = num;
+          try { localStorage.setItem('ck_support_whatsapp', num); } catch (e) { /* ignore */ }
+        }
+        var email = ('' + (data.supportEmail || '')).trim();
+        if (/.+@.+\..+/.test(email)) {
+          CK_SUPPORT_EMAIL = email;
+          try { localStorage.setItem('ck_support_email', email); } catch (e) { /* ignore */ }
+        }
+        _renderSupportContact();
+      })
+      .catch(function () { /* keep fallback/cached value */ });
+  } catch (e) { /* keep fallback/cached value */ }
+  _renderSupportContact();
+}
+
+// Format the raw digits into a readable +CC number for display, e.g.
+// "919876543210" -> "+91 98765 43210" (best-effort; falls back to "+<digits>").
+function _formatSupportNumber(num) {
+  var d = ('' + num).replace(/[^0-9]/g, '');
+  if (d.length === 12 && d.indexOf('91') === 0) {
+    return '+91 ' + d.slice(2, 7) + ' ' + d.slice(7);
+  }
+  return '+' + d;
+}
+
+// Paint the support number into any Help & Support UI elements that show it.
+function _renderSupportContact() {
+  var pretty = _formatSupportNumber(CK_SUPPORT_WHATSAPP);
+  var a = document.getElementById('help-whatsapp-number');
+  var b = document.getElementById('help-chat-number');
+  var c = document.getElementById('help-247-number');
+  if (a) a.textContent = pretty;
+  if (b) b.textContent = pretty;
+  if (c) c.textContent = pretty;
+
+  var e = document.getElementById('help-email-address');
+  if (e) e.textContent = CK_SUPPORT_EMAIL;
+  var ae = document.getElementById('about-support-email');
+  if (ae) ae.textContent = 'Contact: ' + CK_SUPPORT_EMAIL;
+}
+
+// Load once when the script is parsed, and refresh whenever Help opens.
+_loadSupportWhatsApp();
+
 function helpOpenWhatsApp() {
   var msg = 'Hi CodingKida Support! I need help with the app.';
-  var url = 'https://wa.me/919999999999?text=' + encodeURIComponent(msg);
-  window.open(url, '_blank');
+  var url = 'https://wa.me/' + CK_SUPPORT_WHATSAPP + '?text=' + encodeURIComponent(msg);
+  // Use Electron's shell.openExternal so it reliably opens WhatsApp / the system
+  // browser (window.open is unreliable inside Electron for external URLs).
+  if (window.electron && window.electron.openExternal) {
+    window.electron.openExternal(url);
+  } else {
+    window.open(url, '_blank');
+  }
 }
 
 function helpOpenEmail() {
-  _showShareModal('To: support@codingkida.com\nSubject: Help Request\n\nHi CodingKida Support,\n\nI need help with:\n\n[Describe your issue here]\n\nThank you');
+  var subject = 'Help Request';
+  var body = 'Hi CodingKida Support,\n\nI need help with:\n\n[Describe your issue here]\n\nThank you';
+  // mailto: opens the user's default mail app / prompts Gmail, the same way
+  // wa.me opens WhatsApp. openExternal is used so it works reliably in Electron.
+  var url = 'mailto:' + CK_SUPPORT_EMAIL +
+    '?subject=' + encodeURIComponent(subject) +
+    '&body=' + encodeURIComponent(body);
+  if (window.electron && window.electron.openExternal) {
+    window.electron.openExternal(url);
+  } else {
+    window.open(url, '_blank');
+  }
 }
 
 // ─── Refer & Earn ─────────────────────────────────────────────────────────────
@@ -1717,7 +1912,8 @@ function referralShareWhatsApp() {
     '👉 Use my referral code: *' + data.code + '*\n' +
     'Download: https://codingkida.com';
   var url = 'https://wa.me/?text=' + encodeURIComponent(msg);
-  window.open(url, '_blank');
+  if (window.electron && window.electron.openExternal) window.electron.openExternal(url);
+  else window.open(url, '_blank');
 }
 
 function _showReferralToast(msg) {
@@ -1768,9 +1964,9 @@ function _buildReportText() {
 function shareReportWhatsApp() {
   const text = _buildReportText();
   if (!text) { alert('Please wait for the report to load first.'); return; }
-  // window.open works in Electron — opens WhatsApp Web in a new window
   const url = 'https://wa.me/?text=' + encodeURIComponent(text);
-  window.open(url, '_blank');
+  if (window.electron && window.electron.openExternal) window.electron.openExternal(url);
+  else window.open(url, '_blank');
 }
 
 function shareReportEmail() {
