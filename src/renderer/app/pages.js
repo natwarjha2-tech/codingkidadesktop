@@ -579,7 +579,8 @@ function _renderParentReport(dashData, achievements, totalCoins) {
       var isFuture = dnum > todayDate;
 
       if (isFuture) {
-        cellsHtml += '<div title="Plan your coding!" style="width:44px;height:44px;border-radius:8px;background:rgba(15,15,30,0.6);border:1px dashed rgba(139,92,246,0.15);display:flex;align-items:center;justify-content:center;font-size:0.68rem;color:rgba(100,116,139,0.5);font-weight:500;transition:all 0.18s;margin:0 auto;" onmouseover="this.style.borderColor=\'rgba(139,92,246,0.35)\';this.style.color=\'rgba(139,92,246,0.6)\'" onmouseout="this.style.borderColor=\'rgba(139,92,246,0.15)\';this.style.color=\'rgba(100,116,139,0.5)\'">' + dnum + '</div>';
+        var _fKey = curYear + '-' + String(curMonth + 1).padStart(2, '0') + '-' + String(dnum).padStart(2, '0');
+        cellsHtml += '<div title="Plan your coding!" onclick="showDayDetail(\'' + _fKey + '\',\'future\')" style="cursor:pointer;width:44px;height:44px;border-radius:8px;background:rgba(15,15,30,0.6);border:1px dashed rgba(139,92,246,0.15);display:flex;align-items:center;justify-content:center;font-size:0.68rem;color:rgba(100,116,139,0.5);font-weight:500;transition:all 0.18s;margin:0 auto;" onmouseover="this.style.borderColor=\'rgba(139,92,246,0.35)\';this.style.color=\'rgba(139,92,246,0.6)\'" onmouseout="this.style.borderColor=\'rgba(139,92,246,0.15)\';this.style.color=\'rgba(100,116,139,0.5)\'">' + dnum + '</div>';
         continue;
       }
 
@@ -593,7 +594,8 @@ function _renderParentReport(dashData, achievements, totalCoins) {
       if (isToday) { borderColor = '#A78BFA'; shadow = (shadow === 'none' ? '' : shadow + ',') + '0 0 0 2px rgba(167,139,250,0.4)'; if (!active) { bg = 'rgba(139,92,246,0.1)'; textColor = '#A78BFA'; } }
 
       var titleTxt = monthNamesShort[curMonth] + ' ' + dnum + ', ' + curYear + (displayMins > 0 ? ' \u00b7 ' + _fmtMins(displayMins) : (isToday ? ' \u00b7 Today' : ''));
-      cellsHtml += '<div title="' + titleTxt + '" style="width:44px;height:44px;border-radius:8px;background:' + bg + ';border:1px solid ' + borderColor + ';display:flex;align-items:center;justify-content:center;font-size:0.68rem;color:' + textColor + ';font-weight:' + (isToday || active ? '700' : '500') + ';box-shadow:' + shadow + ';transition:all 0.18s ease;margin:0 auto;" onmouseover="this.style.transform=\'scale(1.1)\'" onmouseout="this.style.transform=\'scale(1)\'">' + dnum + '</div>';
+      var _dayKey = curYear + '-' + String(curMonth + 1).padStart(2, '0') + '-' + String(dnum).padStart(2, '0');
+      cellsHtml += '<div title="' + titleTxt + '" onclick="showDayDetail(\'' + _dayKey + '\')" style="cursor:pointer;width:44px;height:44px;border-radius:8px;background:' + bg + ';border:1px solid ' + borderColor + ';display:flex;align-items:center;justify-content:center;font-size:0.68rem;color:' + textColor + ';font-weight:' + (isToday || active ? '700' : '500') + ';box-shadow:' + shadow + ';transition:all 0.18s ease;margin:0 auto;" onmouseover="this.style.transform=\'scale(1.1)\'" onmouseout="this.style.transform=\'scale(1)\'">' + dnum + '</div>';
     }
 
     // Legend (single, clean, centered)
@@ -1161,11 +1163,11 @@ function _renderMallPage(content, data) {
   html += '<div class="rw-coupon">' +
     '<div class="rw-coupon-left">' +
     '<div class="rw-coupon-ic"><i class="fas fa-ticket-alt"></i></div>' +
-    '<div><div class="rw-coupon-title">Have a coupon?</div>' +
-    '<div class="rw-coupon-sub">Enter your coupon code to get exciting rewards.</div></div>' +
+    '<div><div class="rw-coupon-title">Have a coupon or referral code?</div>' +
+    '<div class="rw-coupon-sub">Enter a coupon for a discount, or a friend\'s referral code to earn 50 coins.</div></div>' +
     '</div>' +
     '<div class="rw-coupon-form">' +
-    '<input id="mall-coupon-input" type="text" placeholder="Enter coupon code" class="rw-coupon-input" onkeydown="if(event.key===\'Enter\')applyCoupon()" />' +
+    '<input id="mall-coupon-input" type="text" placeholder="Enter coupon or referral code" class="rw-coupon-input" onkeydown="if(event.key===\'Enter\')applyCoupon()" />' +
     '<button onclick="applyCoupon()" class="rw-coupon-apply">Apply</button>' +
     '</div>' +
     '<div id="mall-coupon-msg" style="display:none;flex-basis:100%;margin-top:6px;font-size:0.82rem;"></div>' +
@@ -1305,9 +1307,17 @@ async function applyCoupon() {
     msg.style.display = 'block';
     if (data.success) {
       msg.style.color = '#22c55e';
-      msg.textContent = '✅ ' + data.message + (data.coupon ? ' — ' + data.coupon.discount + '% off!' : '');
-      // Invalidate discount cache so payment page + history reflect the new coupon.
-      try { ckCacheRemove('/api/discount'); } catch (e) {}
+      if (data.coupon) {
+        // Discount coupon applied.
+        msg.textContent = '✅ ' + data.message + ' — ' + data.coupon.discount + '% off!';
+        try { ckCacheRemove('/api/discount'); } catch (e) {}
+      } else {
+        // Referral code applied → coins awarded to this user.
+        msg.textContent = '✅ ' + data.message;
+        try { ckCacheRemove('/api/coins'); } catch (e) {}
+        try { ckCacheRemove('/api/referral'); } catch (e) {}
+        if (typeof loadUserCoins === 'function') loadUserCoins();
+      }
       _loadMallHistory();
     }
     else { msg.style.color = '#ef4444'; msg.textContent = '❌ ' + data.message; }
@@ -1859,36 +1869,64 @@ function helpOpenEmail() {
 }
 
 // ─── Refer & Earn ─────────────────────────────────────────────────────────────
-// Referral code = first 6 chars of userId uppercased + "CK"
-// Stored in localStorage: ck_referral_<userId> = { code, referredCount, coinsEarned }
+// The referral code is now REAL: fetched from the backend (/api/referral),
+// unique per user, and stored in the DB. referredCount + coinsEarned are the
+// user's actual referral stats. Cached in memory for share/copy actions.
 
+var _ckReferral = null; // { code, referredCount, coinsEarned, hasApplied, canApply }
+
+// Synchronous accessor used by copy/share — returns whatever we last fetched
+// (falls back to null; share/copy guard against a missing code).
 function _getReferralData() {
-  var userId = getCurrentUserId();
-  if (!userId) return null;
-  var key = 'ck_referral_' + userId;
-  var stored = localStorage.getItem(key);
-  if (stored) return JSON.parse(stored);
-  // Generate code from userId
-  var code = (userId.replace(/[^a-zA-Z0-9]/g, '').substring(0, 4).toUpperCase() || 'USER') + 'CK';
-  var data = { code: code, referredCount: 0, coinsEarned: 0 };
-  localStorage.setItem(key, JSON.stringify(data));
-  return data;
+  return _ckReferral;
 }
 
-function loadReferralPage() {
-  var data = _getReferralData();
-  if (!data) return;
+async function loadReferralPage() {
   var codeEl = document.getElementById('referral-code-display');
   var countEl = document.getElementById('referral-count');
   var coinsEl = document.getElementById('referral-coins-earned');
-  if (codeEl) codeEl.textContent = data.code;
-  if (countEl) countEl.textContent = data.referredCount;
-  if (coinsEl) coinsEl.textContent = data.coinsEarned;
+
+  // Show cached instantly if present.
+  var cached = ckCacheGet('/api/referral');
+  if (cached && cached.success) _applyReferralData(cached);
+
+  var token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+  try {
+    var res = await fetch(BASE_URL + '/api/referral', { headers: { Authorization: 'Bearer ' + token } });
+    var data = await res.json();
+    if (data && data.success) {
+      ckCacheSet('/api/referral', data);
+      _applyReferralData(data);
+    }
+  } catch (e) { /* keep cached/last values */ }
+
+  // If nothing loaded yet, leave placeholders.
+  if (!_ckReferral) {
+    if (codeEl) codeEl.textContent = '------';
+    if (countEl) countEl.textContent = '0';
+    if (coinsEl) coinsEl.textContent = '0';
+  }
+}
+
+function _applyReferralData(data) {
+  _ckReferral = {
+    code: data.code || '',
+    referredCount: data.referredCount || 0,
+    coinsEarned: data.coinsEarned || 0,
+    hasApplied: !!data.hasApplied,
+    canApply: !!data.canApply,
+  };
+  var codeEl = document.getElementById('referral-code-display');
+  var countEl = document.getElementById('referral-count');
+  var coinsEl = document.getElementById('referral-coins-earned');
+  if (codeEl) codeEl.textContent = _ckReferral.code || '------';
+  if (countEl) countEl.textContent = _ckReferral.referredCount;
+  if (coinsEl) coinsEl.textContent = _ckReferral.coinsEarned;
 }
 
 function referralCopyCode() {
   var data = _getReferralData();
-  if (!data) return;
+  if (!data || !data.code) { _showReferralToast('Please wait — loading your code…'); return; }
   var ta = document.createElement('textarea');
   ta.value = data.code;
   ta.style.cssText = 'position:fixed;opacity:0;';
@@ -1903,14 +1941,14 @@ function referralCopyCode() {
 
 function referralShareWhatsApp() {
   var data = _getReferralData();
-  if (!data) return;
+  if (!data || !data.code) { _showReferralToast('Please wait — loading your code…'); return; }
   var studentName = document.getElementById('sidebar-user-name')?.textContent || 'My friend';
   var msg = '🎓 Hey! ' + studentName + ' invited you to join CodingKida — India\'s best coding platform for kids!\n\n' +
     '✅ Learn Java, Python, Web Dev & more\n' +
     '🏆 Earn badges & certificates\n' +
     '🤖 24/7 AI mentor\n\n' +
     '👉 Use my referral code: *' + data.code + '*\n' +
-    'Download: https://codingkida.com';
+    'Download: https://www.codingkida.com/download';
   var url = 'https://wa.me/?text=' + encodeURIComponent(msg);
   if (window.electron && window.electron.openExternal) window.electron.openExternal(url);
   else window.open(url, '_blank');
@@ -2591,4 +2629,100 @@ async function submitLessonRating() {
       msg.textContent = data.success ? '🎉 Thank you! Your rating has been submitted.' : '❌ ' + (data.message || 'Failed');
     }
   } catch { if (msg) { msg.style.display = 'block'; msg.style.color = '#ef4444'; msg.textContent = 'Network error'; } }
+}
+
+
+// ─── Coding Journey: click a calendar day for kid-friendly details ────────────
+// Uses ONLY real local attendance data (minutes + session count). No fabrication.
+// dateKey = 'YYYY-MM-DD'. mode = 'future' for upcoming days.
+var CK_DAY_GOAL_MINS = 20; // gentle daily coding goal for the progress meter
+
+function showDayDetail(dateKey, mode) {
+  try {
+    var parts = String(dateKey).split('-');
+    if (parts.length !== 3) return;
+    var y = Number(parts[0]), m = Number(parts[1]), d = Number(parts[2]);
+    var dateObj = new Date(y, m - 1, d);
+    var weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    var monthsShort = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    var niceDate = weekdays[dateObj.getDay()] + ', ' + monthsShort[m - 1] + ' ' + d;
+
+    var emoji, title, bodyHtml, accent;
+
+    if (mode === 'future') {
+      emoji = '\uD83D\uDCC5'; accent = '#a78bfa';
+      title = niceDate;
+      bodyHtml = '<div style="font-size:0.9rem;color:#c4b5fd;font-weight:700;margin-bottom:6px;">Plan a coding session!</div>' +
+        '<div style="font-size:0.82rem;color:#94a3b8;line-height:1.5;">This day is coming up. Set a goal to code for at least ' + CK_DAY_GOAL_MINS + ' minutes and keep your streak strong! \uD83D\uDE80</div>';
+    } else {
+      var detail = (typeof _attendanceGetDayDetail === 'function')
+        ? _attendanceGetDayDetail(dateKey)
+        : { mins: 0, sessions: 0 };
+      var mins = detail.mins || 0;
+      var sessions = detail.sessions || 0;
+
+      if (mins <= 0) {
+        emoji = '\uD83D\uDE34'; accent = '#64748b';
+        title = niceDate;
+        bodyHtml = '<div style="font-size:0.9rem;color:#94a3b8;font-weight:700;margin-bottom:6px;">No coding this day</div>' +
+          '<div style="font-size:0.82rem;color:#94a3b8;line-height:1.5;">Every day counts! Jump back in and earn coins, badges and keep your streak alive. \uD83D\uDCAA</div>';
+      } else {
+        // Effort level → kid-friendly badge + color
+        var badge, msg;
+        if (mins < 15) { emoji = '\uD83C\uDF31'; badge = 'Nice start!'; accent = '#c4b5fd'; msg = 'You showed up and learned — that\'s what matters. Keep it up!'; }
+        else if (mins < 30) { emoji = '\uD83D\uDD25'; badge = 'Great focus!'; accent = '#a855f7'; msg = 'Awesome focus today. You\'re building a strong coding habit!'; }
+        else { emoji = '\uD83D\uDE80'; badge = 'Coding superstar!'; accent = '#ec4899'; msg = 'Incredible effort! You\'re a true CodingKida superstar today!'; }
+
+        var pct = Math.min(100, Math.round((mins / CK_DAY_GOAL_MINS) * 100));
+        title = niceDate;
+        bodyHtml =
+          '<div style="font-size:0.95rem;color:' + accent + ';font-weight:800;margin-bottom:12px;">' + badge + '</div>' +
+          // Stats row
+          '<div style="display:flex;gap:10px;margin-bottom:14px;">' +
+          '<div style="flex:1;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:12px;text-align:center;">' +
+          '<div style="font-size:1.1rem;font-weight:800;color:#fff;">' + _fmtMins(mins) + '</div>' +
+          '<div style="font-size:0.66rem;color:#94a3b8;margin-top:2px;">\uD83D\uDD52 Learning time</div></div>' +
+          '<div style="flex:1;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:12px;text-align:center;">' +
+          '<div style="font-size:1.1rem;font-weight:800;color:#fff;">' + sessions + '</div>' +
+          '<div style="font-size:0.66rem;color:#94a3b8;margin-top:2px;">\uD83D\uDCF2 Time' + (sessions === 1 ? '' : 's') + ' opened</div></div>' +
+          '</div>' +
+          // Daily goal meter
+          '<div style="margin-bottom:12px;">' +
+          '<div style="display:flex;justify-content:space-between;font-size:0.68rem;color:#94a3b8;margin-bottom:5px;">' +
+          '<span>Daily goal (' + CK_DAY_GOAL_MINS + ' min)</span><span style="color:' + accent + ';font-weight:700;">' + pct + '%</span></div>' +
+          '<div style="height:8px;background:rgba(255,255,255,0.06);border-radius:10px;overflow:hidden;">' +
+          '<div style="width:' + pct + '%;height:100%;border-radius:10px;background:linear-gradient(90deg,#7C3AED,' + accent + ');box-shadow:0 0 8px ' + accent + '66;"></div></div>' +
+          '</div>' +
+          '<div style="font-size:0.82rem;color:#cbd5e1;line-height:1.5;">' + msg + '</div>';
+      }
+    }
+
+    _showDayDetailModal(emoji, title, bodyHtml, accent);
+  } catch (e) { /* never break the report */ }
+}
+
+function _showDayDetailModal(emoji, title, bodyHtml, accent) {
+  var existing = document.getElementById('ck-day-modal');
+  if (existing) existing.remove();
+
+  var overlay = document.createElement('div');
+  overlay.id = 'ck-day-modal';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(5,5,15,0.72);backdrop-filter:blur(4px);z-index:11000;display:flex;align-items:center;justify-content:center;padding:20px;';
+  overlay.onclick = function (e) { if (e.target === overlay) overlay.remove(); };
+
+  var card = document.createElement('div');
+  card.style.cssText = 'width:100%;max-width:340px;background:linear-gradient(135deg,#1a1a2e,#141428);border:1px solid ' + accent + '44;border-radius:20px;padding:24px;box-shadow:0 24px 70px rgba(0,0,0,0.6),0 0 30px ' + accent + '22;animation:slideUp 0.25s ease;';
+
+  card.innerHTML =
+    '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">' +
+    '<div style="display:flex;align-items:center;gap:10px;">' +
+    '<span style="font-size:1.8rem;">' + emoji + '</span>' +
+    '<div style="font-size:0.95rem;font-weight:800;color:#fff;">' + sanitize(title) + '</div>' +
+    '</div>' +
+    '<button onclick="document.getElementById(\'ck-day-modal\').remove()" style="background:rgba(255,255,255,0.06);border:none;color:#94a3b8;width:28px;height:28px;border-radius:8px;cursor:pointer;font-size:0.9rem;">\u2715</button>' +
+    '</div>' +
+    '<div>' + bodyHtml + '</div>';
+
+  overlay.appendChild(card);
+  document.body.appendChild(overlay);
 }

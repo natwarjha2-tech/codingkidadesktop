@@ -91,3 +91,28 @@ function _fmtMins(mins) {
   var m = mins % 60;
   return h + 'h' + (m > 0 ? ' ' + m + 'm' : '');
 }
+
+// Per-day detail for the report calendar: total minutes, number of app sessions,
+// and first/last session times. Reads the same local session log — no fabrication.
+// dateStr must be 'YYYY-MM-DD'.
+function _attendanceGetDayDetail(dateStr) {
+  var out = { date: dateStr, mins: 0, sessions: 0, firstTime: null, lastTime: null };
+  try {
+    var userId = getCurrentUserId();
+    if (!userId || !dateStr) return out;
+    var sessions = JSON.parse(localStorage.getItem(_attendanceKey(userId)) || '[]');
+    var now = Date.now();
+    sessions.forEach(function (s) {
+      if (!s || s.date !== dateStr) return;
+      var logout = s.logoutTime || now;
+      var mins = Math.round((logout - s.loginTime) / 60000);
+      if (mins < 0) mins = 0;
+      if (mins > 1440) mins = 1440;
+      out.mins += mins;
+      out.sessions += 1;
+      if (out.firstTime === null || s.loginTime < out.firstTime) out.firstTime = s.loginTime;
+      if (out.lastTime === null || logout > out.lastTime) out.lastTime = logout;
+    });
+  } catch (e) {}
+  return out;
+}

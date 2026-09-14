@@ -269,9 +269,12 @@ async function _vpLoadReactions(lessonId) {
     });
     var data = await res.json();
     if (data.success) {
-      document.getElementById('vp-like-count').textContent = data.likes || 0;
-      document.getElementById('vp-dislike-count').textContent = data.dislikes || 0;
-      document.getElementById('vp-view-count').textContent = data.views || 0;
+      var likeEl = document.getElementById('vp-like-count');
+      var dislikeEl = document.getElementById('vp-dislike-count');
+      var viewEl = document.getElementById('vp-view-count');
+      if (likeEl) likeEl.textContent = data.likes || 0;
+      if (dislikeEl) dislikeEl.textContent = data.dislikes || 0;
+      if (viewEl) viewEl.textContent = data.views || 0;
       _vpCurrentReaction = data.userReaction;
       _vpUpdateReactionUI();
     }
