@@ -169,19 +169,29 @@ function _ckCachePreFetchAll() {
   var token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
   if (!token) return;
 
-  // Pre-fetch dashboard
+  // Pre-fetch dashboard — also refresh the visible dashboard when it arrives.
   StudentAPI.getDashboard().then(function(data) {
-    if (data && data.success) ckCacheSet('/api/student/dashboard', data);
+    if (data && data.success) {
+      ckCacheSet('/api/student/dashboard', data);
+      if (typeof _applyDashboardData === 'function') { try { _applyDashboardData(data, false); } catch (e) {} }
+    }
   }).catch(function() {});
 
   // Pre-fetch profile
   StudentAPI.getProfile().then(function(data) {
-    if (data) ckCacheSet('/api/student', data);
+    if (data) {
+      ckCacheSet('/api/student', data);
+      if (typeof _applyProfileData === 'function') { try { _applyProfileData(data); } catch (e) {} }
+    }
   }).catch(function() {});
 
-  // Pre-fetch courses list
+  // Pre-fetch courses list — re-render courses grid if the user is on it.
   CoursesAPI.getAll().then(function(data) {
-    if (data && data.success) ckCacheSet('/api/courses', data);
+    if (data && data.success) {
+      ckCacheSet('/api/courses', data);
+      _ckRefreshPageIfActive('courses');
+      _ckRefreshPageIfActive('dashboard'); // dashboard shows course cards too
+    }
   }).catch(function() {});
 
   // Pre-fetch coding problems
@@ -191,57 +201,109 @@ function _ckCachePreFetchAll() {
       if (data && data.success) {
         ckCacheSet('/api/coding-problems', data);
         try { localStorage.setItem('ck_coding_problems_cache', JSON.stringify(data)); } catch(e) {}
+        _ckRefreshPageIfActive('coding');
       }
     }).catch(function() {});
 
-  // Pre-fetch coins
+  // Pre-fetch coins — always refresh the coins widget/popup + reports.
   fetch(BASE_URL + '/api/coins', { headers: { Authorization: 'Bearer ' + token } })
     .then(function(r) { return r.json(); })
     .then(function(data) {
-      if (data) ckCacheSet('/api/coins', data);
+      if (data) {
+        ckCacheSet('/api/coins', data);
+        if (typeof loadUserCoins === 'function') { try { loadUserCoins(); } catch (e) {} }
+        if (typeof _renderCoinsPopup === 'function') { try { _renderCoinsPopup(data); } catch (e) {} }
+      }
     }).catch(function() {});
 
   // Pre-fetch achievements
   fetch(BASE_URL + '/api/achievements', { headers: { Authorization: 'Bearer ' + token } })
     .then(function(r) { return r.json(); })
     .then(function(data) {
-      if (data) ckCacheSet('/api/achievements', data);
+      if (data) {
+        ckCacheSet('/api/achievements', data);
+        _ckRefreshPageIfActive('achievements');
+      }
     }).catch(function() {});
 
   // Pre-fetch orders
   fetch(BASE_URL + '/api/student/orders', { headers: { Authorization: 'Bearer ' + token } })
     .then(function(r) { return r.json(); })
     .then(function(data) {
-      if (data && data.success) ckCacheSet('/api/student/orders', data);
+      if (data && data.success) {
+        ckCacheSet('/api/student/orders', data);
+        _ckRefreshPageIfActive('orders');
+      }
     }).catch(function() {});
 
   // Pre-fetch mall
   fetch(BASE_URL + '/api/mall', { headers: { Authorization: 'Bearer ' + token } })
     .then(function(r) { return r.json(); })
     .then(function(data) {
-      if (data && data.success) ckCacheSet('/api/mall', data);
+      if (data && data.success) {
+        ckCacheSet('/api/mall', data);
+        _ckRefreshPageIfActive('mall');
+      }
     }).catch(function() {});
 
   // Pre-fetch student progress
   fetch(BASE_URL + '/api/student/progress', { headers: { Authorization: 'Bearer ' + token } })
     .then(function(r) { return r.json(); })
     .then(function(data) {
-      if (data && data.success) ckCacheSet('/api/student/progress', data);
+      if (data && data.success) {
+        ckCacheSet('/api/student/progress', data);
+        _ckRefreshPageIfActive('student-progress');
+      }
     }).catch(function() {});
 
   // Pre-fetch app ratings
   fetch(BASE_URL + '/api/feedback/lesson?lessonId=app_rating')
     .then(function(r) { return r.json(); })
     .then(function(data) {
-      if (data && data.success) ckCacheSet('/api/feedback/app_rating', data);
+      if (data && data.success) {
+        ckCacheSet('/api/feedback/app_rating', data);
+        _ckRefreshPageIfActive('rate-us');
+      }
     }).catch(function() {});
 
   // Pre-fetch weekly streak data (runs after small delay to let dashboard cache first)
   setTimeout(function() {
     _fetchAllStreakData(token).then(function(allStreaks) {
-      if (allStreaks) ckCacheSet('/api/weekly-streak-all', allStreaks);
+      if (allStreaks) {
+        ckCacheSet('/api/weekly-streak-all', allStreaks);
+        if (typeof loadWeeklyStreakCount === 'function') { try { loadWeeklyStreakCount(); } catch (e) {} }
+        _ckRefreshPageIfActive('streak-history');
+      }
     }).catch(function() {});
   }, 2000);
+}
+
+/**
+ * If the given page is currently active, re-run its loader so freshly-fetched
+ * data (already stored in cache) is painted immediately — no manual refresh.
+ * Safe/no-op if the page isn't active or the loader doesn't exist.
+ */
+function _ckRefreshPageIfActive(page) {
+  try {
+    var el = document.getElementById('page-' + page);
+    var isActive = el && el.classList.contains('active');
+    // The dashboard is the special landing page — always allow its refresh.
+    if (!isActive && page !== 'dashboard') return;
+    var loaders = {
+      'dashboard': function () {
+        // Re-paint dashboard cards/stats from the freshly-cached data.
+        var d = ckCacheGet('/api/student/dashboard');
+        if (d && d.success && typeof _applyDashboardData === 'function') _applyDashboardData(d, false);
+      },
+      'courses': function () { if (typeof loadCourses === 'function') loadCourses(); },
+      'coding': function () { if (typeof codingPgInit === 'function') codingPgInit(); },
+      'orders': function () { if (typeof loadOrdersPage === 'function') loadOrdersPage(); },
+      'mall': function () { if (typeof loadMallPage === 'function') loadMallPage(); },
+      'student-progress': function () { if (typeof loadStudentProgress === 'function') loadStudentProgress(); },
+      'rate-us': function () { if (typeof loadRateUsPage === 'function') loadRateUsPage(); },
+    };
+    if (loaders[page]) loaders[page]();
+  } catch (e) { /* never break prefetch on a render error */ }
 }
 
 

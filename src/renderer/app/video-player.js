@@ -148,8 +148,17 @@ function _vpSetQuality(label,url) {
 function _vpBuildQualityMenu() {
   var menu=document.getElementById('vp-quality-menu');if(!menu)return;
   menu.innerHTML='<div style="font-size:0.65rem;color:rgba(255,255,255,0.4);padding:3px 12px 6px;font-weight:700;text-transform:uppercase;">Quality</div>';
-  var entries=[{label:'Original',url:window._vpOriginalUrl||_vpCurrentUrl}];
-  Object.keys(_vpQualityUrls).forEach(function(q){entries.push({label:q,url:_vpQualityUrls[q]});});
+  var entries=[];
+  var qKeys=Object.keys(_vpQualityUrls||{});
+  if(qKeys.length){
+    // Processed qualities exist → list only these (no Original), highest first.
+    var order=['720p','480p','360p'];
+    order.forEach(function(q){if(_vpQualityUrls[q])entries.push({label:q,url:_vpQualityUrls[q]});});
+    qKeys.forEach(function(q){if(order.indexOf(q)===-1)entries.push({label:q,url:_vpQualityUrls[q]});});
+  } else {
+    // No processed qualities → only Original is available.
+    entries.push({label:'Original',url:window._vpOriginalUrl||_vpCurrentUrl});
+  }
   entries.forEach(function(en){
     var isA=en.label===_vpCurrentQuality,item=document.createElement('div');
     item.style.cssText='padding:8px 14px;font-size:0.82rem;cursor:pointer;color:'+(isA?'#4ade80':'#fff')+';font-weight:'+(isA?'700':'400')+';display:flex;align-items:center;justify-content:space-between;';
@@ -230,9 +239,17 @@ async function loadVideo(url, hlsMasterUrl, hlsQualities) {
 
   // Store URLs
   _vpCurrentUrl = url;
-  window._vpOriginalUrl = url;
-  _vpCurrentQuality = 'Original';
   _vpQualityUrls = (_currentVideoData && _currentVideoData.qualityUrls) ? _currentVideoData.qualityUrls : {};
+  var _hasQualities = _vpQualityUrls && Object.keys(_vpQualityUrls).length > 0;
+  var _defQ = (_currentVideoData && _currentVideoData.defaultQuality) ? _currentVideoData.defaultQuality : null;
+  // When qualities exist we play a quality (no Original). Otherwise Original.
+  if (_hasQualities) {
+    window._vpOriginalUrl = null; // no separate original when qualities are used
+    _vpCurrentQuality = _defQ || Object.keys(_vpQualityUrls)[0];
+  } else {
+    window._vpOriginalUrl = url;
+    _vpCurrentQuality = 'Original';
+  }
   _lessonMarkedComplete = false;
 
   // Set source — let native engine handle buffering
@@ -250,10 +267,10 @@ async function loadVideo(url, hlsMasterUrl, hlsQualities) {
   var tm = document.getElementById('vp-time'); if(tm) tm.textContent = '0:00 / 0:00';
   var vr = document.getElementById('vp-vol-range'); if(vr) vr.value = 1;
 
-  // Build quality menu
+  // Build quality menu + label reflects the actual current source.
   _vpBuildQualityMenu();
   var ql = document.getElementById('vp-quality-label');
-  if (ql) ql.textContent = Object.keys(_vpQualityUrls).length > 0 ? 'Original' : 'Auto';
+  if (ql) ql.textContent = _vpCurrentQuality;
 }
 
 // ─── Engagement: Like/Dislike/Views ─────────────────────────────────────────
@@ -378,8 +395,19 @@ async function openVideoFromBackend(courseId, moduleId, lessonId) {
     const lesson = (mod.lessons || []).find(l => l.id === lessonId);
     if (!lesson) return;
 
-    // Check if lesson is locked (empty videoUrl means not enrolled + not free)
-    if (!lesson.videoUrl || lesson.videoUrl === '') {
+    // Client-side quality selection (same approach as the mobile app):
+    // the backend returns BOTH the original videoUrl and qualityUrls (720/480/360).
+    // If qualities exist → play the highest (720 default); else play the original.
+    var _qUrls = lesson.qualityUrls || {};
+    var _qKeys = Object.keys(_qUrls);
+    var _qOrder = ['720p', '480p', '360p'];
+    var _bestQ = null;
+    for (var _qi = 0; _qi < _qOrder.length; _qi++) { if (_qUrls[_qOrder[_qi]]) { _bestQ = _qOrder[_qi]; break; } }
+    if (!_bestQ && _qKeys.length) _bestQ = _qKeys[0];
+    var _playUrl = _bestQ ? _qUrls[_bestQ] : (lesson.videoUrl || '');
+
+    // Locked = no playable source at all (empty videoUrl AND no qualities).
+    if (!_playUrl) {
       alert('This lesson is locked. Please enroll in the course to access it.');
       openPaymentPage(courseId);
       return;
@@ -387,16 +415,17 @@ async function openVideoFromBackend(courseId, moduleId, lessonId) {
 
     document.getElementById('video-title').textContent = lesson.title || '';
     document.getElementById('video-meta').textContent = mod.title;
-    // Async update meta with real duration after video loads
-    if(lesson.videoUrl) {
-      detectVideoDuration(lesson.videoUrl).then(function(sec) {
+    // Async update meta with real duration after video loads (use the playable URL)
+    if(_playUrl) {
+      detectVideoDuration(_playUrl).then(function(sec) {
         var metaEl = document.getElementById('video-meta');
         if(metaEl) metaEl.textContent = mod.title + ' - ' + formatDuration(sec);
       });
     }
-    _currentVideoData = { lessonId: lesson.id, title: lesson.title, courseTitle: course.title || '', moduleTitle: mod.title, videoUrl: lesson.videoUrl, notesUrl: lesson.notes || '', qualityUrls: lesson.qualityUrls || null };
+    _currentVideoData = { lessonId: lesson.id, title: lesson.title, courseTitle: course.title || '', moduleTitle: mod.title, videoUrl: lesson.videoUrl || _playUrl, notesUrl: lesson.notes || '', qualityUrls: lesson.qualityUrls || null, defaultQuality: _bestQ || null };
 
-    await loadVideo(lesson.videoUrl || '', lesson.hlsMasterUrl || null, lesson.hlsQualities || []);
+    // Load the best available source (top quality, or original if none processed).
+    await loadVideo(_playUrl, lesson.hlsMasterUrl || null, lesson.hlsQualities || []);
     // Record view + load reactions (non-blocking)
     _vpRecordView(lesson.id);
     _vpLoadReactions(lesson.id);
@@ -468,7 +497,8 @@ async function openVideoFromBackend(courseId, moduleId, lessonId) {
     const idx = mod.lessons.findIndex(l => l.id === lessonId);
     const nextLesson = mod.lessons[idx + 1];
     const floatBtn = document.getElementById('next-lesson-float');
-    if (floatBtn) floatBtn.style.display = (nextLesson && (nextLesson.isFree || !!nextLesson.videoUrl)) ? 'flex' : 'none';
+    var _nextQ = nextLesson && nextLesson.qualityUrls && Object.keys(nextLesson.qualityUrls).length > 0;
+    if (floatBtn) floatBtn.style.display = (nextLesson && (nextLesson.isFree || !!nextLesson.videoUrl || _nextQ)) ? 'flex' : 'none';
 
     const notesUrl = lesson.notes || '';
     renderNotesTab(notesUrl, []);

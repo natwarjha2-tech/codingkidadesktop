@@ -707,7 +707,9 @@ function goToNextLesson() {
   const idx = lessons.findIndex(l => l.id === currentLessonId);
   if (idx === -1 || idx >= lessons.length - 1) return;
   const next = lessons[idx + 1];
-  if (next && (next.isFree || !!next.videoUrl)) {
+  // Playable if free, has an original URL, or has processed qualities.
+  var _nextHasQuality = next && next.qualityUrls && Object.keys(next.qualityUrls).length > 0;
+  if (next && (next.isFree || !!next.videoUrl || _nextHasQuality)) {
     const floatBtn = document.getElementById('next-lesson-float');
     if (floatBtn) floatBtn.style.display = 'none';
     openVideoFromBackend(courseId, moduleId, next.id);
