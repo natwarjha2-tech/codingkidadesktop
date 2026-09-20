@@ -1298,11 +1298,15 @@ function _renderMallHistory(listEl, coinsData, discData) {
     var earned = tx.type === 'EARNED';
     var when = '';
     try { when = new Date(tx.createdAt).toLocaleDateString(); } catch (e) {}
+    // Course · Module · Lesson context (from backend), when this coin came from a lesson.
+    var ctxParts = [tx.courseTitle, tx.moduleTitle, tx.lessonTitle].filter(function (x) { return x && String(x).trim(); });
+    var ctx = ctxParts.length ? ctxParts.map(function (x) { return sanitize(x); }).join(' \u00b7 ') : '';
+    var sub = ctx ? (ctx + '  \u2022  ' + sanitize(when)) : sanitize(when);
     rows += '<div class="rw-history-item">' +
       '<div class="rw-history-ic" style="background:' + (earned ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)') + ';color:' + (earned ? '#22c55e' : '#ef4444') + ';"><i class="fas ' + (earned ? 'fa-coins' : 'fa-gift') + '"></i></div>' +
       '<div class="rw-history-main">' +
       '<div class="rw-history-title">' + sanitize(tx.reason || (earned ? 'Coins earned' : 'Coins spent')) + '</div>' +
-      '<div class="rw-history-sub">' + sanitize(when) + '</div>' +
+      '<div class="rw-history-sub">' + sub + '</div>' +
       '</div>' +
       '<div class="rw-history-amt" style="color:' + (earned ? '#22c55e' : '#ef4444') + ';">' + (earned ? '+' : '-') + tx.coins + '</div>' +
       '</div>';
@@ -2273,7 +2277,9 @@ function _spCourseLogo(title) {
 function _spCourseState(course) {
   var p = course.progressPercent || 0;
   var mastered = false;
-  if (typeof getCourseAchievement === 'function') {
+  // "Mastered" requires the course to actually be 100% complete — a badge alone
+  // (or an edge case like a course with 0 lessons) must NOT show Mastered at 0%.
+  if (p >= 100 && typeof getCourseAchievement === 'function') {
     var ach = getCourseAchievement(course);
     mastered = !!(ach && ach.isMaster);
   }

@@ -1,6 +1,6 @@
 {
   "name": "codingkidadesktop",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "description": "CodingKida Desktop App built with Electron",
   "main": "main.js",
   "scripts": {

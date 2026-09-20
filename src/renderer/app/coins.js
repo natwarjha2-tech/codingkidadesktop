@@ -106,6 +106,16 @@ async function _loadCoinsPopupData() {
   } catch {}
 }
 
+// Build the "Course · Module · Lesson" context line for a coin transaction,
+// using the fields the backend now provides. Returns '' if none are present
+// (e.g. referral/coupon/coding transactions that aren't lesson-based).
+function _coinTxContext(tx) {
+  var parts = [tx.courseTitle, tx.moduleTitle, tx.lessonTitle].filter(function (x) {
+    return x && String(x).trim();
+  });
+  return parts.length ? parts.map(function (x) { return sanitize(x); }).join(' \u00b7 ') : '';
+}
+
 function _renderCoinsPopup(data) {
   const totalEl = document.getElementById('coins-popup-total');
   if (totalEl) totalEl.textContent = String(data.totalCoins || 0);
@@ -115,9 +125,13 @@ function _renderCoinsPopup(data) {
     if (data.transactions && data.transactions.length > 0) {
       txEl.innerHTML = data.transactions.slice(0, 8).map(function(tx) {
         const isEarned = tx.type === 'EARNED';
-        return '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;background:rgba(255,255,255,0.02);border-radius:8px;">' +
-          '<span style="font-size:0.78rem;color:rgba(255,255,255,0.7);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + sanitize(tx.reason) + '</span>' +
-          '<span style="font-size:0.78rem;font-weight:700;color:' + (isEarned ? '#22c55e' : '#ef4444') + ';margin-left:8px;">' + (isEarned ? '+' : '-') + tx.coins + '</span>' +
+        var ctx = _coinTxContext(tx);
+        return '<div style="display:flex;justify-content:space-between;align-items:flex-start;padding:6px 8px;background:rgba(255,255,255,0.02);border-radius:8px;">' +
+          '<div style="flex:1;min-width:0;">' +
+          '<div style="font-size:0.78rem;color:rgba(255,255,255,0.8);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + sanitize(tx.reason) + '</div>' +
+          (ctx ? '<div style="font-size:0.66rem;color:rgba(255,255,255,0.45);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + ctx + '</div>' : '') +
+          '</div>' +
+          '<span style="font-size:0.78rem;font-weight:700;color:' + (isEarned ? '#22c55e' : '#ef4444') + ';margin-left:8px;white-space:nowrap;">' + (isEarned ? '+' : '-') + tx.coins + '</span>' +
           '</div>';
       }).join('');
     } else {

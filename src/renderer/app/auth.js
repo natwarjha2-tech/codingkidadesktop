@@ -68,6 +68,64 @@ async function signup() {
   }
 }
 
+// Refresh the Profile hero quick stats (Courses / Badges / Streak).
+// Paints from freshest cache instantly, then fetches to correct any stale
+// values so the profile always shows accurate numbers.
+function _refreshProfileHeroStats() {
+  var elCourses = document.getElementById('profile-stat-courses');
+  var elAch = document.getElementById('profile-stat-achievements');
+  var elStreak = document.getElementById('profile-stat-streak');
+  if (!elCourses && !elAch && !elStreak) return;
+
+  var token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+  var userId = (typeof getCurrentUserId === 'function') ? getCurrentUserId() : '';
+
+  // ── Courses enrolled (from dashboard) ──
+  function paintCourses(dash) {
+    if (elCourses && dash) elCourses.textContent = String(dash.enrolledCount || 0);
+  }
+  var dashCache = ckCacheGet('/api/student/dashboard') || (userId ? JSON.parse(localStorage.getItem('ck_dashboard_cache_' + userId) || 'null') : null);
+  paintCourses(dashCache);
+
+  // ── Badges earned (from achievements) ──
+  function paintAch(ach) {
+    if (elAch && ach && ach.success && Array.isArray(ach.achievements)) elAch.textContent = String(ach.achievements.length);
+  }
+  paintAch(ckCacheGet('/api/achievements'));
+
+  // ── Streak (count of completed weekly streaks) ──
+  function paintStreak(streaks) {
+    if (elStreak && Array.isArray(streaks)) {
+      elStreak.textContent = String(streaks.filter(function (s) { return s && s.completed; }).length);
+    }
+  }
+  var streakCache = ckCacheGet('/api/weekly-streak-all');
+  if (Array.isArray(streakCache)) paintStreak(streakCache);
+  else {
+    // Fall back to the dashboard streak element if present.
+    var sEl = document.getElementById('stat-streak');
+    if (elStreak && sEl && sEl.dataset && sEl.dataset.loaded === 'true') elStreak.textContent = sEl.textContent || '0';
+  }
+
+  if (!token) return;
+
+  // ── Background refresh so numbers are correct even if caches were stale ──
+  StudentAPI.getDashboard().then(function (d) {
+    if (d && d.success) { ckCacheSet('/api/student/dashboard', d); paintCourses(d); }
+  }).catch(function () {});
+
+  fetch(BASE_URL + '/api/achievements', { headers: { Authorization: 'Bearer ' + token } })
+    .then(function (r) { return r.json(); })
+    .then(function (d) { if (d) { ckCacheSet('/api/achievements', d); paintAch(d); } })
+    .catch(function () {});
+
+  if (typeof _fetchAllStreakData === 'function') {
+    _fetchAllStreakData(token).then(function (streaks) {
+      if (Array.isArray(streaks)) { ckCacheSet('/api/weekly-streak-all', streaks); paintStreak(streaks); }
+    }).catch(function () {});
+  }
+}
+
 async function loadStudentData() {
   try {
     // Cache-first: use cached profile for instant UI, refresh in background
@@ -138,16 +196,9 @@ async function loadStudentData() {
     if (parentEmailInput) parentEmailInput.value = student.parentEmail || '';
     if (parentContactInput) parentContactInput.value = student.parentContact || '';
 
-    // Profile hero quick stats — from existing cached dashboard data
-    var profileStatCourses = document.getElementById('profile-stat-courses');
-    var profileStatAch = document.getElementById('profile-stat-achievements');
-    var profileStatStreak = document.getElementById('profile-stat-streak');
-    var dashCacheForProfile = ckCacheGet('/api/student/dashboard') || JSON.parse(localStorage.getItem('ck_dashboard_cache_' + userId) || 'null');
-    if (profileStatCourses) profileStatCourses.textContent = String((dashCacheForProfile && dashCacheForProfile.enrolledCount) || 0);
-    var achCachedForProfile = ckCacheGet('/api/achievements');
-    if (profileStatAch) profileStatAch.textContent = String((achCachedForProfile && achCachedForProfile.success && achCachedForProfile.achievements) ? achCachedForProfile.achievements.length : 0);
-    var streakElForProfile = document.getElementById('stat-streak');
-    if (profileStatStreak) profileStatStreak.textContent = streakElForProfile ? streakElForProfile.textContent : '0';
+    // Profile hero quick stats — paint from cache instantly, then refresh from
+    // the backend so the numbers are always correct (not stale DOM/cache).
+    _refreshProfileHeroStats();
 
     // Restore avatar photo from server API
     const userId = getCurrentUserId();
@@ -466,26 +517,11 @@ async function _applyDashboardData(data, isFromCache) {
         }
       } else if (timeEl) { timeEl.textContent = ''; }
 
-      // Mission chips (based on completed/total lessons)
+      // Per-lesson "Lesson 1…N" mission chips removed — the "X of Y lessons
+      // completed" text above already conveys progress clearly. Keep the
+      // container empty so nothing renders.
       var chipsEl = document.getElementById('continue-mission-chips');
-      if (chipsEl && matchedCourse && matchedCourse.totalLessons > 0) {
-        var completed = matchedCourse.completedLessons || 0;
-        var total = Math.min(matchedCourse.totalLessons, 5); // show max 5 chips
-        var chipsHtml = '';
-        for (var i = 0; i < total; i++) {
-          if (i < completed) {
-            chipsHtml += '<span style="font-size:0.65rem;font-weight:600;color:#6ee7b7;background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.25);border-radius:8px;padding:2px 8px;display:inline-flex;align-items:center;gap:3px;">✓ Lesson ' + (i + 1) + '</span>';
-          } else if (i === completed) {
-            chipsHtml += '<span style="font-size:0.65rem;font-weight:700;color:#c4b5fd;background:rgba(139,92,246,0.15);border:1px solid rgba(139,92,246,0.4);border-radius:8px;padding:3px 10px;display:inline-flex;align-items:center;gap:3px;box-shadow:0 0 8px rgba(139,92,246,0.25);">▶ Lesson ' + (i + 1) + '</span>';
-          } else {
-            chipsHtml += '<span style="font-size:0.65rem;font-weight:600;color:#64748b;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:2px 8px;display:inline-flex;align-items:center;gap:3px;">○ Lesson ' + (i + 1) + '</span>';
-          }
-        }
-        if (matchedCourse.totalLessons > 5) {
-          chipsHtml += '<span style="font-size:0.65rem;color:#64748b;padding:2px 4px;">+' + (matchedCourse.totalLessons - 5) + ' more</span>';
-        }
-        chipsEl.innerHTML = chipsHtml;
-      } else if (chipsEl) { chipsEl.innerHTML = ''; }
+      if (chipsEl) { chipsEl.innerHTML = ''; }
 
       // XP reward — scale with progress
       var xpEl = document.getElementById('continue-xp-reward');
