@@ -10,6 +10,36 @@ function sanitize(str) {
   return d.innerHTML;
 }
 
+// ─── Anti-flicker render guard ───────────────────────────────────────────────
+// Cache-first UIs paint from cache, then repaint from a fresh API response.
+// When the fresh data is identical to what's already on screen, the second
+// full innerHTML replace causes a visible flicker for no reason. This guard
+// lets a render skip the repaint when the meaningful data hasn't changed.
+//
+// Usage:
+//   if (!_ckShouldRender('dashboard', sigObject)) return;  // unchanged → skip
+//   ... build + set innerHTML ...
+//
+// `sig` should be the DISPLAY-relevant data only (titles, counts, ids…), NOT
+// volatile fields like freshly-signed URLs or timestamps — otherwise it would
+// always differ and never skip. Pass an object/array/string; it's stringified.
+var _ckRenderSigs = {};
+function _ckShouldRender(key, sig) {
+  try {
+    var s = (typeof sig === 'string') ? sig : JSON.stringify(sig);
+    if (_ckRenderSigs[key] === s) return false; // unchanged → skip repaint
+    _ckRenderSigs[key] = s;
+    return true;
+  } catch (e) {
+    return true; // on any error, render (never block the UI)
+  }
+}
+// Forget a cached signature (e.g. when switching users/courses) so the next
+// render always paints fresh.
+function _ckResetRenderSig(key) {
+  try { delete _ckRenderSigs[key]; } catch (e) {}
+}
+
 // ─── Auth UI Helpers ─────────────────────────────────────────────────────────
 function showAuthError(formId, message) {
   const el = document.getElementById(formId + '-error');

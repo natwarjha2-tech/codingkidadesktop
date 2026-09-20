@@ -163,6 +163,7 @@
         <!-- Dropdown Menu -->
         <div id="app-topbar-dropdown" style="display:none;position:absolute;top:40px;right:0;background:#1a1a2e;border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:8px 0;min-width:180px;z-index:1002;box-shadow:0 12px 40px rgba(0,0,0,0.5);">
           <div onclick="navigate('profile');hideAppTopbarDropdown()" style="padding:10px 16px;font-size:0.85rem;color:#fff;cursor:pointer;display:flex;align-items:center;gap:10px;transition:background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'"><i class="fas fa-user" style="width:16px;color:#a78bfa;"></i> My Profile</div>
+          <div onclick="hideAppTopbarDropdown();openEditProfile()" style="padding:10px 16px;font-size:0.85rem;color:#fff;cursor:pointer;display:flex;align-items:center;gap:10px;transition:background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'"><i class="fas fa-edit" style="width:16px;color:#c4b5fd;"></i> Edit Profile</div>
           <div style="height:1px;background:rgba(255,255,255,0.08);margin:4px 0;"></div>
           <div onclick="logout()" style="padding:10px 16px;font-size:0.85rem;color:#ef4444;cursor:pointer;display:flex;align-items:center;gap:10px;transition:background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'"><i class="fas fa-sign-out-alt" style="width:16px;"></i> Logout</div>
         </div>
@@ -723,6 +724,7 @@
             <!-- Dropdown -->
             <div id="topbar-dropdown" style="display:none;position:absolute;top:40px;right:0;background:#1a1a2e;border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:8px 0;min-width:180px;z-index:1002;box-shadow:0 12px 40px rgba(0,0,0,0.5);">
               <div onclick="navigate('profile');hideTopbarDropdown()" style="padding:10px 16px;font-size:0.85rem;color:#fff;cursor:pointer;display:flex;align-items:center;gap:10px;transition:background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'"><i class="fas fa-user" style="width:16px;color:#a78bfa;"></i> My Profile</div>
+              <div onclick="hideTopbarDropdown();openEditProfile()" style="padding:10px 16px;font-size:0.85rem;color:#fff;cursor:pointer;display:flex;align-items:center;gap:10px;transition:background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'"><i class="fas fa-edit" style="width:16px;color:#c4b5fd;"></i> Edit Profile</div>
               <div onclick="hideTopbarDropdown();setTimeout(function(){openCoinsPopup();},60);" style="padding:10px 16px;font-size:0.85rem;color:#fff;cursor:pointer;display:flex;align-items:center;gap:10px;transition:background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'"><i class="fas fa-coins" style="width:16px;color:#fbbf24;"></i> My Coins</div>
               <div onclick="showLeaderboardModal();hideTopbarDropdown()" style="padding:10px 16px;font-size:0.85rem;color:#fff;cursor:pointer;display:flex;align-items:center;gap:10px;transition:background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'"><i class="fas fa-trophy" style="width:16px;color:#f59e0b;"></i> Leaderboard</div>
               <div style="height:1px;background:rgba(255,255,255,0.08);margin:4px 0;"></div>
@@ -753,6 +755,15 @@
                 #custom-video-player.vp-idle #vp-controls{opacity:0;}
               </style>
               <video id="video-player" controls controlsList="nodownload" style="width:100%;display:block;" preload="auto"></video>
+              <!-- Loading overlay (shown while the video fetches/buffers, YouTube-style) -->
+              <div id="vp-loading" style="display:none;position:absolute;inset:0;z-index:9;background:rgba(0,0,0,0.55);backdrop-filter:blur(2px);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;pointer-events:none;">
+                <div class="vp-spinner"></div>
+                <div style="color:rgba(255,255,255,0.85);font-size:0.8rem;font-weight:600;letter-spacing:0.3px;">Loading video…</div>
+              </div>
+              <style>
+                .vp-spinner{width:46px;height:46px;border-radius:50%;border:4px solid rgba(255,255,255,0.18);border-top-color:#a78bfa;animation:vpSpin 0.8s linear infinite;}
+                @keyframes vpSpin{to{transform:rotate(360deg);}}
+              </style>
               <!-- HLS status -->
               <div id="video-hls-status" style="display:none;position:absolute;top:12px;left:12px;z-index:8;padding:6px 12px;border-radius:8px;background:rgba(0,0,0,0.7);color:#fff;font-size:0.78rem;backdrop-filter:blur(8px);"></div>
               <!-- Custom Controls Overlay -->
@@ -1536,8 +1547,8 @@
     <div id="page-profile" class="page">
 
       <div class="profile-header" style="position:relative;background:rgba(18,18,32,0.9);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid rgba(139,92,246,0.15);border-radius:22px;padding:32px 36px;margin-bottom:24px;overflow:hidden;box-shadow:0 12px 36px rgba(0,0,0,0.4),0 0 24px rgba(139,92,246,0.05);">
-        <!-- Edit Profile (absolute top-right) -->
-        <button class="btn btn-outline" style="position:absolute;top:20px;right:24px;z-index:2;border-radius:10px;border:1px solid rgba(139,92,246,0.3);background:rgba(139,92,246,0.06);color:#c4b5fd;font-size:0.78rem;font-weight:600;padding:8px 16px;display:flex;align-items:center;gap:6px;transition:all 0.25s;cursor:pointer;white-space:nowrap;" onclick="openEditProfile()" onmouseover="this.style.background='rgba(139,92,246,0.15)';this.style.borderColor='rgba(139,92,246,0.5)';this.style.transform='translateY(-2px)';this.style.boxShadow='0 4px 12px rgba(139,92,246,0.2)'" onmouseout="this.style.background='rgba(139,92,246,0.06)';this.style.borderColor='rgba(139,92,246,0.3)';this.style.transform='translateY(0)';this.style.boxShadow='none'"><i class="fas fa-edit" style="font-size:0.65rem;"></i> Edit Profile</button>        <!-- Background decorations -->
+        <!-- Edit Profile moved into the photo dropdown (My Profile · Edit Profile · Logout) -->
+        <!-- Background decorations -->
         <div style="position:absolute;top:50%;left:12%;width:320px;height:1px;background:linear-gradient(to right,transparent,rgba(139,92,246,0.12),rgba(236,72,153,0.08),transparent);transform:translateY(-50%) rotate(-2deg);pointer-events:none;"></div>
         <div style="position:absolute;top:70%;left:30%;width:220px;height:1px;background:linear-gradient(to right,transparent,rgba(168,85,247,0.08),transparent);transform:rotate(1deg);pointer-events:none;"></div>
         <div style="position:absolute;top:-40%;left:-6%;width:200px;height:200px;background:radial-gradient(circle,rgba(139,92,246,0.09),transparent 65%);pointer-events:none;"></div>
@@ -1592,7 +1603,7 @@
                   <span id="xp-badge-count" class="xp-card-num" style="color:#fbbf24;">00</span>
                 </div>
                 <div class="xp-card-label">Milestones</div>
-                <div id="xp-badge-next" class="xp-card-sub">Next milestone soon</div>
+                <div id="xp-badge-next" class="xp-card-sub">Next one soon</div>
                 <div id="xp-badge-pips" class="xp-pips"></div>
               </div>
               <!-- Streak -->
@@ -1602,7 +1613,7 @@
                   <span id="xp-streak-count" class="xp-card-num" style="color:#f472b6;">00</span>
                 </div>
                 <div class="xp-card-label">Day Streak</div>
-                <div id="xp-streak-sub" class="xp-card-sub">Learn daily to keep it going</div>
+                <div id="xp-streak-sub" class="xp-card-sub">Start your streak</div>
                 <div id="xp-streak-pips" class="xp-streak-pips"></div>
               </div>
             </div>

@@ -1168,6 +1168,16 @@ function _rwAccent(offer) {
 }
 
 function _renderMallPage(content, data) {
+  // Anti-flicker: skip repaint if balance + offers are unchanged. (Avoids
+  // wiping the coupon input the user may be typing into on a redundant refresh.)
+  try {
+    var _sig = {
+      balance: data.balance,
+      offers: (data.offers || []).map(function (o) { return [o.id, o.title, o.coinsRequired, o.available].join('|'); }),
+    };
+    if (typeof _ckShouldRender === 'function' && !_ckShouldRender('mall', _sig)) return;
+  } catch (e) {}
+
   var balance = (typeof data.balance !== 'undefined' && data.balance !== null) ? data.balance : 0;
 
   // ── 1. Coin balance hero ──
@@ -1277,6 +1287,14 @@ async function _loadMallHistory() {
 
 function _renderMallHistory(listEl, coinsData, discData) {
   if (!listEl) return;
+  // Anti-flicker: skip repaint if history (discounts + transactions) is unchanged.
+  try {
+    var _sig = {
+      d: (discData && discData.discounts ? discData.discounts : []).map(function (x) { return [x.id, x.percent, x.label].join('|'); }),
+      t: (coinsData && coinsData.transactions ? coinsData.transactions : []).map(function (x) { return [x.id, x.type, x.coins, x.reason].join('|'); }),
+    };
+    if (typeof _ckShouldRender === 'function' && !_ckShouldRender('mall-history', _sig)) return;
+  } catch (e) {}
   var rows = '';
 
   // Usable (unconsumed) discounts first — highlighted as ready to use.
@@ -1508,6 +1526,15 @@ function _rateStarRow(rating, color) {
 }
 
 function _renderAppRatings(reviewsDiv, data) {
+  // Anti-flicker: skip repaint if the ratings summary + reviews are unchanged.
+  try {
+    var _sig = {
+      avg: data.avgRating, total: data.totalReviews, counts: data.ratingCounts,
+      reviews: (data.reviews || []).map(function (r) { return [r.studentName, r.rating, r.createdAt].join('|'); }),
+    };
+    if (typeof _ckShouldRender === 'function' && !_ckShouldRender('app-ratings', _sig)) return;
+  } catch (e) {}
+
   if (!data.success || data.totalReviews === 0) {
     reviewsDiv.innerHTML = '<div class="rating-summary" style="text-align:center;padding:36px 24px;">' +
       '<div class="rating-empty-ic"><i class="fas fa-star"></i></div>' +
@@ -2134,6 +2161,14 @@ async function showAchievements() {
 }
 
 function _renderAchievements(container, data) {
+  // Anti-flicker: skip repaint if the achievements list is unchanged.
+  try {
+    var _sig = (data.achievements || []).map(function (a) {
+      return [a.id, a.badgeType, a.title, a.courseTitle, a.moduleTitle, a.lessonTitle, a.score].join('|');
+    });
+    if (typeof _ckShouldRender === 'function' && !_ckShouldRender('achievements', _sig)) return;
+  } catch (e) {}
+
   // Update header stats
   var statsEl = document.getElementById('achievements-stats');
   if (statsEl && data.achievements) {
@@ -2320,6 +2355,19 @@ function _spMetric(icon, color, label, pct, valueText, fillGradient) {
 function _renderStudentProgress(data) {
   var content = document.getElementById('student-progress-content');
   if (!content) return;
+
+  // Anti-flicker: skip repaint if the progress data is unchanged.
+  try {
+    var _sig = {
+      score: data.overallScore, rating: data.overallRating,
+      totalLessons: data.totalLessons, done: data.totalLessonsCompleted,
+      courses: (data.courses || []).map(function (c) {
+        return [c.courseId || c.id, c.progressPercent, c.lessonsCompleted, c.totalLessons,
+          c.quiz && c.quiz.attempted, c.exercise && c.exercise.passed].join('|');
+      }),
+    };
+    if (typeof _ckShouldRender === 'function' && !_ckShouldRender('student-progress', _sig)) return;
+  } catch (e) {}
 
   var score = data.overallScore || 0;
   // Total XP — reuse existing XP system (no recalculation). Falls back gracefully.

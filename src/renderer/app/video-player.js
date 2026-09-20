@@ -118,6 +118,8 @@ var _vpIdleTimer = null;
 
 function _vpGetEl() { return document.getElementById('video-player'); }
 function _vpFmt(s) { if(!s||isNaN(s))return'0:00'; var m=Math.floor(s/60),ss=Math.floor(s%60); return m+':'+(ss<10?'0':'')+ss; }
+// Show/hide the video loading spinner overlay.
+function _vpShowLoading(show) { var el=document.getElementById('vp-loading'); if(el) el.style.display = show ? 'flex' : 'none'; }
 
 function _vpClickVideo(e) {
   if (e.target.closest('#vp-controls') || e.target.closest('button') || e.target.closest('input')) return;
@@ -148,6 +150,7 @@ function _vpLeaveProgress() { var tt=document.getElementById('vp-hover-time');if
 function _vpToggleQualityMenu(e) { if(e)e.stopPropagation(); var m=document.getElementById('vp-quality-menu');if(!m)return; _vpQualityMenuOpen=!_vpQualityMenuOpen; m.style.display=_vpQualityMenuOpen?'block':'none'; }
 function _vpSetQuality(label,url) {
   var v=_vpGetEl();if(!v)return; var t=v.currentTime,p=!v.paused;
+  _vpShowLoading(true); // switching source re-buffers — show spinner
   _vpCurrentQuality=label; _vpCurrentUrl=url; v.src=url; v.currentTime=t; if(p)v.play().catch(function(){});
   document.getElementById('vp-quality-label').textContent=label;
   document.getElementById('vp-quality-menu').style.display='none'; _vpQualityMenuOpen=false; _vpBuildQualityMenu();
@@ -182,6 +185,12 @@ function _vpInitPlayer(videoEl) {
   videoEl._vpInit = true;
   videoEl.addEventListener('play', function(){ document.getElementById('vp-play-icon').className='fas fa-pause'; });
   videoEl.addEventListener('pause', function(){ document.getElementById('vp-play-icon').className='fas fa-play'; });
+  // Loading spinner lifecycle — hide once playable, show while buffering.
+  videoEl.addEventListener('canplay', function(){ _vpShowLoading(false); });
+  videoEl.addEventListener('playing', function(){ _vpShowLoading(false); });
+  videoEl.addEventListener('loadeddata', function(){ _vpShowLoading(false); });
+  videoEl.addEventListener('waiting', function(){ _vpShowLoading(true); });   // re-buffering mid-play
+  videoEl.addEventListener('error', function(){ _vpShowLoading(false); });     // don't spin forever on failure
   videoEl.addEventListener('timeupdate', function(){
     // XP: award lesson-watch (+10) once when ~80% watched (frontend-only, anti-farm via action key)
     if(_pendingLessonComplete&&videoEl.duration&&videoEl.currentTime/videoEl.duration>=0.8&&typeof awardXP==='function'){
@@ -258,6 +267,10 @@ async function loadVideo(url, hlsMasterUrl, hlsQualities) {
     _vpCurrentQuality = 'Original';
   }
   _lessonMarkedComplete = false;
+
+  // Show the loading spinner while the video fetches + buffers (hidden once it
+  // can play, or on error). Gives immediate feedback like YouTube.
+  _vpShowLoading(true);
 
   // Set source — let native engine handle buffering
   videoEl.src = url;

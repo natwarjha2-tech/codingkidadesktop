@@ -157,6 +157,9 @@ function _ckCacheDetectUserChange(newUserId) {
   if (lastUserId && lastUserId !== newUserId) {
     // Different user — clear old user's cache
     ckCacheClearUser(lastUserId);
+    // Also reset anti-flicker render signatures so the new user's screens
+    // always repaint (a stale signature must never skip a fresh render).
+    try { _ckRenderSigs = {}; } catch (e) {}
   }
   localStorage.setItem('ck_pcache_last_user', newUserId);
 }

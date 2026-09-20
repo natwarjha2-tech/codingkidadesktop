@@ -234,6 +234,12 @@ function renderCourseGrid(courses) {
       '</div>';
     return;
   }
+  // Anti-flicker: skip repaint if the grid's display data is unchanged.
+  var _gsig = courses.map(function (c) {
+    return [c.id, c.title, c.rating, c.students, c.lessonCount, c.totalDurationSeconds, c.isFree].join('|');
+  });
+  if (typeof _ckShouldRender === 'function' && !_ckShouldRender('courses-grid', _gsig)) return;
+
   // Uses the shared, fully-dynamic card builder (no hardcoded metadata).
   grid.innerHTML = courses.map(function(c, i) { return buildCourseCardHTML(c, i); }).join('');
 
@@ -262,6 +268,9 @@ function renderDashboardRecommended(courses) {
   });
   courses.forEach(function(c) { if (pick.length < 3 && pick.indexOf(c) === -1) pick.push(c); });
   pick = pick.slice(0, 3);
+  // Anti-flicker: skip repaint if the recommended picks are unchanged.
+  var _rsig = pick.map(function (c) { return [c.id, c.title, c.rating, c.students, c.lessonCount].join('|'); });
+  if (typeof _ckShouldRender === 'function' && !_ckShouldRender('dashboard-recommended', _rsig)) return;
   grid.innerHTML = pick.map(function(c, i) { return buildCourseCardHTML(c, i); }).join('');
   hydrateCourseDurations(pick);
 }
@@ -301,6 +310,28 @@ async function openCourseDetail(courseId) {
 }
 
 function renderCourseDetailFromBackend(course) {
+  // Anti-flicker: skip repaint if the display-relevant course data is unchanged.
+  // Signature excludes signed videoUrls (which change every fetch).
+  try {
+    var _sig = {
+      id: course.id,
+      title: course.title,
+      isFree: course.isFree,
+      isEnrolled: course.isEnrolled,
+      completed: (course.completedLessons || []).slice().sort(),
+      mods: (course.modules || []).map(function (m) {
+        return {
+          id: m.id, title: m.title,
+          lessons: (m.lessons || []).map(function (l) {
+            return [l.id, l.title, l.duration, l.isFree, l.order].join('|');
+          }),
+          materials: (m.materials || []).map(function (mt) { return [mt.id, mt.title, mt.fileType].join('|'); }),
+        };
+      }),
+    };
+    if (typeof _ckShouldRender === 'function' && !_ckShouldRender('course-detail:' + course.id, _sig)) return;
+  } catch (e) { /* on any error, proceed to render */ }
+
   // --- Hero Section ---
   var heroTitle = document.getElementById('cd-hero-title');
   if(heroTitle) heroTitle.textContent = course.title || '';

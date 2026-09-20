@@ -257,7 +257,7 @@ function renderProfileXP() {
   var badgeCount = document.getElementById('xp-badge-count');
   if (badgeCount) badgeCount.textContent = String(unlockedCount).padStart(2, '0');
   var badgeNext = document.getElementById('xp-badge-next');
-  if (badgeNext) badgeNext.textContent = nextBadge ? ('Next: ' + nextBadge.title) : 'All milestones unlocked';
+  if (badgeNext) badgeNext.textContent = nextBadge ? ('Next: ' + nextBadge.title) : 'All unlocked';
 
   // Badge pips row (diamonds) — show unlocked vs locked for first 7 badges
   var pipsWrap = document.getElementById('xp-badge-pips');
@@ -272,8 +272,8 @@ function renderProfileXP() {
   if (streakCount) streakCount.textContent = String(streak).padStart(2, '0');
   var streakSub = document.getElementById('xp-streak-sub');
   if (streakSub) streakSub.textContent = streak > 0
-    ? (streak + ' day' + (streak === 1 ? '' : 's') + ' in a row — learn daily to keep it going')
-    : 'Learn daily to keep it going';
+    ? (streak + ' day' + (streak === 1 ? '' : 's') + ' in a row')
+    : 'Start your streak';
 
   // Streak pips (7-day view)
   var streakPips = document.getElementById('xp-streak-pips');

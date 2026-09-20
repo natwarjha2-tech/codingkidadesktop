@@ -117,6 +117,15 @@ function _coinTxContext(tx) {
 }
 
 function _renderCoinsPopup(data) {
+  // Anti-flicker: skip repaint if the coins data is unchanged since last render.
+  var _sig = {
+    total: data.totalCoins || 0,
+    tx: (data.transactions || []).slice(0, 8).map(function (t) {
+      return [t.id, t.type, t.coins, t.reason, t.courseTitle, t.moduleTitle, t.lessonTitle].join('|');
+    }),
+  };
+  if (typeof _ckShouldRender === 'function' && !_ckShouldRender('coins-popup', _sig)) return;
+
   const totalEl = document.getElementById('coins-popup-total');
   if (totalEl) totalEl.textContent = String(data.totalCoins || 0);
 
