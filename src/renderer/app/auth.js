@@ -451,14 +451,19 @@ async function _applyDashboardData(data, isFromCache) {
         else { diffEl.innerHTML = '🟢 Beginner'; diffEl.style.color = '#6ee7b7'; diffEl.style.borderColor = 'rgba(16,185,129,0.25)'; diffEl.style.background = 'rgba(16,185,129,0.1)'; }
       }
 
-      // Time estimate (rough: remaining lessons × 8 mins)
+      // Real remaining time = total course duration - completed lessons' duration
+      // (from backend). No fake per-lesson estimate.
       var timeEl = document.getElementById('continue-time-left');
-      if (timeEl && matchedCourse && matchedCourse.totalLessons > 0) {
-        var remaining = matchedCourse.totalLessons - (matchedCourse.completedLessons || 0);
-        var mins = remaining * 8;
-        if (mins > 60) { timeEl.textContent = '\u23F1 ~' + Math.round(mins / 60) + 'h remaining'; }
-        else if (mins > 0) { timeEl.textContent = '\u23F1 ~' + mins + ' min remaining'; }
-        else { timeEl.textContent = '\u2705 Complete!'; }
+      if (timeEl && matchedCourse) {
+        var _rem = (typeof _courseRemainingSecs === 'function') ? _courseRemainingSecs(matchedCourse) : null;
+        var _done = (matchedCourse.completedLessons || 0) >= (matchedCourse.totalLessons || 0) && (matchedCourse.totalLessons || 0) > 0;
+        if (_done) {
+          timeEl.textContent = '\u2705 Complete!';
+        } else if (_rem !== null && typeof _fmtRemainingTime === 'function') {
+          timeEl.textContent = '\u23F1 ' + _fmtRemainingTime(_rem);
+        } else {
+          timeEl.textContent = '';
+        }
       } else if (timeEl) { timeEl.textContent = ''; }
 
       // Mission chips (based on completed/total lessons)

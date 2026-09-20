@@ -40,16 +40,22 @@ function switchVpTab(el, panelId) {
   }
 }
 
+// Backend-provided "has the user attempted this lesson's quiz" flag (persistent,
+// from the QuizAttempt table). Used by renderQuizTab so it survives reinstalls.
+var _vpQuizAttempted = false;
+
 async function _lazyLoadQuiz(lessonId, token) {
   const el = document.getElementById('vp-quiz');
   // Cache-first: show cached quiz data instantly
   var cacheKey = '/api/quiz?lessonId=' + lessonId;
   var cached = ckCacheGet(cacheKey);
   if (cached && cached.success && cached.quizzes && cached.quizzes.length > 0) {
+    _vpQuizAttempted = !!cached.attempted;
     renderQuizTab(cached.quizzes);
     // If cache is fresh, skip API call
     if (ckCacheIsFresh(cacheKey)) return;
   } else {
+    _vpQuizAttempted = false;
     if (el) el.innerHTML = '<div class="tab-card" style="text-align:center;padding:30px;"><div class="skeleton-shimmer" style="width:60%;height:16px;margin:0 auto 12px;"></div><div class="skeleton-shimmer" style="width:80%;height:12px;margin:0 auto 8px;"></div><div class="skeleton-shimmer" style="width:40%;height:12px;margin:0 auto;"></div></div>';
   }
   try {
@@ -59,6 +65,7 @@ async function _lazyLoadQuiz(lessonId, token) {
     const quizData = await quizRes.json();
     if (quizData.success && quizData.quizzes && quizData.quizzes.length > 0) {
       ckCacheSet(cacheKey, quizData);
+      _vpQuizAttempted = !!quizData.attempted; // persistent flag from backend
       renderQuizTab(quizData.quizzes);
     } else {
       renderQuizTab(null);

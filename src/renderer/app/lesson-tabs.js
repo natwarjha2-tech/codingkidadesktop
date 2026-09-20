@@ -101,11 +101,20 @@ function renderQuizTab(quizData) {
   // Support single quiz object or array
   const quizzes = Array.isArray(quizData) ? quizData : [quizData];
 
-  // Check if user previously attempted this quiz (for re-attempt warning)
+  // Check if user previously attempted this quiz (for re-attempt warning).
+  // Source of truth = BACKEND (QuizAttempt table), so it survives app updates/
+  // reinstalls. The local flag is only a fast fallback; we OR them together and
+  // re-seed local from backend so both stay consistent.
   var lessonId = _currentLessonForTabs ? _currentLessonForTabs.lessonId : '';
   var userId = (typeof getCurrentUserId === 'function') ? getCurrentUserId() : '';
   var attemptKey = 'ck_quiz_attempted_' + userId + '_' + lessonId;
-  var previouslyAttempted = localStorage.getItem(attemptKey) === 'true';
+  var localAttempted = localStorage.getItem(attemptKey) === 'true';
+  var backendAttempted = (typeof _vpQuizAttempted === 'boolean') ? _vpQuizAttempted : false;
+  var previouslyAttempted = localAttempted || backendAttempted;
+  // If backend confirms an attempt, persist locally so it shows instantly next time.
+  if (backendAttempted && !localAttempted && lessonId && userId) {
+    try { localStorage.setItem(attemptKey, 'true'); } catch (e) {}
+  }
 
   if (previouslyAttempted) {
     html += '<div style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:10px;padding:10px 14px;margin-bottom:14px;">';

@@ -5,6 +5,31 @@
  * achievements, student progress, homework, and lesson rating.
  */
 
+// Format remaining course time (seconds) into a kid-friendly label.
+// Never shows a fake estimate — if the backend didn't provide durations, shows
+// a neutral prompt instead.
+function _fmtRemainingTime(secs) {
+  if (secs === null || typeof secs !== 'number' || isNaN(secs)) return 'Keep learning \u2192';
+  if (secs <= 0) return 'Almost done!';
+  var mins = Math.round(secs / 60);
+  if (mins < 1) return '<1 min remaining';
+  if (mins < 60) return mins + ' min remaining';
+  var h = Math.floor(mins / 60);
+  var m = mins % 60;
+  return h + 'h' + (m > 0 ? ' ' + m + 'm' : '') + ' remaining';
+}
+
+// Compute remaining seconds for an enrolled course object from backend fields.
+// Returns null if durations aren't available (so we avoid a fake number).
+function _courseRemainingSecs(c) {
+  if (!c) return null;
+  if (typeof c.remainingDurationSeconds === 'number') return c.remainingDurationSeconds;
+  if (typeof c.totalDurationSeconds === 'number' && typeof c.completedDurationSeconds === 'number') {
+    return Math.max(0, c.totalDurationSeconds - c.completedDurationSeconds);
+  }
+  return null;
+}
+
 // ─── Enrolled Courses Detail & Completed Videos Pages ─────────────────────────
 
 async function showEnrolledDetail() {
@@ -98,7 +123,7 @@ function _renderEnrolledList(container, enrolledCourses) {
       '</div>' +
       '<!-- Resume -->' +
       '<div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px;">' +
-      (isComplete ? '<span style="font-size:0.75rem;color:#22c55e;font-weight:600;">\u2705 Course Complete!</span>' : '<span style="font-size:0.72rem;color:#64748b;">\u23F1 ~' + (remaining * 8) + ' min remaining</span>') +
+      (isComplete ? '<span style="font-size:0.75rem;color:#22c55e;font-weight:600;">\u2705 Course Complete!</span>' : '<span style="font-size:0.72rem;color:#64748b;">\u23F1 ' + _fmtRemainingTime(_courseRemainingSecs(c)) + '</span>') +
       '<span style="font-size:0.78rem;font-weight:700;color:#a78bfa;display:flex;align-items:center;gap:5px;">' + (isComplete ? 'Review Course' : 'Resume') + ' \u2192</span>' +
       '</div>' +
       '</div>' +
@@ -762,7 +787,7 @@ function _renderParentReport(dashData, achievements, totalCoins) {
           return '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.04);">' +
             '<span style="font-size:1.2rem;">' + icon + '</span>' +
             '<div style="flex:1;"><div style="font-size:0.82rem;font-weight:600;color:#fff;">' + sanitize(a.title) + '</div>' +
-            '<div style="font-size:0.72rem;color:var(--muted);">' + sanitize(a.lessonTitle || '') + '</div></div>' +
+            '<div style="font-size:0.72rem;color:var(--muted);">' + [a.courseTitle, a.moduleTitle, a.lessonTitle].filter(function(x){ return x && String(x).trim(); }).map(function(x){ return sanitize(x); }).join(' \u00b7 ') + '</div></div>' +
             '<div style="font-size:0.72rem;color:var(--muted);">' + date + '</div></div>';
         }).join('');
   }
@@ -801,7 +826,7 @@ function _prShowBadgeList(badgeType) {
     html += '  <div style="width:36px;height:36px;border-radius:10px;background:' + color + '20;border:1px solid ' + color + '40;display:flex;align-items:center;justify-content:center;font-size:1rem;flex-shrink:0;">' + (badgeType === 'super-master' ? '🏆' : badgeType === 'master' ? '🥈' : '⭐') + '</div>';
     html += '  <div style="flex:1;">';
     html += '    <div style="font-size:0.82rem;font-weight:600;color:#fff;">' + sanitize(a.title || a.lessonTitle || 'Achievement') + '</div>';
-    html += '    <div style="font-size:0.7rem;color:var(--muted);">' + sanitize(a.courseTitle || '') + (a.score ? ' · Score: ' + a.score + '%' : '') + (a.rank ? ' · Rank #' + a.rank : '') + '</div>';
+    html += '    <div style="font-size:0.7rem;color:var(--muted);">' + [a.courseTitle, a.moduleTitle, a.lessonTitle].filter(function(x){ return x && String(x).trim(); }).map(function(x){ return sanitize(x); }).join(' \u00b7 ') + (a.score ? ' · Score: ' + a.score + '%' : '') + (a.rank ? ' · Rank #' + a.rank : '') + '</div>';
     html += '  </div>';
     html += '  <div style="font-size:0.68rem;color:var(--muted);">' + date + '</div>';
     html += '</div>';
@@ -2142,8 +2167,10 @@ function _renderAchievements(container, data) {
         '</div>' +
         '<!-- Title -->' +
         '<h4 style="color:#fff;font-weight:800;font-size:1.1rem;margin:0 0 4px;">' + sanitize(a.title) + '</h4>' +
-        '<!-- Course info -->' +
-        '<div style="font-size:0.8rem;color:#94a3b8;margin-bottom:14px;">' + sanitize(a.lessonTitle) + ' \u00b7 ' + sanitize(a.courseTitle) + '</div>' +
+        '<!-- Course \u00b7 Module \u00b7 Lesson (full hierarchy so kids know exactly where it was earned) -->' +
+        '<div style="font-size:0.8rem;color:#94a3b8;margin-bottom:14px;">' +
+          [a.courseTitle, a.moduleTitle, a.lessonTitle].filter(function(x){ return x && String(x).trim(); }).map(function(x){ return sanitize(x); }).join(' \u00b7 ') +
+        '</div>' +
         '<!-- Score + Rank blocks -->' +
         '<div style="display:flex;gap:12px;margin-bottom:14px;">' +
         '<div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:10px 18px;text-align:center;min-width:80px;">' +
