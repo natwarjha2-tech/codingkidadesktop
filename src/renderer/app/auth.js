@@ -68,62 +68,25 @@ async function signup() {
   }
 }
 
-// Refresh the Profile hero quick stats (Courses / Badges / Streak).
-// Paints from freshest cache instantly, then fetches to correct any stale
-// values so the profile always shows accurate numbers.
+// Refresh the Profile hero "Learning" (courses enrolled) stat. Badges/Streak on
+// the profile are driven by the XP system (renderProfileXP) — not here.
 function _refreshProfileHeroStats() {
   var elCourses = document.getElementById('profile-stat-courses');
-  var elAch = document.getElementById('profile-stat-achievements');
-  var elStreak = document.getElementById('profile-stat-streak');
-  if (!elCourses && !elAch && !elStreak) return;
+  if (!elCourses) return;
 
   var token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
   var userId = (typeof getCurrentUserId === 'function') ? getCurrentUserId() : '';
 
-  // ── Courses enrolled (from dashboard) ──
   function paintCourses(dash) {
     if (elCourses && dash) elCourses.textContent = String(dash.enrolledCount || 0);
   }
   var dashCache = ckCacheGet('/api/student/dashboard') || (userId ? JSON.parse(localStorage.getItem('ck_dashboard_cache_' + userId) || 'null') : null);
   paintCourses(dashCache);
 
-  // ── Badges earned (from achievements) ──
-  function paintAch(ach) {
-    if (elAch && ach && ach.success && Array.isArray(ach.achievements)) elAch.textContent = String(ach.achievements.length);
-  }
-  paintAch(ckCacheGet('/api/achievements'));
-
-  // ── Streak (count of completed weekly streaks) ──
-  function paintStreak(streaks) {
-    if (elStreak && Array.isArray(streaks)) {
-      elStreak.textContent = String(streaks.filter(function (s) { return s && s.completed; }).length);
-    }
-  }
-  var streakCache = ckCacheGet('/api/weekly-streak-all');
-  if (Array.isArray(streakCache)) paintStreak(streakCache);
-  else {
-    // Fall back to the dashboard streak element if present.
-    var sEl = document.getElementById('stat-streak');
-    if (elStreak && sEl && sEl.dataset && sEl.dataset.loaded === 'true') elStreak.textContent = sEl.textContent || '0';
-  }
-
   if (!token) return;
-
-  // ── Background refresh so numbers are correct even if caches were stale ──
   StudentAPI.getDashboard().then(function (d) {
     if (d && d.success) { ckCacheSet('/api/student/dashboard', d); paintCourses(d); }
   }).catch(function () {});
-
-  fetch(BASE_URL + '/api/achievements', { headers: { Authorization: 'Bearer ' + token } })
-    .then(function (r) { return r.json(); })
-    .then(function (d) { if (d) { ckCacheSet('/api/achievements', d); paintAch(d); } })
-    .catch(function () {});
-
-  if (typeof _fetchAllStreakData === 'function') {
-    _fetchAllStreakData(token).then(function (streaks) {
-      if (Array.isArray(streaks)) { ckCacheSet('/api/weekly-streak-all', streaks); paintStreak(streaks); }
-    }).catch(function () {});
-  }
 }
 
 async function loadStudentData() {
