@@ -310,7 +310,15 @@ async function openCourseDetail(courseId) {
 }
 
 function renderCourseDetailFromBackend(course) {
-  // Anti-flicker: skip repaint if the display-relevant course data is unchanged.
+  // ALWAYS navigate to the course-detail page first. This MUST happen before the
+  // anti-flicker guard below — otherwise, when a user re-opens the same course
+  // (unchanged data), the guard would return early and the page would never
+  // open (the "course won't open on second visit" bug).
+  navigate('course-detail');
+
+  // Anti-flicker: skip the (expensive) DOM repaint if the display-relevant course
+  // data is unchanged since the last render. Navigation already happened above,
+  // so returning here only skips the redundant re-paint, never the page open.
   // Signature excludes signed videoUrls (which change every fetch).
   try {
     var _sig = {
