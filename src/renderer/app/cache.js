@@ -24,12 +24,14 @@ var _CK_CACHE_TTL = {
   'feedback': 10 * 60 * 1000,           // 10 minutes
   'profile': 10 * 60 * 1000,            // 10 minutes
   'coins': 5 * 60 * 1000,               // 5 minutes
+  'play': 45 * 60 * 1000,               // 45 min — presigned play URLs (valid 60m)
 };
 
 /**
  * Get TTL for an endpoint based on its type
  */
 function _ckCacheGetTTL(endpoint) {
+  if (endpoint.includes('/play')) return _CK_CACHE_TTL.play;
   if (endpoint.includes('/api/quiz')) return _CK_CACHE_TTL.quiz;
   if (endpoint.includes('/api/exercise')) return _CK_CACHE_TTL.exercise;
   if (endpoint.includes('/api/homework')) return _CK_CACHE_TTL.homework;

@@ -734,16 +734,25 @@ function updateVideoProgressBar(completedCount, totalLessons) {
 function goToNextLesson() {
   const ctx = _currentLessonContext;
   if (!ctx) return;
-  const { courseId, moduleId, lessons, currentLessonId } = ctx;
-  const idx = lessons.findIndex(l => l.id === currentLessonId);
-  if (idx === -1 || idx >= lessons.length - 1) return;
-  const next = lessons[idx + 1];
-  // Playable if free, has an original URL, or has processed qualities.
+  const { courseId, moduleId, lessons, seq, currentLessonId } = ctx;
+
+  // Prefer the COURSE-WIDE sequence (flows across modules — the last lesson of a
+  // module advances to the first lesson of the next module). Fall back to the
+  // module-only list for older cached contexts.
+  var _list = (seq && seq.length) ? seq : lessons;
+  const idx = _list.findIndex(l => l.id === currentLessonId);
+  if (idx === -1 || idx >= _list.length - 1) return; // truly the last lesson in the course
+  const next = _list[idx + 1];
+  // The next lesson may live in a DIFFERENT module — use its own moduleId.
+  var _nextModuleId = next.moduleId || moduleId;
+
+  // Playable if free, has a video (hasVideo flag; videoUrl is empty now that
+  // videos are signed on play), or has processed qualities.
   var _nextHasQuality = next && next.qualityUrls && Object.keys(next.qualityUrls).length > 0;
-  if (next && (next.isFree || !!next.videoUrl || _nextHasQuality)) {
+  if (next && (next.isFree || !!next.hasVideo || !!next.videoUrl || _nextHasQuality)) {
     const floatBtn = document.getElementById('next-lesson-float');
     if (floatBtn) floatBtn.style.display = 'none';
-    openVideoFromBackend(courseId, moduleId, next.id);
+    openVideoFromBackend(courseId, _nextModuleId, next.id);
   }
 }
 

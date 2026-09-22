@@ -86,6 +86,9 @@ const CoursesAPI = {
 
   getById: (id) => apiRequest('/api/courses/' + id),
   getByIdSigned: (id) => apiRequest('/api/courses/' + id + '?signed=true'),
+  // "Sign on play" — signed, ready-to-stream data for ONE lesson (fetched only
+  // when the user opens that lesson, instead of signing every lesson upfront).
+  getLessonPlay: (lessonId) => apiRequest('/api/lessons/' + lessonId + '/play'),
 
   enroll: (courseId) => apiRequest('/api/courses/' + courseId + '/enroll', {
     method: 'POST',

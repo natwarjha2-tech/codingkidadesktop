@@ -44,6 +44,24 @@ function switchVpTab(el, panelId) {
 // from the QuizAttempt table). Used by renderQuizTab so it survives reinstalls.
 var _vpQuizAttempted = false;
 
+// Prefetch a lesson's signed "play" data into the 45-min cache (warm-up only).
+// Skips the network call if a FRESH cached entry already exists. Never throws.
+async function _prefetchLessonPlay(lessonId) {
+  if (!lessonId) return;
+  var key = '/api/lessons/' + lessonId + '/play';
+  try {
+    var cached = ckCacheGet(key);
+    if (cached && cached.success && cached._cachedAt && (Date.now() - cached._cachedAt < 45 * 60 * 1000)) {
+      return; // already warm
+    }
+    var res = await CoursesAPI.getLessonPlay(lessonId);
+    if (res && res.success) {
+      res._cachedAt = Date.now();
+      ckCacheSet(key, res);
+    }
+  } catch { /* prefetch is best-effort — never surface errors */ }
+}
+
 async function _lazyLoadQuiz(lessonId, token) {
   const el = document.getElementById('vp-quiz');
   // Cache-first: show cached quiz data instantly
@@ -415,8 +433,40 @@ async function openVideoFromBackend(courseId, moduleId, lessonId) {
     const lesson = (mod.lessons || []).find(l => l.id === lessonId);
     if (!lesson) return;
 
+    // "Sign on play": the course response no longer carries signed video/quality
+    // URLs (they're signed on demand to keep course-open fast). Fetch the signed,
+    // ready-to-stream data for THIS lesson now, and merge it onto the lesson.
+    //
+    // Cache the signed play data per lesson for 45 minutes. Presigned S3 URLs are
+    // valid for 60 min, so 45 min stays comfortably within their lifetime (with a
+    // 15-min safety buffer) — re-opening the same lesson replays instantly without
+    // another signing call. NEVER cache longer than the URL expiry or the link 404s.
+    try {
+      var _playCacheKey = '/api/lessons/' + lessonId + '/play';
+      var _playCached = ckCacheGet(_playCacheKey);
+      var _playRes;
+      if (_playCached && _playCached.success && _playCached._cachedAt && (Date.now() - _playCached._cachedAt < 45 * 60 * 1000)) {
+        _playRes = _playCached;
+      } else {
+        _playRes = await CoursesAPI.getLessonPlay(lessonId);
+        if (_playRes && _playRes.success) {
+          _playRes._cachedAt = Date.now();
+          ckCacheSet(_playCacheKey, _playRes);
+        }
+      }
+      if (_playRes && _playRes.success && _playRes.lesson) {
+        lesson.videoUrl = _playRes.lesson.videoUrl || '';
+        lesson.qualityUrls = _playRes.lesson.qualityUrls || {};
+        lesson.hlsQualities = _playRes.lesson.hlsQualities || [];
+        lesson.hlsMasterUrl = _playRes.lesson.hlsMasterUrl || null;
+        lesson.hlsStatus = _playRes.lesson.hlsStatus || 'none';
+        lesson.mediaId = _playRes.lesson.mediaId || null;
+        if (_playRes.lesson.notes) lesson.notes = _playRes.lesson.notes;
+      }
+    } catch { /* fall through — locked check below handles no URL */ }
+
     // Client-side quality selection (same approach as the mobile app):
-    // the backend returns BOTH the original videoUrl and qualityUrls (720/480/360).
+    // the play endpoint returns the original videoUrl and qualityUrls (720/480/360).
     // If qualities exist → play the highest (720 default); else play the original.
     var _qUrls = lesson.qualityUrls || {};
     var _qKeys = Object.keys(_qUrls);
@@ -434,12 +484,16 @@ async function openVideoFromBackend(courseId, moduleId, lessonId) {
     }
 
     document.getElementById('video-title').textContent = lesson.title || '';
-    document.getElementById('video-meta').textContent = mod.title;
-    // Async update meta with real duration after video loads (use the playable URL)
-    if(_playUrl) {
+    // Duration from the DB (instant). Only fall back to network detection when
+    // the stored duration is missing — avoids a needless metadata download.
+    var _metaSecs = (typeof _parseLessonDuration === 'function') ? _parseLessonDuration(lesson.duration) : 0;
+    document.getElementById('video-meta').textContent = _metaSecs > 0
+      ? mod.title + ' - ' + formatDuration(_metaSecs)
+      : mod.title;
+    if(_playUrl && _metaSecs <= 0) {
       detectVideoDuration(_playUrl).then(function(sec) {
         var metaEl = document.getElementById('video-meta');
-        if(metaEl) metaEl.textContent = mod.title + ' - ' + formatDuration(sec);
+        if(metaEl && sec > 0) metaEl.textContent = mod.title + ' - ' + formatDuration(sec);
       });
     }
     _currentVideoData = { lessonId: lesson.id, title: lesson.title, courseTitle: course.title || '', moduleTitle: mod.title, videoUrl: lesson.videoUrl || _playUrl, notesUrl: lesson.notes || '', qualityUrls: lesson.qualityUrls || null, defaultQuality: _bestQ || null };
@@ -507,18 +561,47 @@ async function openVideoFromBackend(courseId, moduleId, lessonId) {
     const completedCount = allLessons.filter(l => completedLessons.includes(l.id)).length;
     updateVideoProgressBar(completedCount, allLessons.length);
 
-    // Store context for next lesson CTA
-    _currentLessonContext = { courseId, moduleId, lessons: mod.lessons, currentLessonId: lessonId };
+    // Build a COURSE-WIDE ordered sequence of all lessons (across every module),
+    // each tagged with its moduleId. "Next lesson" then flows continuously — the
+    // last lesson of a module advances to the first lesson of the next module.
+    var _courseSeq = [];
+    (course.modules || []).forEach(function (mm) {
+      (mm.lessons || []).forEach(function (ll) {
+        _courseSeq.push({ id: ll.id, moduleId: mm.id, isFree: ll.isFree, hasVideo: ll.hasVideo, videoUrl: ll.videoUrl, qualityUrls: ll.qualityUrls });
+      });
+    });
+
+    // Store context for the next-lesson CTA. Keep `lessons` (this module) for
+    // backward compat, and add `seq` (whole course) for continuous navigation.
+    _currentLessonContext = { courseId, moduleId, lessons: mod.lessons, seq: _courseSeq, currentLessonId: lessonId };
+
+    // Prefetch the NEXT lesson's signed play URL into the 45-min cache, so that
+    // when the user hits "Next" it opens instantly (no signing wait). Fires a few
+    // seconds AFTER the current video is on screen, so it never competes with the
+    // current video's initial load. Uses the course-wide sequence, so it also
+    // prefetches the next module's first lesson. Only the tiny signed URL is
+    // fetched — never the actual video bytes.
+    try {
+      var _seqIdx = _courseSeq.findIndex(function (l) { return l.id === lessonId; }) + 1;
+      var _nextL = _seqIdx > 0 ? _courseSeq[_seqIdx] : null;
+      if (_nextL && (course.isEnrolled || _nextL.isFree || _nextL.hasVideo)) {
+        setTimeout(function () { _prefetchLessonPlay(_nextL.id); }, 4000);
+      }
+    } catch {}
 
     // Mark lesson as started in localStorage for Watchlist "In Progress" tracking
     var _startedKey = getCurrentUserId() ? 'ck_started_' + getCurrentUserId() : 'ck_started';
     var _startedSet = JSON.parse(localStorage.getItem(_startedKey) || '[]');
     if(_startedSet.indexOf(lessonId) === -1) { _startedSet.push(lessonId); localStorage.setItem(_startedKey, JSON.stringify(_startedSet)); }
-    const idx = mod.lessons.findIndex(l => l.id === lessonId);
-    const nextLesson = mod.lessons[idx + 1];
+    // Next lesson from the COURSE-WIDE sequence (crosses module boundaries), so
+    // the "Next" button shows even on a module's last lesson if another module
+    // follows. _courseSeq was built above.
+    const _seqIdxN = _courseSeq.findIndex(l => l.id === lessonId);
+    const nextLesson = _seqIdxN >= 0 ? _courseSeq[_seqIdxN + 1] : null;
     const floatBtn = document.getElementById('next-lesson-float');
     var _nextQ = nextLesson && nextLesson.qualityUrls && Object.keys(nextLesson.qualityUrls).length > 0;
-    if (floatBtn) floatBtn.style.display = (nextLesson && (nextLesson.isFree || !!nextLesson.videoUrl || _nextQ)) ? 'flex' : 'none';
+    // videoUrl is empty now (signed on play) — use hasVideo / enrollment.
+    if (floatBtn) floatBtn.style.display = (nextLesson && (course.isEnrolled || nextLesson.isFree || !!nextLesson.hasVideo || !!nextLesson.videoUrl || _nextQ)) ? 'flex' : 'none';
 
     const notesUrl = lesson.notes || '';
     renderNotesTab(notesUrl, []);
@@ -573,23 +656,23 @@ async function openVideoFromBackend(courseId, moduleId, lessonId) {
       (m.lessons || []).forEach(l => {
         const isActive = l.id === lessonId;
         const isCompleted = completedLessons.includes(l.id);
-        const canAccess = course.isEnrolled || l.isFree || !!l.videoUrl;
+        // videoUrl is empty now (signed on play) — use the hasVideo flag the
+        // course route provides, with a fallback to videoUrl for old cache.
+        const canAccess = course.isEnrolled || l.isFree || !!l.hasVideo || !!l.videoUrl;
         const item = document.createElement('div');
         item.className = 'playlist-item' + (isActive ? ' active' : '') + (canAccess ? '' : ' locked');
         if (canAccess) item.onclick = () => openVideoFromBackend(courseId, m.id, l.id);
+        // Duration straight from the DB (stored seconds / MM:SS) — instant, no
+        // network. Previously this called detectVideoDuration() per lesson,
+        // which downloaded each video's metadata over the network; for courses
+        // with many lessons that fired dozens of simultaneous requests and made
+        // opening a lesson very slow. The stored duration is authoritative.
+        var _plSecs = (typeof _parseLessonDuration === 'function') ? _parseLessonDuration(l.duration) : 0;
+        var _plDur = _plSecs > 0 ? formatDuration(_plSecs) : '--';
         item.innerHTML =
           '<i class="fas ' + (isCompleted ? 'fa-check-circle' : (canAccess ? 'fa-play-circle' : 'fa-lock')) + '" style="color:' + (isCompleted ? 'var(--success)' : (canAccess ? (isActive ? '#a78bfa' : 'var(--muted)') : 'var(--danger)')) + ';font-size:0.8rem;flex-shrink:0;"></i>' +
           '<span class="item-title">' + sanitize(l.title) + '</span>' +
-          '<span class="item-duration" data-vp-lesson-id="' + l.id + '">--</span>';
-        // Async detect duration for this lesson
-        if(l.videoUrl) {
-          (function(lessonId, url) {
-            detectVideoDuration(url).then(function(sec) {
-              var durEl = document.querySelector('[data-vp-lesson-id="' + lessonId + '"]');
-              if(durEl) durEl.textContent = formatDuration(sec);
-            });
-          })(l.id, l.videoUrl);
-        }
+          '<span class="item-duration" data-vp-lesson-id="' + l.id + '">' + _plDur + '</span>';
         playlist.appendChild(item);
       });
     });

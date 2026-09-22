@@ -223,7 +223,7 @@ function _renderCompletedVideosList(container, enrolledCourses, totalCompleted) 
       '<text x="50%" y="50%" text-anchor="middle" dy="0.35em" style="font-size:0.7rem;font-weight:800;fill:#fff;">' + percent + '%</text>' +
       '</svg>';
 
-    return '<div style="position:relative;background:rgba(22,22,38,0.75);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid rgba(16,185,129,0.12);border-radius:22px;padding:24px 28px;display:flex;gap:20px;transition:all 0.3s ease;cursor:pointer;overflow:hidden;" onmouseover="this.style.transform=\'translateY(-3px)\';this.style.borderColor=\'rgba(16,185,129,0.35)\';this.style.boxShadow=\'0 12px 30px rgba(16,185,129,0.1)\'" onmouseout="this.style.transform=\'translateY(0)\';this.style.borderColor=\'rgba(16,185,129,0.12)\';this.style.boxShadow=\'none\'" onclick="openCourseDetail(\'' + c.id + '\')">' +
+    return '<div data-cv-card="' + c.id + '" style="position:relative;background:rgba(22,22,38,0.75);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid rgba(16,185,129,0.12);border-radius:22px;padding:24px 28px;display:flex;gap:20px;transition:all 0.3s ease;cursor:pointer;overflow:hidden;" onmouseover="this.style.transform=\'translateY(-3px)\';this.style.borderColor=\'rgba(16,185,129,0.35)\';this.style.boxShadow=\'0 12px 30px rgba(16,185,129,0.1)\'" onmouseout="this.style.transform=\'translateY(0)\';this.style.borderColor=\'rgba(16,185,129,0.12)\';this.style.boxShadow=\'none\'">' +
       '<!-- Watermark -->' +
       '<div style="position:absolute;top:50%;right:24px;transform:translateY(-50%);font-size:3rem;font-weight:900;color:rgba(16,185,129,0.04);font-family:Courier New,monospace;pointer-events:none;user-select:none;">\u2713</div>' +
       '<!-- Ambient glow -->' +
@@ -246,11 +246,80 @@ function _renderCompletedVideosList(container, enrolledCourses, totalCompleted) 
       '<!-- Motivational + CTA -->' +
       '<div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px;">' +
       '<span style="font-size:0.78rem;color:#6ee7b7;font-weight:500;">' + motivational + '</span>' +
-      '<span style="font-size:0.78rem;font-weight:700;color:#22c55e;display:flex;align-items:center;gap:5px;">Watch Again \u25B6</span>' +
+      '<span style="font-size:0.78rem;font-weight:700;color:#22c55e;display:flex;align-items:center;gap:5px;cursor:pointer;" onclick="event.stopPropagation();openCourseDetail(\'' + c.id + '\')">Watch Again \u25B6</span>' +
       '</div>' +
+      '<!-- Completed-lessons dropdown (lazy-loaded on expand) -->' +
+      '<div id="cv-dd-' + c.id + '" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.06);"></div>' +
       '</div>' +
+      '<i class="fas fa-chevron-down cv-chevron-' + c.id + '" style="color:#64748b;font-size:0.8rem;align-self:center;transition:transform 0.25s ease;"></i>' +
       '</div>';
   }).join('');
+
+  // Make each card toggle its completed-lessons dropdown on click (Watch Again
+  // still navigates, via stopPropagation above).
+  Array.prototype.forEach.call(container.querySelectorAll('[data-cv-card]'), function (card) {
+    card.onclick = function () { _toggleCompletedDropdown(card.getAttribute('data-cv-card')); };
+  });
+}
+
+// Expand/collapse a completed-videos course card → show its modules and the
+// COMPLETED lessons inside each (mirrors the mobile app dropdown). The course
+// detail (modules + completedLessons) is fetched once, then cached in-memory.
+var _cvDetailCache = {};
+async function _toggleCompletedDropdown(courseId) {
+  var dd = document.getElementById('cv-dd-' + courseId);
+  var chev = document.querySelector('.cv-chevron-' + courseId);
+  if (!dd) return;
+  var isOpen = dd.style.display !== 'none';
+  if (isOpen) {
+    dd.style.display = 'none';
+    if (chev) chev.style.transform = 'rotate(0deg)';
+    return;
+  }
+  dd.style.display = 'block';
+  if (chev) chev.style.transform = 'rotate(180deg)';
+
+  // Render from cache if we already have it.
+  if (_cvDetailCache[courseId]) { _renderCompletedDropdown(dd, _cvDetailCache[courseId]); return; }
+
+  dd.innerHTML = '<div style="color:var(--muted);font-size:0.78rem;padding:6px 0;">Loading lessons...</div>';
+  try {
+    var data = await CoursesAPI.getById(courseId);
+    if (data && data.success && data.course) {
+      _cvDetailCache[courseId] = data.course;
+      _renderCompletedDropdown(dd, data.course);
+    } else {
+      dd.innerHTML = '<div style="color:var(--muted);font-size:0.78rem;padding:6px 0;">Couldn\'t load lessons. Tap again to retry.</div>';
+    }
+  } catch {
+    dd.innerHTML = '<div style="color:var(--muted);font-size:0.78rem;padding:6px 0;">Couldn\'t load lessons. Tap again to retry.</div>';
+  }
+}
+
+// Render modules → COMPLETED lessons only (skip modules with none).
+function _renderCompletedDropdown(dd, course) {
+  var completed = course.completedLessons || [];
+  var completedSet = {};
+  completed.forEach(function (id) { completedSet[id] = true; });
+  var blocks = (course.modules || []).map(function (mod) {
+    var doneLessons = (mod.lessons || []).filter(function (l) { return completedSet[l.id]; });
+    if (doneLessons.length === 0) return '';
+    var rows = doneLessons.map(function (l) {
+      var _s = (typeof _parseLessonDuration === 'function') ? _parseLessonDuration(l.duration) : 0;
+      var _d = _s > 0 ? formatDuration(_s) : '';
+      return '<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:rgba(255,255,255,0.02);border-radius:8px;margin-bottom:4px;">' +
+        '<span style="color:#22c55e;font-size:0.8rem;">\u2705</span>' +
+        '<span style="flex:1;min-width:0;color:#fff;font-size:0.8rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + sanitize(l.title) + (_d ? ' <span style="color:#64748b;font-size:0.7rem;">\u00b7 ' + _d + '</span>' : '') + '</span>' +
+        '<span style="font-size:0.6rem;font-weight:700;color:#22c55e;background:rgba(34,197,94,0.12);border-radius:6px;padding:2px 6px;">Completed</span>' +
+        '</div>';
+    }).join('');
+    return '<div style="margin-bottom:10px;">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">' +
+      '<span style="font-size:0.72rem;font-weight:700;color:#c4b5fd;text-transform:uppercase;letter-spacing:0.4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + sanitize(mod.title) + '</span>' +
+      '<span style="font-size:0.68rem;color:#64748b;font-weight:600;">' + doneLessons.length + '/' + (mod.lessons || []).length + '</span>' +
+      '</div>' + rows + '</div>';
+  }).filter(Boolean).join('');
+  dd.innerHTML = blocks || '<div style="color:var(--muted);font-size:0.78rem;padding:6px 0;">No completed lessons in this course yet.</div>';
 }
 
 // Weekly Streak History
@@ -1310,23 +1379,32 @@ function _renderMallHistory(listEl, coinsData, discData) {
       '</div>';
   });
 
-  // Coin transactions (earned + spent), most recent first.
-  var txs = (coinsData && coinsData.success && Array.isArray(coinsData.transactions)) ? coinsData.transactions : [];
+  // Redemption history = only coins SPENT (redeemed on offers/discounts).
+  // Earned coins (quiz rewards etc.) belong in "My Coins", not here (matches
+  // the mobile app). Most recent first.
+  var txs = (coinsData && coinsData.success && Array.isArray(coinsData.transactions))
+    ? coinsData.transactions.filter(function (t) { return t.type === 'SPENT'; })
+    : [];
   txs.forEach(function (tx) {
-    var earned = tx.type === 'EARNED';
+    // Show WHEN it was redeemed — date + time (not just date).
     var when = '';
-    try { when = new Date(tx.createdAt).toLocaleDateString(); } catch (e) {}
-    // Course · Module · Lesson context (from backend), when this coin came from a lesson.
+    try {
+      var _d = new Date(tx.createdAt);
+      var _date = _d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+      var _time = _d.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true });
+      when = _date + ', ' + _time;
+    } catch (e) {}
+    // Course · Module · Lesson context (from backend), when relevant.
     var ctxParts = [tx.courseTitle, tx.moduleTitle, tx.lessonTitle].filter(function (x) { return x && String(x).trim(); });
     var ctx = ctxParts.length ? ctxParts.map(function (x) { return sanitize(x); }).join(' \u00b7 ') : '';
     var sub = ctx ? (ctx + '  \u2022  ' + sanitize(when)) : sanitize(when);
     rows += '<div class="rw-history-item">' +
-      '<div class="rw-history-ic" style="background:' + (earned ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)') + ';color:' + (earned ? '#22c55e' : '#ef4444') + ';"><i class="fas ' + (earned ? 'fa-coins' : 'fa-gift') + '"></i></div>' +
+      '<div class="rw-history-ic" style="background:rgba(239,68,68,0.12);color:#ef4444;"><i class="fas fa-gift"></i></div>' +
       '<div class="rw-history-main">' +
-      '<div class="rw-history-title">' + sanitize(tx.reason || (earned ? 'Coins earned' : 'Coins spent')) + '</div>' +
+      '<div class="rw-history-title">' + sanitize(tx.reason || 'Coins redeemed') + '</div>' +
       '<div class="rw-history-sub">' + sub + '</div>' +
       '</div>' +
-      '<div class="rw-history-amt" style="color:' + (earned ? '#22c55e' : '#ef4444') + ';">' + (earned ? '+' : '-') + tx.coins + '</div>' +
+      '<div class="rw-history-amt" style="color:#ef4444;">-' + tx.coins + '</div>' +
       '</div>';
   });
 
