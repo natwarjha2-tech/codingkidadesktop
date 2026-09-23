@@ -603,8 +603,19 @@ async function openVideoFromBackend(courseId, moduleId, lessonId) {
     // videoUrl is empty now (signed on play) — use hasVideo / enrollment.
     if (floatBtn) floatBtn.style.display = (nextLesson && (course.isEnrolled || nextLesson.isFree || !!nextLesson.hasVideo || !!nextLesson.videoUrl || _nextQ)) ? 'flex' : 'none';
 
-    const notesUrl = lesson.notes || '';
-    renderNotesTab(notesUrl, []);
+    // Notes now come from the MODULE's study material (signed in the course
+    // response), not a per-lesson PDF. Show the single file whose title/name
+    // ends with the literal text "ppt" (e.g. "Module4-ppt.pdf") — the naming
+    // convention that marks "this is the lesson notes to display". Falls back to
+    // any legacy per-lesson notes so older content still works.
+    var _notesUrl = '';
+    try {
+      var _mats = (mod && mod.materials) || [];
+      var _endsPpt = function (s) { return /ppt$/i.test(String(s || '').replace(/\.[^.]+$/, '').trim()); };
+      var _notesMat = _mats.find(function (m) { return _endsPpt(m.title); });
+      _notesUrl = (_notesMat && _notesMat.fileUrl) || lesson.notes || '';
+    } catch { _notesUrl = lesson.notes || ''; }
+    renderNotesTab(_notesUrl, []);
 
     // Lazy load: quiz and exercise are fetched only when user clicks the tab
     // Store lesson context for lazy fetch

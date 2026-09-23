@@ -20,8 +20,8 @@ function renderNotesTab(pdfUrl, notePoints) {
 
   let html = '<div class="tab-card notes-card">';
   html += '<div class="notes-card-content">';
-  html += '<div class="tab-card-title"><i class="fas fa-file-alt"></i> Lesson Notes</div>';
-  html += '<p class="notes-card-desc">Access detailed notes for this lesson.</p>';
+  html += '<div class="tab-card-title"><i class="fas fa-file-powerpoint"></i> Module PPT</div>';
+  html += '<p class="notes-card-desc">Access the study material (PPT) for this module.</p>';
 
   if (notePoints && notePoints.length > 0) {
     html += '<ul class="notes-list">';
@@ -34,16 +34,16 @@ function renderNotesTab(pdfUrl, notePoints) {
   if (pdfUrl) {
     html += '<div style="margin-top:16px; display:flex; gap:10px;">';
     html += '<button class="btn btn-outline btn-sm" style="padding:10px 20px; border-radius:10px; display:flex; align-items:center; gap:8px;" onclick="openPdfInApp(\'' + pdfUrl + '\')">';
-    html += '<i class="fas fa-file-pdf" style="color:#ef4444;"></i> View PDF Notes</button>';
+    html += '<i class="fas fa-file-powerpoint" style="color:#ef4444;"></i> View PPT</button>';
     html += '<button id="pdf-download-btn" class="btn btn-outline btn-sm" style="padding:10px 20px; border-radius:10px; display:flex; align-items:center; gap:8px; border-color:rgba(34,197,94,0.4); color:#22c55e;" onclick="downloadPdfOffline(\'' + pdfUrl + '\')">';
-    html += '<i class="fas fa-download"></i> Download PDF</button>';
+    html += '<i class="fas fa-download"></i> Download PPT</button>';
     html += '</div>';
   }
 
   if (!pdfUrl && (!notePoints || notePoints.length === 0)) {
     html += '<div style="text-align:center; padding:30px 20px;">';
-    html += '<i class="fas fa-book-open" style="font-size:2.5rem; color:rgba(255,255,255,0.15); margin-bottom:12px; display:block;"></i>';
-    html += '<p style="color:var(--muted); font-size:0.9rem;">No notes available for this lesson yet.</p>';
+    html += '<i class="fas fa-file-powerpoint" style="font-size:2.5rem; color:rgba(255,255,255,0.15); margin-bottom:12px; display:block;"></i>';
+    html += '<p style="color:var(--muted); font-size:0.9rem;">No PPT available for this module yet.</p>';
     html += '</div>';
   }
 
