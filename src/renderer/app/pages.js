@@ -521,8 +521,9 @@ async function loadParentReport() {
     var cachedCoins = ckCacheGet('/api/coins');
     var cachedAch = ckCacheGet('/api/achievements');
     var instantCoins = (cachedCoins && cachedCoins.success) ? cachedCoins.totalCoins : (_userCoinsCache || 0);
+    var instantTx = (cachedCoins && cachedCoins.success && cachedCoins.transactions) ? cachedCoins.transactions : [];
     var instantAch = (cachedAch && cachedAch.success && cachedAch.achievements) ? cachedAch.achievements : [];
-    _renderParentReport(dashData, instantAch, instantCoins);
+    _renderParentReport(dashData, instantAch, instantCoins, instantTx);
   } else {
     loading.style.display = 'block';
     content.style.display = 'none';
@@ -540,11 +541,12 @@ async function loadParentReport() {
     if (!dashData || !dashData.success) throw new Error('Could not load your data. Please try again.');
 
     const totalCoins = (coinsRes.success ? coinsRes.totalCoins : 0) || _userCoinsCache || 0;
+    const coinTx = (coinsRes.success && coinsRes.transactions) ? coinsRes.transactions : [];
     const achievements = (achRes.success ? achRes.achievements : []) || [];
 
     loading.style.display = 'none';
     content.style.display = 'block';
-    _renderParentReport(dashData, achievements, totalCoins);
+    _renderParentReport(dashData, achievements, totalCoins, coinTx);
 
   } catch (err) {
     if (content.style.display !== 'block') {
@@ -559,8 +561,9 @@ async function loadParentReport() {
   }
 }
 
-function _renderParentReport(dashData, achievements, totalCoins) {
+function _renderParentReport(dashData, achievements, totalCoins, coinTransactions) {
   const enrolledCourses = dashData.enrolledCourses || [];
+  const _coinTx = Array.isArray(coinTransactions) ? coinTransactions : [];
   const totalEnrolled = dashData.enrolledCount || enrolledCourses.length;
   const totalCompleted = enrolledCourses.reduce(function(s, c) { return s + (c.completedLessons || 0); }, 0);
   const superMasterCount = achievements.filter(function(a) { return a.badgeType === 'super-master'; }).length;
@@ -859,6 +862,34 @@ function _renderParentReport(dashData, achievements, totalCoins) {
             '<div style="font-size:0.72rem;color:var(--muted);">' + [a.courseTitle, a.moduleTitle, a.lessonTitle].filter(function(x){ return x && String(x).trim(); }).map(function(x){ return sanitize(x); }).join(' \u203a ') + '</div></div>' +
             '<div style="font-size:0.72rem;color:var(--muted);">' + date + '</div></div>';
         }).join('');
+  }
+
+  // My Coins — total + recent rewards list (mirrors the mobile My Report + Coins
+  // modal). Uses the same Course › Module › Lesson breadcrumb as the coins popup.
+  const coinEl = document.getElementById('pr-coin-history');
+  if (coinEl) {
+    var coinHtml = '<div style="display:flex;align-items:baseline;gap:10px;margin-bottom:14px;">' +
+      '<span style="font-size:2rem;font-weight:800;color:#ec4899;">' + (totalCoins || 0) + '</span>' +
+      '<span style="font-size:0.82rem;color:var(--muted);">Total Coins Earned</span>' +
+      '</div>';
+    if (_coinTx.length > 0) {
+      coinHtml += _coinTx.slice(0, 12).map(function (tx) {
+        var isEarned = tx.type === 'EARNED';
+        var ctx = (typeof _coinTxContext === 'function') ? _coinTxContext(tx) : '';
+        var when = tx.createdAt ? new Date(tx.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : '';
+        return '<div style="display:flex;justify-content:space-between;align-items:flex-start;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.04);">' +
+          '<div style="flex:1;min-width:0;padding-right:10px;">' +
+          '<div style="font-size:0.82rem;color:#fff;">' + sanitize(tx.reason || '') + '</div>' +
+          (ctx ? '<div style="font-size:0.7rem;color:var(--muted);margin-top:2px;">' + ctx + '</div>' : '') +
+          (when ? '<div style="font-size:0.66rem;color:#64748b;margin-top:2px;">' + when + '</div>' : '') +
+          '</div>' +
+          '<span style="font-size:0.85rem;font-weight:700;white-space:nowrap;color:' + (isEarned ? '#22c55e' : '#ef4444') + ';">' + (isEarned ? '+' : '-') + tx.coins + '</span>' +
+          '</div>';
+      }).join('');
+    } else {
+      coinHtml += '<p style="color:var(--muted);font-size:0.82rem;">No rewards yet. Complete quizzes to earn coins!</p>';
+    }
+    coinEl.innerHTML = coinHtml;
   }
 
   // Store for share

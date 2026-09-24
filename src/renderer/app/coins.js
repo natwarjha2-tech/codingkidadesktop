@@ -183,12 +183,18 @@ document.addEventListener('click', function(e) {
   }
 });
 
-// Leaderboard modal
+// Leaderboard modal — COURSE-scoped (mirrors the mobile Leaderboard screen).
+// A course pill selector lets the user pick any enrolled course and see its
+// ranking, without needing a lesson open. Defaults to the current lesson's
+// course if one is open, else the first enrolled course.
+var _lbSelectedCourseId = '';
+var _lbCourses = [];
+
 function showLeaderboardModal() {
   const modal = document.getElementById('leaderboard-modal');
   if (!modal) return;
   modal.style.display = 'flex';
-  _loadLeaderboardModalData();
+  _lbInit();
 }
 
 function hideLeaderboardModal() {
@@ -196,52 +202,111 @@ function hideLeaderboardModal() {
   if (modal) modal.style.display = 'none';
 }
 
-async function _loadLeaderboardModalData() {
+// Resolve the enrolled courses (from the dashboard cache, else fetch) and render
+// the course pills, then load the leaderboard for the selected course.
+async function _lbInit() {
+  const content = document.getElementById('leaderboard-modal-content');
+  const pillsEl = document.getElementById('leaderboard-course-pills');
+  if (content) content.innerHTML = '<div style="text-align:center;padding:30px;color:var(--muted);"><i class="fas fa-spinner fa-spin"></i> Loading…</div>';
+
+  // Gather enrolled courses: dashboard cache first (instant), else API.
+  var courses = [];
+  try {
+    var uid = (typeof getCurrentUserId === 'function') ? getCurrentUserId() : '';
+    var cacheKey = 'ck_dashboard_cache_' + uid;
+    var cached = JSON.parse(localStorage.getItem(cacheKey) || 'null');
+    if (cached && cached.success && Array.isArray(cached.enrolledCourses)) courses = cached.enrolledCourses;
+  } catch {}
+  if (courses.length === 0) {
+    try {
+      var d = await StudentAPI.getDashboard();
+      if (d && d.success && Array.isArray(d.enrolledCourses)) courses = d.enrolledCourses;
+    } catch {}
+  }
+  _lbCourses = courses.map(function (c) { return { id: c.id, title: c.title }; });
+
+  if (_lbCourses.length === 0) {
+    if (pillsEl) pillsEl.innerHTML = '';
+    if (content) content.innerHTML = '<div style="text-align:center;padding:30px;color:var(--muted);">Enroll in a course to see the leaderboard.</div>';
+    return;
+  }
+
+  // Default selection: current lesson's course if open, else first enrolled.
+  var openCourseId = _currentLessonContext ? _currentLessonContext.courseId : '';
+  if (!_lbSelectedCourseId || !_lbCourses.some(function (c) { return c.id === _lbSelectedCourseId; })) {
+    _lbSelectedCourseId = (openCourseId && _lbCourses.some(function (c) { return c.id === openCourseId; }))
+      ? openCourseId
+      : _lbCourses[0].id;
+  }
+
+  _lbRenderPills();
+  _loadLeaderboardForCourse(_lbSelectedCourseId);
+}
+
+function _lbRenderPills() {
+  var pillsEl = document.getElementById('leaderboard-course-pills');
+  if (!pillsEl) return;
+  pillsEl.innerHTML = _lbCourses.map(function (c) {
+    var active = c.id === _lbSelectedCourseId;
+    return '<button onclick="_lbSelectCourse(\'' + c.id + '\')" style="flex:0 0 auto;white-space:nowrap;padding:7px 14px;border-radius:20px;font-size:0.78rem;font-weight:700;cursor:pointer;border:1px solid ' +
+      (active ? 'rgba(108,71,255,0.5)' : 'rgba(255,255,255,0.1)') + ';background:' +
+      (active ? 'rgba(108,71,255,0.18)' : 'rgba(255,255,255,0.04)') + ';color:' +
+      (active ? '#c4b5fd' : 'rgba(255,255,255,0.7)') + ';">' + sanitize(c.title) + '</button>';
+  }).join('');
+}
+
+function _lbSelectCourse(courseId) {
+  _lbSelectedCourseId = courseId;
+  _lbRenderPills();
+  _loadLeaderboardForCourse(courseId);
+}
+
+async function _loadLeaderboardForCourse(courseId) {
   const content = document.getElementById('leaderboard-modal-content');
   if (!content) return;
   content.innerHTML = '<div style="text-align:center;padding:30px;color:var(--muted);"><i class="fas fa-spinner fa-spin"></i> Loading leaderboard...</div>';
 
   const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
-  const lessonId = _currentLessonForTabs ? _currentLessonForTabs.lessonId : '';
-  const courseId = _currentLessonContext ? _currentLessonContext.courseId : '';
-
-  if (!lessonId && !courseId) {
-    content.innerHTML = '<div style="text-align:center;padding:30px;color:var(--muted);">Open a lesson to see leaderboard.</div>';
+  if (!courseId) {
+    content.innerHTML = '<div style="text-align:center;padding:30px;color:var(--muted);">Select a course.</div>';
     return;
   }
 
   try {
-    // Lesson-specific leaderboard — always include courseId for backward compatibility
-    const courseIdParam = courseId ? 'courseId=' + courseId : '';
-    const lessonIdParam = lessonId ? 'lessonId=' + lessonId : '';
-    const params = [courseIdParam, lessonIdParam].filter(Boolean).join('&');
-    let url = BASE_URL + '/api/leaderboard?' + params;
+    // Course-scoped leaderboard (mirrors mobile — no lessonId).
+    let url = BASE_URL + '/api/leaderboard?courseId=' + encodeURIComponent(courseId);
     const res = await fetch(url, {
       headers: token ? { Authorization: 'Bearer ' + token } : {},
     });
     const data = await res.json();
     if (data.success && data.leaderboard && data.leaderboard.length > 0) {
       let html = '';
+      // "Your Rank" highlight card at the TOP (mirrors the mobile screen) —
+      // shown whenever the backend returns the current user's rank.
+      if (data.currentUserRank) {
+        const myScore = (data.currentUserRank.scorePercent != null ? data.currentUserRank.scorePercent : (data.currentUserRank.score != null ? data.currentUserRank.score : 0));
+        html += '<div style="background:rgba(108,71,255,0.12);border:1px solid rgba(108,71,255,0.3);border-radius:14px;padding:14px 16px;margin-bottom:12px;">' +
+          '<div style="font-size:0.72rem;color:#a78bfa;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Your Rank</div>' +
+          '<div style="display:flex;align-items:center;justify-content:space-between;">' +
+          '<span style="font-size:1.4rem;font-weight:800;color:#fff;">#' + data.currentUserRank.rank + '</span>' +
+          '<span style="font-size:1rem;font-weight:800;color:#4ade80;">' + myScore + '%</span>' +
+          '</div></div>';
+      }
       data.leaderboard.forEach(function(entry) {
         const rankIcon = entry.rank === 1 ? '🥇' : entry.rank === 2 ? '🥈' : entry.rank === 3 ? '🥉' : '#' + entry.rank;
         const badge = entry.rank === 1 ? 'Super Master' : entry.rank === 2 ? 'Master' : entry.rank <= 10 ? 'Pro' : '';
         const isMe = entry.isCurrentUser;
+        const sc = (entry.scorePercent != null ? entry.scorePercent : (entry.score != null ? entry.score : 0));
         html += '<div style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:12px;margin-bottom:6px;background:' + (isMe ? 'rgba(108,71,255,0.12)' : 'rgba(255,255,255,0.02)') + ';border:1px solid ' + (isMe ? 'rgba(108,71,255,0.3)' : 'rgba(255,255,255,0.05)') + ';">' +
           '<div style="width:32px;text-align:center;font-size:' + (entry.rank <= 3 ? '1.2rem' : '0.85rem') + ';font-weight:700;color:' + (entry.rank <= 3 ? '#fbbf24' : 'var(--muted)') + ';">' + rankIcon + '</div>' +
           '<div style="flex:1;">' +
           '<div style="font-size:0.88rem;font-weight:' + (isMe ? '700' : '500') + ';color:#fff;">' + sanitize(entry.name) + (isMe ? ' (You)' : '') + '</div>' +
           (badge ? '<div style="font-size:0.7rem;color:#a78bfa;font-weight:600;">' + badge + '</div>' : '') +
           '</div>' +
-          '<div style="font-size:0.85rem;font-weight:700;color:#4ade80;">' + entry.score + '%</div>' +
+          '<div style="font-size:0.85rem;font-weight:700;color:#4ade80;">' + sc + '%</div>' +
           '</div>';
       });
 
-      if (data.currentUserRank && data.currentUserRank.rank > 20) {
-        html += '<div style="text-align:center;padding:12px;margin-top:8px;background:rgba(108,71,255,0.08);border-radius:10px;border:1px solid rgba(108,71,255,0.2);">' +
-          '<div style="font-size:0.85rem;color:#fff;font-weight:600;">Your Rank: #' + data.currentUserRank.rank + '</div>' +
-          '<div style="font-size:0.75rem;color:var(--muted);">Score: ' + data.currentUserRank.score + '% · ' + data.totalStudents + ' students</div>' +
-          '</div>';
-      }
       content.innerHTML = html;
     } else {
       content.innerHTML = '<div style="text-align:center;padding:30px;"><i class="fas fa-trophy" style="font-size:2rem;color:var(--muted);margin-bottom:12px;display:block;"></i><p style="color:var(--muted);font-size:0.9rem;">No quiz attempts yet. Be the first!</p></div>';
