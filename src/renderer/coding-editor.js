@@ -974,6 +974,10 @@ function codingPgOpenFromExercise(exerciseId) {
             title: ex.title,
             description: ex.description,
             category: 'Course Exercise',
+            // Carry lesson/course context so the leaderboard coin + notification
+            // can show the Course · Module · Lesson structure (like quizzes).
+            lessonId: lessonId,
+            courseId: (_currentLessonContext && _currentLessonContext.courseId) ? _currentLessonContext.courseId : '',
             difficulty: ex.difficulty || 'medium',
             defaultLanguage: ex.language || 'java',
             inputFormat: ex.inputFormat || '',

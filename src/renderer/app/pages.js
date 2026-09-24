@@ -856,7 +856,7 @@ function _renderParentReport(dashData, achievements, totalCoins) {
           return '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.04);">' +
             '<span style="font-size:1.2rem;">' + icon + '</span>' +
             '<div style="flex:1;"><div style="font-size:0.82rem;font-weight:600;color:#fff;">' + sanitize(a.title) + '</div>' +
-            '<div style="font-size:0.72rem;color:var(--muted);">' + [a.courseTitle, a.moduleTitle, a.lessonTitle].filter(function(x){ return x && String(x).trim(); }).map(function(x){ return sanitize(x); }).join(' \u00b7 ') + '</div></div>' +
+            '<div style="font-size:0.72rem;color:var(--muted);">' + [a.courseTitle, a.moduleTitle, a.lessonTitle].filter(function(x){ return x && String(x).trim(); }).map(function(x){ return sanitize(x); }).join(' \u203a ') + '</div></div>' +
             '<div style="font-size:0.72rem;color:var(--muted);">' + date + '</div></div>';
         }).join('');
   }
@@ -895,7 +895,7 @@ function _prShowBadgeList(badgeType) {
     html += '  <div style="width:36px;height:36px;border-radius:10px;background:' + color + '20;border:1px solid ' + color + '40;display:flex;align-items:center;justify-content:center;font-size:1rem;flex-shrink:0;">' + (badgeType === 'super-master' ? '🏆' : badgeType === 'master' ? '🥈' : '⭐') + '</div>';
     html += '  <div style="flex:1;">';
     html += '    <div style="font-size:0.82rem;font-weight:600;color:#fff;">' + sanitize(a.title || a.lessonTitle || 'Achievement') + '</div>';
-    html += '    <div style="font-size:0.7rem;color:var(--muted);">' + [a.courseTitle, a.moduleTitle, a.lessonTitle].filter(function(x){ return x && String(x).trim(); }).map(function(x){ return sanitize(x); }).join(' \u00b7 ') + (a.score ? ' · Score: ' + a.score + '%' : '') + (a.rank ? ' · Rank #' + a.rank : '') + '</div>';
+    html += '    <div style="font-size:0.7rem;color:var(--muted);">' + [a.courseTitle, a.moduleTitle, a.lessonTitle].filter(function(x){ return x && String(x).trim(); }).map(function(x){ return sanitize(x); }).join(' \u203a ') + (a.score ? ' · Score: ' + a.score + '%' : '') + (a.rank ? ' · Rank #' + a.rank : '') + '</div>';
     html += '  </div>';
     html += '  <div style="font-size:0.68rem;color:var(--muted);">' + date + '</div>';
     html += '</div>';
@@ -1396,7 +1396,8 @@ function _renderMallHistory(listEl, coinsData, discData) {
     } catch (e) {}
     // Course · Module · Lesson context (from backend), when relevant.
     var ctxParts = [tx.courseTitle, tx.moduleTitle, tx.lessonTitle].filter(function (x) { return x && String(x).trim(); });
-    var ctx = ctxParts.length ? ctxParts.map(function (x) { return sanitize(x); }).join(' \u00b7 ') : '';
+    // Breadcrumb separator standardized to " › " across coins/achievements/notifications.
+    var ctx = ctxParts.length ? ctxParts.map(function (x) { return sanitize(x); }).join(' \u203a ') : '';
     var sub = ctx ? (ctx + '  \u2022  ' + sanitize(when)) : sanitize(when);
     rows += '<div class="rw-history-item">' +
       '<div class="rw-history-ic" style="background:rgba(239,68,68,0.12);color:#ef4444;"><i class="fas fa-gift"></i></div>' +
@@ -2284,9 +2285,9 @@ function _renderAchievements(container, data) {
         '</div>' +
         '<!-- Title -->' +
         '<h4 style="color:#fff;font-weight:800;font-size:1.1rem;margin:0 0 4px;">' + sanitize(a.title) + '</h4>' +
-        '<!-- Course \u00b7 Module \u00b7 Lesson (full hierarchy so kids know exactly where it was earned) -->' +
+        '<!-- Course \u203a Module \u203a Lesson (full hierarchy so kids know exactly where it was earned) -->' +
         '<div style="font-size:0.8rem;color:#94a3b8;margin-bottom:14px;">' +
-          [a.courseTitle, a.moduleTitle, a.lessonTitle].filter(function(x){ return x && String(x).trim(); }).map(function(x){ return sanitize(x); }).join(' \u00b7 ') +
+          [a.courseTitle, a.moduleTitle, a.lessonTitle].filter(function(x){ return x && String(x).trim(); }).map(function(x){ return sanitize(x); }).join(' \u203a ') +
         '</div>' +
         '<!-- Score + Rank blocks -->' +
         '<div style="display:flex;gap:12px;margin-bottom:14px;">' +

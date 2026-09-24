@@ -113,7 +113,8 @@ function _coinTxContext(tx) {
   var parts = [tx.courseTitle, tx.moduleTitle, tx.lessonTitle].filter(function (x) {
     return x && String(x).trim();
   });
-  return parts.length ? parts.map(function (x) { return sanitize(x); }).join(' \u00b7 ') : '';
+  // Breadcrumb separator " › " — standardized across coins/achievements/notifications.
+  return parts.length ? parts.map(function (x) { return sanitize(x); }).join(' \u203a ') : '';
 }
 
 function _renderCoinsPopup(data) {

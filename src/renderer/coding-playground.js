@@ -913,8 +913,9 @@ function codingPgSubmit() {
             }
           }
 
-          // Submit to leaderboard (non-blocking)
-          codingPgSubmitToLeaderboard(_pgActiveProblem.id, _pgActiveProblem.title);
+          // Submit to leaderboard (non-blocking). Pass lesson/course context so
+          // the coin + notification can show Course · Module · Lesson (like quiz).
+          codingPgSubmitToLeaderboard(_pgActiveProblem.id, _pgActiveProblem.title, _pgActiveProblem.lessonId, _pgActiveProblem.courseId);
         }
 
         // Save submission to localStorage + refresh history
@@ -1962,14 +1963,14 @@ function codingPgGetQualityTag(problemId, userTC, userSC) {
  * Submit to per-problem leaderboard after successful submission
  * Awards coins: Top 20 = 20 coins, Rank 21-50 = 10 coins
  */
-function codingPgSubmitToLeaderboard(problemId, problemTitle) {
+function codingPgSubmitToLeaderboard(problemId, problemTitle, lessonId, courseId) {
   var token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
   if (!token || !problemId) return;
 
   fetch(BASE_URL + '/api/coding-problems/leaderboard', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-    body: JSON.stringify({ problemId: problemId, problemTitle: problemTitle, qualityTag: 'green' }),
+    body: JSON.stringify({ problemId: problemId, problemTitle: problemTitle, qualityTag: 'green', lessonId: lessonId || undefined, courseId: courseId || undefined }),
   })
   .then(function(r) { return r.json(); })
   .then(function(data) {
