@@ -36,6 +36,9 @@ function switchVpTab(el, panelId) {
       _lazyLoadHomework(lessonId, token);
     } else if (panelId === 'vp-rate') {
       _initLessonRateTab();
+    } else if (panelId === 'vp-doubts') {
+      // Lazy-init the lesson Q&A doubt chat (loads history + opens live stream).
+      if (typeof initLessonChat === 'function') initLessonChat(lessonId);
     }
   }
 }
@@ -428,7 +431,13 @@ async function openVideoFromBackend(courseId, moduleId, lessonId) {
     }
     if (!data.success) return;
     const course = data.course;
-    const mod = (course.modules || []).find(m => m.id === moduleId);
+    // Resolve the module by id; if the caller didn't know the moduleId (e.g. a
+    // notification deep-link only carries lessonId), fall back to finding the
+    // module that contains this lesson. Keeps a single code path (no dup logic).
+    let mod = (course.modules || []).find(m => m.id === moduleId);
+    if (!mod) {
+      mod = (course.modules || []).find(m => (m.lessons || []).some(l => l.id === lessonId));
+    }
     if (!mod) return;
     const lesson = (mod.lessons || []).find(l => l.id === lessonId);
     if (!lesson) return;
@@ -505,10 +514,10 @@ async function openVideoFromBackend(courseId, moduleId, lessonId) {
     _vpLoadReactions(lesson.id);
     // Video completion: mark complete only when 90%+ watched (handled by video player event)
     _pendingLessonComplete = lesson.id;
-    // Reset AI mentor chat for new lesson
-    _aiMentorHistory = [];
     // Auto-load rate tab reviews
     _initLessonRateTab();
+    // Reset the doubt-chat for the new lesson (closes any prior live stream).
+    if (typeof resetLessonChat === 'function') resetLessonChat();
     // Track last opened lesson for continue learning
     const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
     if (token) {
@@ -687,9 +696,6 @@ async function openVideoFromBackend(courseId, moduleId, lessonId) {
         playlist.appendChild(item);
       });
     });
-
-    const chatContainer = document.querySelector('#vp-ai-messages');
-    if (chatContainer) chatContainer.innerHTML = `<div style="display:flex;gap:10px;align-items:flex-start;"><div style="width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,var(--primary),#ec4899);display:flex;align-items:center;justify-content:center;font-size:0.7rem;font-weight:700;color:#fff;flex-shrink:0;">AI</div><div style="background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:0 10px 10px 10px;padding:10px 14px;font-size:0.85rem;color:var(--text);line-height:1.6;">Hi! Ask me anything about this lesson 🚀</div></div>`;
 
     // Reset to notes tab
     document.querySelectorAll('.vp-tab').forEach((t, i) => t.classList.toggle('active', i === 0));

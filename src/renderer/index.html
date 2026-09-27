@@ -830,7 +830,7 @@
             <div class="vp-tab" onclick="switchVpTab(this,'vp-exercise')"><i class="fas fa-code"></i> Exercise</div>
             <div class="vp-tab" onclick="switchVpTab(this,'vp-homework')"><i class="fas fa-pencil-alt"></i> Homework</div>
             <div class="vp-tab" onclick="switchVpTab(this,'vp-rate')"><i class="fas fa-star"></i> Rate</div>
-            <div class="vp-tab" onclick="switchVpTab(this,'vp-chat')"><i class="fas fa-robot"></i> AI Mentor</div>
+            <div class="vp-tab" onclick="switchVpTab(this,'vp-doubts')"><i class="fas fa-comments"></i> Doubts</div>
           </div>
 
           <!-- Tab Content -->
@@ -849,16 +849,14 @@
                 <div id="vp-rate-msg" style="display:none;margin-top:10px;font-size:0.82rem;"></div>
               </div>
             </div>
-            <div id="vp-chat" class="vp-tab-panel">
-              <div class="vp-ai-messages" id="vp-ai-messages" style="padding:0;gap:12px;display:flex;flex-direction:column;margin-bottom:12px;">
-                <div style="display:flex;gap:10px;align-items:flex-start;">
-                  <div style="width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,var(--primary),#ec4899);display:flex;align-items:center;justify-content:center;font-size:0.7rem;font-weight:700;color:#fff;flex-shrink:0;">AI</div>
-                  <div style="background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:0 10px 10px 10px;padding:10px 14px;font-size:0.85rem;color:var(--text);line-height:1.6;">Hi! I'm your AI Mentor. Ask me anything about this lesson 🚀</div>
-                </div>
+            <div id="vp-doubts" class="vp-tab-panel">
+              <div class="tab-card-title" style="margin-bottom:12px;"><i class="fas fa-comments"></i> Ask a Doubt <span id="vp-doubts-role" style="font-size:0.72rem;font-weight:600;color:var(--muted);"></span></div>
+              <div class="vp-ai-messages" id="vp-doubts-messages" style="padding:0;gap:12px;display:flex;flex-direction:column;margin-bottom:12px;min-height:120px;">
+                <div id="vp-doubts-empty" style="color:var(--muted);font-size:0.85rem;text-align:center;padding:20px 0;">Ask your instructor a question about this lesson. Everyone enrolled can see the discussion.</div>
               </div>
               <div class="vp-ai-input" style="padding:12px 0 0 0;border-top:1px solid var(--border);display:flex;gap:8px;">
-                <input type="text" id="vp-ai-input" placeholder="Ask about this lesson..." style="flex:1;background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:#fff;font-size:0.88rem;outline:none;" onkeydown="if(event.key==='Enter') sendVpAI()"/>
-                <button class="btn btn-primary btn-sm" onclick="sendVpAI()" style="padding:8px 14px;"><i class="fas fa-paper-plane"></i></button>
+                <input type="text" id="vp-doubts-input" placeholder="Type your question about this lesson..." style="flex:1;background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:#fff;font-size:0.88rem;outline:none;" onkeydown="if(event.key==='Enter') sendLessonChat()"/>
+                <button class="btn btn-primary btn-sm" onclick="sendLessonChat()" style="padding:8px 14px;"><i class="fas fa-paper-plane"></i></button>
               </div>
             </div>
           </div>
@@ -2145,6 +2143,7 @@
 <script src="app/video-player.js"></script>
 <script src="app/lesson-tabs.js"></script>
 <script src="app/ai-chat.js"></script>
+<script src="app/lesson-chat.js"></script>
 <script src="app/downloads.js"></script>
 <script src="app/pdf-viewer.js"></script>
 <script src="app/pages.js"></script>

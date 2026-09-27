@@ -663,7 +663,7 @@ async function playOfflineContent(lessonId, type) {
 
 /**
  * Apply offline-appropriate UI after navigating to video page from Downloads.
- * Hides online-only features (Quiz, Exercise, Homework, Rate, AI Mentor).
+ * Hides online-only features (Quiz, Exercise, Homework, Rate).
  * Shows Notes only if a PDF is also downloaded for this lesson.
  */
 function _applyOfflinePlaybackUI(lessonId, userId) {
@@ -695,12 +695,12 @@ function _applyOfflinePlaybackUI(lessonId, userId) {
   if(engagementBar) { engagementBar.style.display = 'flex'; engagementBar.style.marginTop = '12px'; engagementBar.style.pointerEvents = 'none'; engagementBar.style.opacity = '0.5'; }
 
   // Tabs: keep them visible but Notes-only active. Disable online-only tabs
-  // (Quiz/Exercise/Homework/Rate/AI Mentor) since they require network data.
+  // (Quiz/Exercise/Homework/Rate/Doubts) since they require network data.
   var tabsBar = document.querySelector('.vp-tabs');
   if(tabsBar) { tabsBar.style.display = ''; tabsBar.style.pointerEvents = ''; tabsBar.style.opacity = ''; }
   document.querySelectorAll('.vp-tab').forEach(function(tab){
     var panel = tab.getAttribute('onclick') || '';
-    var isOnlineOnly = panel.includes('vp-quiz') || panel.includes('vp-exercise') || panel.includes('vp-homework') || panel.includes('vp-rate') || panel.includes('vp-chat');
+    var isOnlineOnly = panel.includes('vp-quiz') || panel.includes('vp-exercise') || panel.includes('vp-homework') || panel.includes('vp-rate') || panel.includes('vp-doubts');
     if(isOnlineOnly) {
       tab.classList.remove('active');
       tab.style.pointerEvents = 'none';

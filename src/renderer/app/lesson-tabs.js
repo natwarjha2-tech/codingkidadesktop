@@ -406,17 +406,17 @@ function renderWeeklyStreakSection(streak) {
   // Ensure it's hidden initially (tab switching will show it via .active class)
   section.classList.remove('active');
 
-  // Show the streak tab button (add between Exercise and AI Mentor)
+  // Show the streak tab button (insert just before the Rate tab)
   const tabsContainer = document.querySelector('.vp-tabs');
   if (tabsContainer && !document.getElementById('streak-tab-btn')) {
-    const aiTab = tabsContainer.querySelector('[onclick*="vp-ai"]') || tabsContainer.lastElementChild;
+    const anchorTab = tabsContainer.querySelector('[onclick*="vp-rate"]') || tabsContainer.lastElementChild;
     const streakTab = document.createElement('div');
     streakTab.id = 'streak-tab-btn';
     streakTab.className = 'vp-tab';
     streakTab.innerHTML = '🔥 Streak';
     streakTab.onclick = function() { switchVpTab(this, 'vp-streak'); };
-    if (aiTab) {
-      tabsContainer.insertBefore(streakTab, aiTab);
+    if (anchorTab) {
+      tabsContainer.insertBefore(streakTab, anchorTab);
     } else {
       tabsContainer.appendChild(streakTab);
     }

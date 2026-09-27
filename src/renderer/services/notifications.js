@@ -130,6 +130,7 @@ function notifSync() {
           timestamp: new Date(n.createdAt).getTime(),
           read: n.read,
           action: _notifParseAction(n.action),
+          metadata: n.metadata || null,
           isLocal: false,
         };
       });
@@ -375,6 +376,13 @@ function _notifShowDetailPopup(notif) {
   var showUpdateBtn = notif.action && notif.action.type === 'restart_update' &&
     window.electron && window.electron.quitAndInstallUpdate;
 
+  // Lesson Q&A notifications → offer an "Open Chat" button that deep-links to the
+  // lesson and jumps to its Doubts tab. Needs both ids from the notification.
+  var _chatMeta = (notif.metadata && (notif.type === 'lesson_question' || notif.type === 'lesson_answer'))
+    ? notif.metadata : null;
+  var showChatBtn = !!(_chatMeta && _chatMeta.lessonId && _chatMeta.courseId &&
+    typeof openLessonDoubts === 'function');
+
   var html = '';
   html += '<div id="notif-detail-card" style="width:100%;max-width:420px;background:#15151f;' +
     'border:1px solid rgba(255,255,255,0.08);border-radius:16px;overflow:hidden;' +
@@ -397,6 +405,11 @@ function _notifShowDetailPopup(notif) {
   html += '  <div style="display:flex;gap:10px;justify-content:flex-end;padding:14px 18px;border-top:1px solid rgba(255,255,255,0.06);">';
   if (showUpdateBtn) {
     html += '    <button onclick="_notifCloseDetailPopup();if(window.electron&&window.electron.quitAndInstallUpdate){window.electron.quitAndInstallUpdate();}" style="padding:8px 16px;border-radius:9px;background:#7c3aed;border:none;color:#fff;font-size:0.8rem;font-weight:600;cursor:pointer;">Restart &amp; Update</button>';
+  }
+  if (showChatBtn) {
+    var _cid = JSON.stringify(String(_chatMeta.courseId));
+    var _lid = JSON.stringify(String(_chatMeta.lessonId));
+    html += '    <button onclick="_notifCloseDetailPopup();openLessonDoubts(' + _notifSanitize(_cid) + ',' + _notifSanitize(_lid) + ');" style="padding:8px 16px;border-radius:9px;background:#7c3aed;border:none;color:#fff;font-size:0.8rem;font-weight:600;cursor:pointer;">Open Chat</button>';
   }
   html += '    <button onclick="_notifCloseDetailPopup()" style="padding:8px 16px;border-radius:9px;background:rgba(255,255,255,0.08);border:none;color:#fff;font-size:0.8rem;font-weight:600;cursor:pointer;">Close</button>';
   html += '  </div>';
@@ -538,6 +551,8 @@ function _notifGetIcon(type) {
     case 'badge_lost':         return { emoji: '📊', bg: 'rgba(96,165,250,0.15)' };
     case 'password_changed':   return { emoji: '🔒', bg: 'rgba(239,68,68,0.15)' };
     case 'new_homework':       return { emoji: '📝', bg: 'rgba(34,197,94,0.15)' };
+    case 'lesson_question':    return { emoji: '💬', bg: 'rgba(245,158,11,0.15)' };
+    case 'lesson_answer':      return { emoji: '💬', bg: 'rgba(139,92,246,0.15)' };
     case 'coupon_redeemed':    return { emoji: '🎁', bg: 'rgba(168,85,247,0.15)' };
     case 'welcome':            return { emoji: '🚀', bg: 'rgba(139,92,246,0.15)' };
     case 'download_expiring':  return { emoji: '⏳', bg: 'rgba(251,146,60,0.15)' };
