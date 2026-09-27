@@ -916,6 +916,13 @@ function codingPgSubmit() {
           // Submit to leaderboard (non-blocking). Pass lesson/course context so
           // the coin + notification can show Course · Module · Lesson (like quiz).
           codingPgSubmitToLeaderboard(_pgActiveProblem.id, _pgActiveProblem.title, _pgActiveProblem.lessonId, _pgActiveProblem.courseId);
+
+          // Record a server-side ExerciseSubmission for COURSE exercises so
+          // Student Progress tracks this exercise as attempted/passed (like the
+          // quiz flow). Playground-only "33 problems" have no courseId → skipped.
+          if (_pgActiveProblem.courseId) {
+            _pgRecordCourseExerciseSubmission(_pgActiveProblem.id, _pgActiveProblem.courseId, code, langObj.judge0Id);
+          }
         }
 
         // Save submission to localStorage + refresh history
@@ -1963,6 +1970,20 @@ function codingPgGetQualityTag(problemId, userTC, userSC) {
  * Submit to per-problem leaderboard after successful submission
  * Awards coins: Top 20 = 20 coins, Rank 21-50 = 10 coins
  */
+// Record a passing COURSE exercise on the server so Student Progress counts it.
+// /api/code/submit re-runs the hidden test cases server-side and creates the
+// authoritative ExerciseSubmission (passed) that the progress service reads.
+// Non-blocking + best-effort — never disrupts the playground UI.
+function _pgRecordCourseExerciseSubmission(exerciseId, courseId, code, judge0Id) {
+  var token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+  if (!token || !exerciseId || !courseId) return;
+  fetch(BASE_URL + '/api/code/submit', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+    body: JSON.stringify({ exerciseId: exerciseId, source_code: code, language_id: judge0Id, courseId: courseId }),
+  }).catch(function () { /* best-effort — progress will update on next successful submit */ });
+}
+
 function codingPgSubmitToLeaderboard(problemId, problemTitle, lessonId, courseId) {
   var token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
   if (!token || !problemId) return;

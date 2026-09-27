@@ -2692,8 +2692,14 @@ function renderHomeworkTab(homeworks) {
 
 var _lessonRating = 0;
 
+// Tracks whether the current user has ALREADY rated the lesson currently open.
+// A user may rate a given lesson only ONCE — this guards both the UI and the
+// submit call (the backend stores every submission, so the client enforces it).
+var _lessonAlreadyRated = false;
+
 function _initLessonRateTab() {
   _lessonRating = 0;
+  _lessonAlreadyRated = false; // reset for the newly opened lesson
   var container = document.getElementById('vp-rate-stars');
   if (!container) return;
   container.innerHTML = '';
@@ -2703,6 +2709,7 @@ function _initLessonRateTab() {
     star.dataset.value = i;
     star.style.cssText = 'font-size:2.2rem;cursor:pointer;transition:all 0.2s;color:rgba(255,255,255,0.3);';
     star.onclick = function() {
+      if (_lessonAlreadyRated) return; // locked — no re-rating
       _lessonRating = parseInt(this.dataset.value);
       container.querySelectorAll('span').forEach(function(s) {
         s.textContent = parseInt(s.dataset.value) <= _lessonRating ? '★' : '☆';
@@ -2714,10 +2721,46 @@ function _initLessonRateTab() {
   var msg = document.getElementById('vp-rate-msg');
   if (msg) msg.style.display = 'none';
   var fb = document.getElementById('vp-rate-feedback');
-  if (fb) fb.value = '';
+  if (fb) { fb.value = ''; fb.disabled = false; fb.style.opacity = '1'; }
+  var btn = document.getElementById('vp-rate-submit-btn');
+  if (btn) { btn.disabled = false; btn.style.opacity = '1'; btn.style.cursor = 'pointer'; btn.textContent = 'Submit'; }
 
-  // Load existing reviews for this lesson
+  // Load existing reviews for this lesson (also detects if THIS user already rated)
   _loadLessonReviews();
+}
+
+// Paint the stars to a fixed rating (read-only) and lock all rating controls so
+// the user can view but not submit again. Shows a "you already rated" notice.
+function _lockLessonRateForm(existingRating) {
+  _lessonAlreadyRated = true;
+  _lessonRating = existingRating || _lessonRating || 0;
+
+  var container = document.getElementById('vp-rate-stars');
+  if (container) {
+    container.querySelectorAll('span').forEach(function(s) {
+      var on = parseInt(s.dataset.value) <= _lessonRating;
+      s.textContent = on ? '★' : '☆';
+      s.style.color = on ? '#fbbf24' : 'rgba(255,255,255,0.3)';
+      s.style.cursor = 'default';
+    });
+  }
+  var fb = document.getElementById('vp-rate-feedback');
+  if (fb) { fb.disabled = true; fb.style.opacity = '0.6'; }
+  var btn = document.getElementById('vp-rate-submit-btn');
+  if (btn) {
+    btn.disabled = true;
+    btn.style.opacity = '0.55';
+    btn.style.cursor = 'not-allowed';
+    btn.style.background = 'rgba(255,255,255,0.1)';
+    btn.style.boxShadow = 'none';
+    btn.textContent = '✓ Rated';
+  }
+  var msg = document.getElementById('vp-rate-msg');
+  if (msg) {
+    msg.style.display = 'block';
+    msg.style.color = '#a78bfa';
+    msg.innerHTML = '<i class="fas fa-check-circle"></i> You\'ve already rated this lesson. Thanks for your feedback!';
+  }
 }
 
 async function _loadLessonReviews() {
@@ -2741,6 +2784,18 @@ async function _loadLessonReviews() {
     var res = await fetch(BASE_URL + '/api/feedback/lesson?lessonId=' + lessonId);
     var data = await res.json();
     if (!data.success) { reviewsDiv.innerHTML = ''; return; }
+
+    // ── Detect if THIS user already rated this lesson → lock the form ──
+    // The lesson-feedback API exposes each review's studentName (email local-part).
+    // Match it (case-insensitive) against the current user to enforce one rating
+    // per lesson on the client (the backend stores every submission).
+    var myName = (typeof _rateCurrentUserName === 'function') ? _rateCurrentUserName() : '';
+    if (myName && Array.isArray(data.reviews)) {
+      var mine = data.reviews.find(function(r) {
+        return (r.studentName || '').toLowerCase() === myName;
+      });
+      if (mine) { _lockLessonRateForm(mine.rating); }
+    }
 
     var html = '';
 
@@ -2786,6 +2841,15 @@ async function _loadLessonReviews() {
 }
 
 async function submitLessonRating() {
+  if (_lessonAlreadyRated) {
+    var m0 = document.getElementById('vp-rate-msg');
+    if (m0) {
+      m0.style.display = 'block';
+      m0.style.color = '#a78bfa';
+      m0.innerHTML = '<i class="fas fa-check-circle"></i> You\'ve already rated this lesson.';
+    }
+    return;
+  }
   if (_lessonRating === 0) { alert('Please select a star rating'); return; }
   var feedback = (document.getElementById('vp-rate-feedback') || {}).value || '';
   var msg = document.getElementById('vp-rate-msg');
@@ -2801,23 +2865,26 @@ async function submitLessonRating() {
     });
     var data = await res.json();
     if (data.success) {
-      // Show success state on button
+      // Success — briefly confirm, then lock the form (one rating per lesson).
       var btn = document.getElementById('vp-rate-submit-btn');
       if(btn) {
         btn.textContent = '✓ Submitted';
         btn.style.background = '#22c55e';
         btn.style.boxShadow = '0 0 12px rgba(34,197,94,0.3)';
-        setTimeout(function() {
-          btn.textContent = 'Submit';
-          btn.style.background = 'linear-gradient(135deg,#6c47ff,#ec4899)';
-          btn.style.boxShadow = 'none';
-        }, 500);
       }
-    }
-    if (msg) {
+      if (msg) {
+        msg.style.display = 'block';
+        msg.style.color = '#22c55e';
+        msg.textContent = '🎉 Thank you! Your rating has been submitted.';
+      }
+      // Lock immediately so the user can't submit a second rating this session,
+      // and refresh the reviews list to include theirs.
+      _lockLessonRateForm(_lessonRating);
+      _loadLessonReviews();
+    } else if (msg) {
       msg.style.display = 'block';
-      msg.style.color = data.success ? '#22c55e' : '#ef4444';
-      msg.textContent = data.success ? '🎉 Thank you! Your rating has been submitted.' : '❌ ' + (data.message || 'Failed');
+      msg.style.color = '#ef4444';
+      msg.textContent = '❌ ' + (data.message || 'Failed');
     }
   } catch { if (msg) { msg.style.display = 'block'; msg.style.color = '#ef4444'; msg.textContent = 'Network error'; } }
 }
