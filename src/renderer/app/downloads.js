@@ -358,7 +358,6 @@ async function playDownloadedVideo(index) {
     renderNotesTab('', []);
     _lazyLoadQuiz(d.lessonId, _wlToken);
     _lazyLoadExercise(d.lessonId, _wlToken);
-    _lazyLoadHomework(d.lessonId, _wlToken);
     document.querySelectorAll('.vp-tab').forEach((t, i) => t.classList.toggle('active', i === 0));
     document.querySelectorAll('.vp-tab-panel').forEach((p, i) => p.classList.toggle('active', i === 0));
     navigate('video');

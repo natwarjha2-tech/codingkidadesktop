@@ -31,9 +31,6 @@ function switchVpTab(el, panelId) {
     } else if (panelId === 'vp-exercise' && !_tabDataLoaded.exercise) {
       _tabDataLoaded.exercise = true;
       _lazyLoadExercise(lessonId, token);
-    } else if (panelId === 'vp-homework' && !_tabDataLoaded.homework) {
-      _tabDataLoaded.homework = true;
-      _lazyLoadHomework(lessonId, token);
     } else if (panelId === 'vp-rate') {
       _initLessonRateTab();
     } else if (panelId === 'vp-doubts') {
@@ -629,19 +626,17 @@ async function openVideoFromBackend(courseId, moduleId, lessonId) {
     // Lazy load: quiz and exercise are fetched only when user clicks the tab
     // Store lesson context for lazy fetch
     _currentLessonForTabs = { lessonId: lesson.id, courseId: courseId };
-    _tabDataLoaded = { quiz: false, exercise: false, streak: false, homework: false };
+    _tabDataLoaded = { quiz: false, exercise: false, streak: false };
 
     // Cleanup any previous Monaco editor instances
     if (typeof codingCleanupEditors === 'function') codingCleanupEditors();
 
-    // Eagerly load Quiz + Exercise + Homework so they're ready when user clicks tab
+    // Eagerly load Quiz + Exercise so they're ready when user clicks tab
     const _eagToken = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
     _tabDataLoaded.quiz = true;
     _lazyLoadQuiz(lesson.id, _eagToken);
     _tabDataLoaded.exercise = true;
     _lazyLoadExercise(lesson.id, _eagToken);
-    _tabDataLoaded.homework = true;
-    _lazyLoadHomework(lesson.id, _eagToken);
     // Remove old streak tab if exists
     const oldStreakTab = document.getElementById('streak-tab-btn');
     if (oldStreakTab) oldStreakTab.remove();
