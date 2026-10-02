@@ -135,7 +135,12 @@ function renderQuizTab(quizData) {
       html += '</div>';
     });
     html += '</div>';
+    html += '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">';
     html += '<button class="quiz-submit-btn" onclick="submitQuiz(' + qIndex + ')">Check Answer</button>';
+    // "Help from Coco" — hint first, then full answer on next tap.
+    html += '<button class="lesson-help-btn" data-stage="hint" data-kind="quiz" data-quizid="' + (quiz.id || '') + '" onclick="requestLessonHelp(this)" style="background:rgba(251,191,36,0.12);border:1px solid rgba(251,191,36,0.35);border-radius:10px;padding:10px 16px;color:#fbbf24;font-size:0.82rem;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:7px;transition:all 0.15s;"><i class="fas fa-hand-sparkles"></i> Need help?</button>';
+    html += '</div>';
+    html += '<div class="lesson-help-panel" id="lesson-help-quiz-' + (quiz.id || qIndex) + '" style="display:none;"></div>';
     html += '<div class="quiz-result" id="quiz-result-' + qIndex + '" style="display:none;"></div>';
     html += '</div>';
   });
@@ -565,7 +570,12 @@ function renderExerciseTab(exerciseData) {
     html += '<div style="margin-top:16px;">';
     html += '<div style="font-size:0.8rem; font-weight:600; color:var(--muted); margin-bottom:8px;">Your Code:</div>';
     html += '<textarea id="exercise-code-input-' + exIndex + '" style="width:100%; height:130px; background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.1); border-radius:10px; padding:16px; color:#a78bfa; font-size:0.85rem; resize:vertical; font-family:monospace; outline:none;" placeholder="Write your solution here...">' + sanitize(exercise.starterCode || '') + '</textarea>';
-    html += '<button class="quiz-submit-btn" style="margin-top:12px;" onclick="submitExerciseAnswer(' + exIndex + ')">Submit Solution</button>';
+    html += '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px;">';
+    html += '<button class="quiz-submit-btn" style="margin-top:0;" onclick="submitExerciseAnswer(' + exIndex + ')">Submit Solution</button>';
+    // "Help from Coco" — hint first, then full answer on next tap.
+    html += '<button class="lesson-help-btn" data-stage="hint" data-kind="exercise" data-exerciseid="' + (exercise.id || '') + '" onclick="requestLessonHelp(this)" style="background:rgba(251,191,36,0.12);border:1px solid rgba(251,191,36,0.35);border-radius:10px;padding:10px 16px;color:#fbbf24;font-size:0.82rem;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:7px;transition:all 0.15s;"><i class="fas fa-hand-sparkles"></i> Need help?</button>';
+    html += '</div>';
+    html += '<div class="lesson-help-panel" id="lesson-help-exercise-' + (exercise.id || exIndex) + '" style="display:none;"></div>';
     html += '<div id="exercise-submit-result-' + exIndex + '" style="display:none; margin-top:10px; font-size:0.85rem;"></div>';
     html += '</div>';
     html += '</div>';
@@ -573,4 +583,111 @@ function renderExerciseTab(exerciseData) {
 
   html += '</div>';
   el.innerHTML = html;
+}
+
+/**
+ * "Help from Coco" for a quiz question or theory exercise.
+ *
+ * Two-stage, kid-friendly flow driven by the button's data-stage:
+ *   1st tap  (stage="hint")   -> gentle hint, button becomes "Show the answer"
+ *   2nd tap  (stage="answer") -> correct answer + simple reasons from material
+ *
+ * Calls POST /api/lesson-help on the Next.js backend, which uses the stored
+ * correct answer as ground truth and the lesson's study material (RAG) for the
+ * explanation. Shares the global BASE_URL / sanitize / token pattern used by
+ * the rest of the renderer.
+ */
+async function requestLessonHelp(btn) {
+  if (!btn) return;
+  const stage = btn.getAttribute('data-stage') || 'hint';
+  const kind = btn.getAttribute('data-kind') || 'quiz';
+  const quizId = btn.getAttribute('data-quizid') || '';
+  const exerciseId = btn.getAttribute('data-exerciseid') || '';
+
+  // Find this item's help panel (sibling after the button row).
+  const panelId = kind === 'quiz'
+    ? 'lesson-help-quiz-' + (quizId || '')
+    : 'lesson-help-exercise-' + (exerciseId || '');
+  let panel = document.getElementById(panelId);
+  if (!panel) {
+    // Fallback: nearest .lesson-help-panel in the same card.
+    const card = btn.closest('.quiz-question-card, .exercise-card');
+    panel = card ? card.querySelector('.lesson-help-panel') : null;
+  }
+  if (!panel) return;
+
+  // Loading state.
+  const origHtml = btn.innerHTML;
+  btn.disabled = true;
+  btn.style.opacity = '0.6';
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Coco is thinking...';
+  panel.style.display = 'block';
+  panel.innerHTML = '';
+
+  try {
+    const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+    const res = await fetch(BASE_URL + '/api/lesson-help', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      body: JSON.stringify({ kind, quizId, exerciseId, stage }),
+    });
+    const data = await res.json();
+
+    btn.disabled = false;
+    btn.style.opacity = '1';
+
+    if (data && data.success && data.help) {
+      const isHint = stage === 'hint';
+      const title = isHint ? '💡 Coco\u2019s hint' : '\u2705 The answer, explained';
+      const accent = isHint ? '#fbbf24' : '#22c55e';
+      const bg = isHint ? 'rgba(251,191,36,0.08)' : 'rgba(34,197,94,0.08)';
+      const border = isHint ? 'rgba(251,191,36,0.25)' : 'rgba(34,197,94,0.25)';
+
+      // Light markdown: code fences, inline code, bold, newlines.
+      const formatted = _formatHelpText(data.help);
+
+      const block = document.createElement('div');
+      block.style.cssText = 'margin-top:12px;padding:14px 16px;background:' + bg + ';border:1px solid ' + border + ';border-radius:12px;';
+      block.innerHTML =
+        '<div style="font-size:0.82rem;font-weight:800;color:' + accent + ';margin-bottom:8px;display:flex;align-items:center;gap:6px;">' +
+        '<span style="font-size:1.1rem;">\uD83E\uDD9C</span> ' + title + '</div>' +
+        '<div style="font-size:0.86rem;line-height:1.6;color:#e2e8f0;">' + formatted + '</div>';
+      panel.appendChild(block);
+
+      // After a HINT, flip the button to reveal the full answer on next tap.
+      if (isHint) {
+        btn.setAttribute('data-stage', 'answer');
+        btn.innerHTML = '<i class="fas fa-check-circle"></i> Still stuck? Show the answer';
+      } else {
+        // Answer shown — nothing more to reveal; hide the button.
+        btn.style.display = 'none';
+      }
+    } else {
+      btn.innerHTML = origHtml;
+      panel.innerHTML = '<div style="margin-top:12px;padding:12px 14px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:10px;color:#f59e0b;font-size:0.82rem;">\u23f3 ' + sanitize((data && data.message) || 'Coco is a little busy. Please try again in a moment.') + '</div>';
+    }
+  } catch (e) {
+    btn.disabled = false;
+    btn.style.opacity = '1';
+    btn.innerHTML = origHtml;
+    panel.innerHTML = '<div style="margin-top:12px;padding:12px 14px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:10px;color:#f59e0b;font-size:0.82rem;">\u23f3 Coco is a little busy. Please try again in a moment.</div>';
+  }
+}
+
+/**
+ * Small, safe markdown-to-HTML formatter for help text (mirrors ai-chat.js).
+ * Escapes code content; renders fences, inline code, bold, and line breaks.
+ */
+function _formatHelpText(text) {
+  return String(text || '')
+    .replace(/```(\w*)\n([\s\S]*?)```/g, function (m, lang, code) {
+      const escaped = code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      return '<pre style="background:rgba(0,0,0,0.4);border:1px solid var(--border);border-radius:8px;padding:12px;margin:8px 0;overflow-x:auto;font-family:monospace;font-size:0.8rem;color:#a78bfa;">' + escaped + '</pre>';
+    })
+    .replace(/`([^`]+)`/g, function (m, code) {
+      const escaped = code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      return '<code style="background:rgba(108,71,255,0.15);padding:2px 6px;border-radius:4px;font-family:monospace;font-size:0.8rem;color:#c4b5fd;">' + escaped + '</code>';
+    })
+    .replace(/\*\*([^*]+)\*\*/g, '<strong style="color:#fff;">$1</strong>')
+    .replace(/\n/g, '<br/>');
 }
