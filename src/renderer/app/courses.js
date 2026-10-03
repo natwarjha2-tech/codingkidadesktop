@@ -500,6 +500,13 @@ function renderCourseDetailFromBackend(course) {
     var modDiv = document.createElement('div');
     modDiv.className = 'cd-module' + (isOpen ? ' cd-mod-expanded' : '');
 
+    // If this module is expanded on load (the remembered/default one), warm its
+    // lesson video URLs now so the first click plays instantly — the user never
+    // clicked the header, so the onclick prefetch below wouldn't fire for it.
+    if (isOpen && typeof _prefetchModuleLessons === 'function') {
+      _prefetchModuleLessons(mod, !!course.isEnrolled);
+    }
+
     // Module header with MODULE X label + title + lesson count + chevron
     var modHeader = document.createElement('div');
     modHeader.className = 'cd-module-header';
@@ -522,6 +529,11 @@ function renderCourseDetailFromBackend(course) {
       // Remember this module
       if(modDiv.classList.contains('cd-mod-expanded')) {
         localStorage.setItem(_modStateKey, String(modIdx));
+        // Warm this module's lesson video URLs in parallel so clicking any
+        // lesson plays (near-)instantly instead of waiting on a signing call.
+        if (typeof _prefetchModuleLessons === 'function') {
+          _prefetchModuleLessons(mod, !!course.isEnrolled);
+        }
       }
       // Update Course Info sidebar
       if(modDiv.classList.contains('cd-mod-expanded') && window._updateCourseInfoForModule) {

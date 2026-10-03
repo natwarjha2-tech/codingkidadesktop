@@ -595,12 +595,14 @@ function _ensureCodoStyles() {
   style.textContent =
     '@keyframes codoWave{0%{transform:rotate(0)}15%{transform:rotate(14deg)}30%{transform:rotate(-8deg)}45%{transform:rotate(14deg)}60%{transform:rotate(-4deg)}75%{transform:rotate(10deg)}100%{transform:rotate(0)}}' +
     '@keyframes codoBob{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}' +
-    '.codo-help{display:inline-flex;align-items:center;gap:10px;background:linear-gradient(135deg,rgba(96,165,250,0.12),rgba(167,139,250,0.12));border:1px solid rgba(96,165,250,0.35);border-radius:40px;padding:6px 16px 6px 6px;cursor:pointer;transition:all 0.2s;}' +
+    // Sized to match the .quiz-submit-btn height (padding 12px 28px, 0.88rem)
+    // so "Check Answer" and the Codo help button line up at the same height.
+    '.codo-help{display:inline-flex;align-items:center;gap:8px;box-sizing:border-box;background:linear-gradient(135deg,rgba(96,165,250,0.12),rgba(167,139,250,0.12));border:1px solid rgba(96,165,250,0.35);border-radius:12px;padding:6px 18px 6px 6px;cursor:pointer;transition:all 0.2s;vertical-align:middle;}' +
     '.codo-help:hover{border-color:rgba(96,165,250,0.7);box-shadow:0 4px 16px rgba(96,165,250,0.25);transform:translateY(-1px);}' +
-    '.codo-help img{width:40px;height:40px;border-radius:50%;object-fit:cover;background:#0b0e14;flex-shrink:0;transform-origin:70% 70%;animation:codoBob 3s ease-in-out infinite;}' +
+    '.codo-help img{width:30px;height:30px;border-radius:50%;object-fit:cover;background:#0b0e14;flex-shrink:0;transform-origin:70% 70%;animation:codoBob 3s ease-in-out infinite;}' +
     '.codo-help:hover img{animation:codoWave 1s ease-in-out;}' +
     '.codo-help.codo-greet img{animation:codoWave 1s ease-in-out 2;}' +
-    '.codo-help .codo-say{font-size:0.82rem;font-weight:700;color:#93c5fd;white-space:nowrap;}';
+    '.codo-help .codo-say{font-size:0.88rem;font-weight:700;color:#93c5fd;white-space:nowrap;}';
   document.head.appendChild(style);
 }
 
@@ -873,28 +875,85 @@ function _codoPickVoice() {
   } catch (e) { return null; }
 }
 
+// Active premium-TTS audio element (so Stop / new speech can cancel it).
+var _codoAudio = null;
+// Simple client cache: text -> base64 mp3, so replaying is instant and free.
+var _codoTtsCache = {};
+
+/** Stop any Codo audio AND any browser speech currently playing. */
+function _codoStopAll() {
+  try { if (_codoAudio) { _codoAudio.pause(); _codoAudio.src = ''; _codoAudio = null; } } catch (e) {}
+  try { if ('speechSynthesis' in window) window.speechSynthesis.cancel(); } catch (e) {}
+}
+
+function _codoSetBtn(btn, state) {
+  if (!btn) return;
+  btn.innerHTML = state === 'stop'
+    ? '<i class="fas fa-stop"></i> Stop'
+    : '<i class="fas fa-volume-up"></i> Listen';
+}
+
 /**
- * Speak the given text as Codo. Stops any current speech first so a new
- * hint/answer never overlaps the previous one. Updates the Listen button icon.
+ * Speak text as Codo. Tries the premium backend voice (/api/tts — natural
+ * Hindi or Indian-English male, matching the answer language) first; if that
+ * is unavailable, offline, or errors, falls back to the browser's built-in
+ * voice so "Listen" always works.
  */
-function _codoSpeak(text, btn) {
+async function _codoSpeak(text, btn) {
+  if (!text) return;
+  _codoStopAll(); // never overlap a previous play
+
+  // 1) Try premium TTS (play MP3). Cache per-text so replays are instant/free.
+  try {
+    let b64 = _codoTtsCache[text];
+    if (!b64) {
+      const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+      const res = await fetch(BASE_URL + '/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+        body: JSON.stringify({ text: text }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.success && data.audio) {
+          b64 = data.audio;
+          _codoTtsCache[text] = b64;
+        }
+      }
+    }
+    if (b64) {
+      const audio = new Audio('data:audio/mp3;base64,' + b64);
+      _codoAudio = audio;
+      _codoSetBtn(btn, 'stop');
+      audio.onended = function () { _codoSetBtn(btn, 'listen'); if (_codoAudio === audio) _codoAudio = null; };
+      audio.onerror = function () { _codoSetBtn(btn, 'listen'); if (_codoAudio === audio) _codoAudio = null; _codoSpeakBrowser(text, btn); };
+      await audio.play();
+      return; // premium voice is playing
+    }
+  } catch (e) {
+    // fall through to the browser voice
+  }
+
+  // 2) Fallback: browser voice.
+  _codoSpeakBrowser(text, btn);
+}
+
+/** Browser (offline) voice fallback — the original speechSynthesis path. */
+function _codoSpeakBrowser(text, btn) {
   if (!text || !('speechSynthesis' in window)) return;
   try {
-    window.speechSynthesis.cancel(); // stop anything already playing
-
+    window.speechSynthesis.cancel();
     const utter = new SpeechSynthesisUtterance(text);
-    utter.rate = 0.95;   // a touch slower — easier for kids
-    utter.pitch = 1.15;  // slightly higher — friendly mascot
+    utter.rate = 0.95;
+    utter.pitch = 1.1;
     utter.volume = 1;
     const voice = _codoPickVoice();
     if (voice) utter.voice = voice;
-
     if (btn) {
-      utter.onstart = function () { btn.innerHTML = '<i class="fas fa-stop"></i> Stop'; };
-      utter.onend = function () { btn.innerHTML = '<i class="fas fa-volume-up"></i> Listen'; };
-      utter.onerror = function () { btn.innerHTML = '<i class="fas fa-volume-up"></i> Listen'; };
+      utter.onstart = function () { _codoSetBtn(btn, 'stop'); };
+      utter.onend = function () { _codoSetBtn(btn, 'listen'); };
+      utter.onerror = function () { _codoSetBtn(btn, 'listen'); };
     }
-    // Voices may load async on first use; retry once if none were ready.
     if (!voice && window.speechSynthesis.getVoices().length === 0) {
       window.speechSynthesis.onvoiceschanged = function () {
         const v = _codoPickVoice();
@@ -905,19 +964,21 @@ function _codoSpeak(text, btn) {
     } else {
       window.speechSynthesis.speak(utter);
     }
-  } catch (e) { /* speech is best-effort — never break the UI */ }
+  } catch (e) { /* best-effort */ }
 }
 
 /**
- * Listen button toggle: if Codo is speaking, stop; otherwise read the text.
+ * Listen button toggle: if Codo is speaking (premium audio OR browser), stop;
+ * otherwise read the text.
  */
 function toggleCodoSpeak(btn) {
-  if (!btn || !('speechSynthesis' in window)) return;
-  if (window.speechSynthesis.speaking) {
-    window.speechSynthesis.cancel();
-    btn.innerHTML = '<i class="fas fa-volume-up"></i> Listen';
+  const speaking = (_codoAudio && !_codoAudio.paused) ||
+    (('speechSynthesis' in window) && window.speechSynthesis.speaking);
+  if (speaking) {
+    _codoStopAll();
+    _codoSetBtn(btn, 'listen');
     return;
   }
-  const text = decodeURIComponent(btn.getAttribute('data-text') || '');
+  const text = decodeURIComponent((btn && btn.getAttribute('data-text')) || '');
   _codoSpeak(text, btn);
 }

@@ -62,6 +62,32 @@ async function _prefetchLessonPlay(lessonId) {
   } catch { /* prefetch is best-effort — never surface errors */ }
 }
 
+/**
+ * Warm the signed "play" URLs for ALL playable lessons in a module, in
+ * parallel, the moment the user expands that module. A module has only ~3-4
+ * lessons, so this is a small, safe burst — and it makes the subsequent click
+ * on any lesson in the module play (near-)instantly, since the signed URL is
+ * already in the 45-min cache that openVideoFromBackend reads.
+ *
+ * - Only prefetches accessible lessons (enrolled OR free; skips locked ones).
+ * - _prefetchLessonPlay already de-dupes against a fresh cache, so re-expanding
+ *   a module costs nothing.
+ * - Guarded against double-prefetch per module within this view.
+ *
+ * @param mod       a module object: { id, lessons: [{ id, isFree, hasVideo }] }
+ * @param isEnrolled whether the viewer is enrolled in the course
+ */
+function _prefetchModuleLessons(mod, isEnrolled) {
+  if (!mod || !mod.id) return;
+  var lessons = (mod.lessons || []).filter(function (l) {
+    return l && l.id && (isEnrolled || l.isFree || l.hasVideo || l.videoUrl);
+  });
+  // Fire in parallel — tiny count (~3-4), best-effort, never blocks the UI.
+  // _prefetchLessonPlay self-skips when the cache is still fresh and re-fetches
+  // when stale, so repeated expands are cheap and self-healing (no extra guard).
+  lessons.forEach(function (l) { _prefetchLessonPlay(l.id); });
+}
+
 async function _lazyLoadQuiz(lessonId, token) {
   const el = document.getElementById('vp-quiz');
   // Cache-first: show cached quiz data instantly

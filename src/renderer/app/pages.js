@@ -2721,9 +2721,13 @@ function _initLessonRateTab() {
   var msg = document.getElementById('vp-rate-msg');
   if (msg) msg.style.display = 'none';
   var fb = document.getElementById('vp-rate-feedback');
-  if (fb) { fb.value = ''; fb.disabled = false; fb.style.opacity = '1'; }
+  if (fb) { fb.value = ''; fb.disabled = false; fb.style.opacity = '1'; fb.style.display = ''; }
   var btn = document.getElementById('vp-rate-submit-btn');
-  if (btn) { btn.disabled = false; btn.style.opacity = '1'; btn.style.cursor = 'pointer'; btn.textContent = 'Submit'; }
+  if (btn) { btn.disabled = false; btn.style.opacity = '1'; btn.style.cursor = 'pointer'; btn.textContent = 'Submit'; btn.style.display = ''; }
+  // Re-show the "How helpful?" prompt (a previous rated lesson may have hidden it).
+  if (container && container.previousElementSibling) {
+    container.previousElementSibling.style.display = '';
+  }
 
   // Load existing reviews for this lesson (also detects if THIS user already rated)
   _loadLessonReviews();
@@ -2744,16 +2748,16 @@ function _lockLessonRateForm(existingRating) {
       s.style.cursor = 'default';
     });
   }
+  // Already rated → REMOVE the comment box, the "How helpful" prompt, and the
+  // Submit button entirely (not just disable them). Leave the filled stars +
+  // the thank-you message so the user can see what they rated.
   var fb = document.getElementById('vp-rate-feedback');
-  if (fb) { fb.disabled = true; fb.style.opacity = '0.6'; }
+  if (fb) fb.style.display = 'none';
   var btn = document.getElementById('vp-rate-submit-btn');
-  if (btn) {
-    btn.disabled = true;
-    btn.style.opacity = '0.55';
-    btn.style.cursor = 'not-allowed';
-    btn.style.background = 'rgba(255,255,255,0.1)';
-    btn.style.boxShadow = 'none';
-    btn.textContent = '✓ Rated';
+  if (btn) btn.style.display = 'none';
+  // Hide the "How helpful was this lesson?" prompt (the element right before the stars).
+  if (container && container.previousElementSibling) {
+    container.previousElementSibling.style.display = 'none';
   }
   var msg = document.getElementById('vp-rate-msg');
   if (msg) {
