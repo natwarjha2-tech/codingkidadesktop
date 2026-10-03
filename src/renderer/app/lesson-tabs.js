@@ -135,8 +135,8 @@ function renderQuizTab(quizData) {
       html += '</div>';
     });
     html += '</div>';
-    html += '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">';
-    html += '<button class="quiz-submit-btn" onclick="submitQuiz(' + qIndex + ')">Check Answer</button>';
+    html += '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:18px;">';
+    html += '<button class="quiz-submit-btn" style="margin-top:0;" onclick="submitQuiz(' + qIndex + ')">Check Answer</button>';
     // Codo mascot — waves and offers help; hint first, then answer on next tap.
     html += _codoHelpButton('quiz', 'data-quizid="' + (quiz.id || '') + '"');
     html += '</div>';
@@ -595,11 +595,13 @@ function _ensureCodoStyles() {
   style.textContent =
     '@keyframes codoWave{0%{transform:rotate(0)}15%{transform:rotate(14deg)}30%{transform:rotate(-8deg)}45%{transform:rotate(14deg)}60%{transform:rotate(-4deg)}75%{transform:rotate(10deg)}100%{transform:rotate(0)}}' +
     '@keyframes codoBob{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}' +
-    // Sized to match the .quiz-submit-btn height (padding 12px 28px, 0.88rem)
-    // so "Check Answer" and the Codo help button line up at the same height.
-    '.codo-help{display:inline-flex;align-items:center;gap:8px;box-sizing:border-box;background:linear-gradient(135deg,rgba(96,165,250,0.12),rgba(167,139,250,0.12));border:1px solid rgba(96,165,250,0.35);border-radius:12px;padding:6px 18px 6px 6px;cursor:pointer;transition:all 0.2s;vertical-align:middle;}' +
+    // Matched to the .quiz-submit-btn so "Check Answer" and this button are the
+    // SAME height and sit on one line. The submit button is padding 12px 28px
+    // at 0.88rem (~43px tall). We fix this button to that exact height, center
+    // its contents, and shrink the mascot so it fits inside without growing it.
+    '.codo-help{display:inline-flex;align-items:center;gap:8px;box-sizing:border-box;height:43px;background:linear-gradient(135deg,rgba(96,165,250,0.12),rgba(167,139,250,0.12));border:1px solid rgba(96,165,250,0.35);border-radius:12px;padding:0 18px 0 6px;cursor:pointer;transition:all 0.2s;vertical-align:middle;}' +
     '.codo-help:hover{border-color:rgba(96,165,250,0.7);box-shadow:0 4px 16px rgba(96,165,250,0.25);transform:translateY(-1px);}' +
-    '.codo-help img{width:30px;height:30px;border-radius:50%;object-fit:cover;background:#0b0e14;flex-shrink:0;transform-origin:70% 70%;animation:codoBob 3s ease-in-out infinite;}' +
+    '.codo-help img{width:31px;height:31px;border-radius:50%;object-fit:cover;background:#0b0e14;flex-shrink:0;transform-origin:70% 70%;animation:codoBob 3s ease-in-out infinite;}' +
     '.codo-help:hover img{animation:codoWave 1s ease-in-out;}' +
     '.codo-help.codo-greet img{animation:codoWave 1s ease-in-out 2;}' +
     '.codo-help .codo-say{font-size:0.88rem;font-weight:700;color:#93c5fd;white-space:nowrap;}';
@@ -681,8 +683,19 @@ async function requestLessonHelp(btn) {
     const res = await fetch(BASE_URL + '/api/lesson-help', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-      body: JSON.stringify({ kind, quizId, exerciseId, stage }),
+      // Ask the server to stream the answer so words appear immediately
+      // instead of after the whole reply is generated.
+      body: JSON.stringify({ kind, quizId, exerciseId, stage, stream: true }),
     });
+
+    // If the server streamed (text/event-stream), render progressively.
+    const ctype = (res.headers.get('content-type') || '').toLowerCase();
+    if (res.ok && res.body && ctype.indexOf('text/event-stream') !== -1) {
+      await _streamLessonHelp(res, { btn, panel, stage, sayEl, origSay, origHtml });
+      return;
+    }
+
+    // Fallback: non-streaming JSON (older server deploy or any other client).
     const data = await res.json();
 
     btn.disabled = false;
@@ -746,6 +759,12 @@ async function requestLessonHelp(btn) {
       block.innerHTML = inner;
       panel.appendChild(block);
 
+      // If the server shipped pre-computed audio, seed the client cache so
+      // playback is instant with no second /api/tts call.
+      if (data.audio) {
+        _codoTtsCache[spokenText] = data.audio;
+      }
+
       // Codo reads the hint/answer aloud automatically (same text as on screen).
       _codoSpeak(spokenText, document.getElementById(speakId));
 
@@ -776,6 +795,154 @@ async function requestLessonHelp(btn) {
     if (sayEl) { sayEl.innerHTML = origSay; } else { btn.disabled = false; btn.innerHTML = origHtml; }
     panel.innerHTML = '<div style="margin-top:12px;padding:12px 14px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:10px;color:#f59e0b;font-size:0.82rem;">\u23f3 Codo is a little busy. Please try again in a moment.</div>';
   }
+}
+
+/**
+ * Read the SSE stream from /api/lesson-help and render Codo's answer as it
+ * arrives, so the child sees words almost immediately. The server sends
+ * `{type:"text", chunk}` frames while generating, then one `{type:"done", ...}`
+ * frame with the full text + source attribution. We speak only once the full
+ * text is in (TTS needs the whole sentence to sound natural).
+ *
+ * ctx: { btn, panel, stage, sayEl, origSay, origHtml }
+ */
+async function _streamLessonHelp(res, ctx) {
+  const btn = ctx.btn, panel = ctx.panel, stage = ctx.stage;
+  const sayEl = ctx.sayEl;
+  const isHint = stage === 'hint';
+  const title = isHint ? '💡 Codo\u2019s hint' : '\u2705 The answer, explained';
+  const accent = isHint ? '#fbbf24' : '#22c55e';
+  const bg = isHint ? 'rgba(251,191,36,0.08)' : 'rgba(34,197,94,0.08)';
+  const border = isHint ? 'rgba(251,191,36,0.25)' : 'rgba(34,197,94,0.25)';
+  const speakId = 'codo-speak-' + Date.now();
+
+  btn.disabled = false;
+  btn.style.opacity = '1';
+
+  // Build the block shell up front; stream text into the body div.
+  const block = document.createElement('div');
+  block.style.cssText = 'margin-top:12px;padding:14px 16px;background:' + bg + ';border:1px solid ' + border + ';border-radius:12px;';
+  block.innerHTML =
+    '<div style="font-size:0.82rem;font-weight:800;color:' + accent + ';margin-bottom:8px;display:flex;align-items:center;gap:8px;">' +
+    '<span style="font-size:1.1rem;">\uD83E\uDD9C</span> ' + title +
+    '<button id="' + speakId + '" onclick="toggleCodoSpeak(this)" title="Hear Codo read it" style="margin-left:auto;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:20px;padding:4px 10px;color:' + accent + ';font-size:0.72rem;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:5px;opacity:0.5;pointer-events:none;"><i class="fas fa-volume-up"></i> Listen</button>' +
+    '</div>' +
+    '<div class="codo-help-body" style="font-size:0.86rem;line-height:1.6;color:#e2e8f0;"><span style="opacity:0.6;"><i class="fas fa-spinner fa-spin"></i> Codo is writing\u2026</span></div>' +
+    '<div class="codo-help-sources"></div>';
+  panel.innerHTML = '';
+  panel.appendChild(block);
+  const bodyEl = block.querySelector('.codo-help-body');
+  const sourcesEl = block.querySelector('.codo-help-sources');
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let full = '';
+  let meta = null;
+  let started = false;
+
+  const flushText = function () {
+    bodyEl.innerHTML = _formatHelpText(full);
+  };
+
+  try {
+    while (true) {
+      const r = await reader.read();
+      if (r.done) break;
+      buffer += decoder.decode(r.value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (line.indexOf('data:') !== 0) continue;
+        const payload = line.slice(5).trim();
+        if (!payload) continue;
+        let frame;
+        try { frame = JSON.parse(payload); } catch (e) { continue; }
+        if (frame.type === 'text' && frame.chunk) {
+          if (!started) { started = true; bodyEl.innerHTML = ''; }
+          full += frame.chunk;
+          flushText();
+        } else if (frame.type === 'done') {
+          meta = frame;
+          if (typeof frame.help === 'string' && frame.help) { full = frame.help; }
+          flushText();
+        }
+      }
+    }
+  } catch (e) {
+    // Stream broke mid-way — if we have partial text, keep it; else error out.
+  }
+
+  if (!full) {
+    panel.innerHTML = '<div style="margin-top:12px;padding:12px 14px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:10px;color:#f59e0b;font-size:0.82rem;">\u23f3 Codo is a little busy. Please try again in a moment.</div>';
+    btn.style.pointerEvents = '';
+    if (sayEl) { sayEl.innerHTML = ctx.origSay; } else { btn.disabled = false; btn.innerHTML = ctx.origHtml; }
+    return;
+  }
+
+  // Source attribution (answer stage only).
+  if (!isHint && meta) {
+    _renderHelpSources(sourcesEl, meta.source, Array.isArray(meta.sources) ? meta.sources : []);
+  }
+
+  // Enable the Listen button, then speak the full text (same as on screen).
+  const spokenText = _plainForSpeech(full);
+  const speakBtn = document.getElementById(speakId);
+  if (speakBtn) {
+    speakBtn.setAttribute('data-text', encodeURIComponent(spokenText));
+    speakBtn.style.opacity = '1';
+    speakBtn.style.pointerEvents = '';
+  }
+  // If the server already had the audio cached (pre-computed), it ships it in
+  // the done frame — seed our client cache so playback is instant with NO
+  // second /api/tts call. Otherwise _codoSpeak fetches it the normal way.
+  if (meta && meta.audio) {
+    _codoTtsCache[spokenText] = meta.audio;
+  }
+  _codoSpeak(spokenText, speakBtn);
+
+  // Flip the button: after a hint, reveal the answer next; after an answer, hide.
+  if (isHint) {
+    btn.setAttribute('data-stage', 'answer');
+    btn.style.pointerEvents = '';
+    if (sayEl) { sayEl.innerHTML = 'Still stuck? Show the answer'; }
+    else { btn.disabled = false; btn.innerHTML = '<i class="fas fa-check-circle"></i> Still stuck? Show the answer'; }
+  } else {
+    btn.style.display = 'none';
+  }
+}
+
+/**
+ * Render the "where this came from" source block for a streamed answer.
+ * Mirrors the attribution markup used in the non-streaming path.
+ */
+function _renderHelpSources(container, srcType, sources) {
+  if (!container) return;
+  let inner = '';
+  if (srcType === 'study_material' && sources.length > 0) {
+    inner += '<div style="margin-top:12px;padding-top:10px;border-top:1px dashed rgba(255,255,255,0.12);">';
+    inner += '<div style="font-size:0.72rem;font-weight:700;color:#86efac;margin-bottom:6px;">\uD83D\uDCD8 From your course material:</div>';
+    sources.forEach(function (s) {
+      const name = sanitize(s.name || 'Document');
+      inner += '<div style="margin:8px 0;padding:8px 10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:8px;">';
+      if (s.fileUrl) {
+        inner += '<a href="#" onclick="openHelpSource(this); return false;" data-fileurl="' + encodeURIComponent(s.fileUrl) + '" style="color:#60a5fa;font-size:0.8rem;font-weight:600;text-decoration:none;display:inline-flex;align-items:center;gap:6px;"><i class="fas fa-file-pdf" style="color:#f87171;"></i> ' + name + ' <i class="fas fa-external-link-alt" style="font-size:0.65rem;opacity:0.7;"></i></a>';
+      } else {
+        inner += '<div style="color:#cbd5e1;font-size:0.8rem;font-weight:600;"><i class="fas fa-file-alt"></i> ' + name + '</div>';
+      }
+      if (s.snippet) {
+        inner += '<div style="margin-top:6px;font-size:0.74rem;color:#94a3b8;line-height:1.4;"><span style="color:#fbbf24;">\uD83D\uDD0D Find this in the doc:</span> \u201C' + sanitize(s.snippet) + '\u201D</div>';
+      }
+      inner += '</div>';
+    });
+    inner += '</div>';
+  } else if (srcType === 'teacher_note') {
+    inner += '<div style="margin-top:12px;padding-top:10px;border-top:1px dashed rgba(255,255,255,0.12);font-size:0.72rem;color:#cbd5e1;">\uD83D\uDCDD Based on the lesson\u2019s teacher note.</div>';
+  } else if (srcType === 'ai') {
+    inner += '<div style="margin-top:12px;padding-top:10px;border-top:1px dashed rgba(255,255,255,0.12);font-size:0.72rem;color:#cbd5e1;">\uD83E\uDD16 General explanation (not found in your course material).</div>';
+  }
+  container.innerHTML = inner;
 }
 
 /**
@@ -875,6 +1042,19 @@ function _codoPickVoice() {
   } catch (e) { return null; }
 }
 
+/** Pick a Hindi voice for the browser fallback when Codo answered in Hindi. */
+function _codoPickHindiVoice() {
+  try {
+    const voices = window.speechSynthesis ? window.speechSynthesis.getVoices() : [];
+    if (!voices || !voices.length) return null;
+    return (
+      voices.find(function (v) { return /hi(-|_)?IN/i.test(v.lang); }) ||
+      voices.find(function (v) { return /^hi/i.test(v.lang); }) ||
+      null
+    );
+  } catch (e) { return null; }
+}
+
 // Active premium-TTS audio element (so Stop / new speech can cancel it).
 var _codoAudio = null;
 // Simple client cache: text -> base64 mp3, so replaying is instant and free.
@@ -944,10 +1124,15 @@ function _codoSpeakBrowser(text, btn) {
   try {
     window.speechSynthesis.cancel();
     const utter = new SpeechSynthesisUtterance(text);
-    utter.rate = 0.95;
-    utter.pitch = 1.1;
+    // Energetic, kid-friendly delivery to match the premium voice.
+    utter.rate = 1.05;
+    utter.pitch = 1.25;
     utter.volume = 1;
-    const voice = _codoPickVoice();
+    // If Codo answered in Hindi (Devanagari), ask the browser for a Hindi
+    // voice + locale so the fallback also speaks Hindi where available.
+    const isHindi = /[\u0900-\u097F]/.test(text);
+    const voice = isHindi ? _codoPickHindiVoice() : _codoPickVoice();
+    if (isHindi) utter.lang = 'hi-IN';
     if (voice) utter.voice = voice;
     if (btn) {
       utter.onstart = function () { _codoSetBtn(btn, 'stop'); };
