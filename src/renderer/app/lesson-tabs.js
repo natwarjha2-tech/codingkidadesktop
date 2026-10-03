@@ -137,8 +137,8 @@ function renderQuizTab(quizData) {
     html += '</div>';
     html += '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">';
     html += '<button class="quiz-submit-btn" onclick="submitQuiz(' + qIndex + ')">Check Answer</button>';
-    // "Help from Coco" — hint first, then full answer on next tap.
-    html += '<button class="lesson-help-btn" data-stage="hint" data-kind="quiz" data-quizid="' + (quiz.id || '') + '" onclick="requestLessonHelp(this)" style="background:rgba(251,191,36,0.12);border:1px solid rgba(251,191,36,0.35);border-radius:10px;padding:10px 16px;color:#fbbf24;font-size:0.82rem;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:7px;transition:all 0.15s;"><i class="fas fa-hand-sparkles"></i> Need help?</button>';
+    // Codo mascot — waves and offers help; hint first, then answer on next tap.
+    html += _codoHelpButton('quiz', 'data-quizid="' + (quiz.id || '') + '"');
     html += '</div>';
     html += '<div class="lesson-help-panel" id="lesson-help-quiz-' + (quiz.id || qIndex) + '" style="display:none;"></div>';
     html += '<div class="quiz-result" id="quiz-result-' + qIndex + '" style="display:none;"></div>';
@@ -572,8 +572,8 @@ function renderExerciseTab(exerciseData) {
     html += '<textarea id="exercise-code-input-' + exIndex + '" style="width:100%; height:130px; background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.1); border-radius:10px; padding:16px; color:#a78bfa; font-size:0.85rem; resize:vertical; font-family:monospace; outline:none;" placeholder="Write your solution here...">' + sanitize(exercise.starterCode || '') + '</textarea>';
     html += '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px;">';
     html += '<button class="quiz-submit-btn" style="margin-top:0;" onclick="submitExerciseAnswer(' + exIndex + ')">Submit Solution</button>';
-    // "Help from Coco" — hint first, then full answer on next tap.
-    html += '<button class="lesson-help-btn" data-stage="hint" data-kind="exercise" data-exerciseid="' + (exercise.id || '') + '" onclick="requestLessonHelp(this)" style="background:rgba(251,191,36,0.12);border:1px solid rgba(251,191,36,0.35);border-radius:10px;padding:10px 16px;color:#fbbf24;font-size:0.82rem;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:7px;transition:all 0.15s;"><i class="fas fa-hand-sparkles"></i> Need help?</button>';
+    // Codo mascot — waves and offers help; hint first, then answer on next tap.
+    html += _codoHelpButton('exercise', 'data-exerciseid="' + (exercise.id || '') + '"');
     html += '</div>';
     html += '<div class="lesson-help-panel" id="lesson-help-exercise-' + (exercise.id || exIndex) + '" style="display:none;"></div>';
     html += '<div id="exercise-submit-result-' + exIndex + '" style="display:none; margin-top:10px; font-size:0.85rem;"></div>';
@@ -586,7 +586,49 @@ function renderExerciseTab(exerciseData) {
 }
 
 /**
- * "Help from Coco" for a quiz question or theory exercise.
+ * Inject the Codo mascot CSS (wave animation, bubble) once per session.
+ */
+function _ensureCodoStyles() {
+  if (document.getElementById('codo-help-styles')) return;
+  const style = document.createElement('style');
+  style.id = 'codo-help-styles';
+  style.textContent =
+    '@keyframes codoWave{0%{transform:rotate(0)}15%{transform:rotate(14deg)}30%{transform:rotate(-8deg)}45%{transform:rotate(14deg)}60%{transform:rotate(-4deg)}75%{transform:rotate(10deg)}100%{transform:rotate(0)}}' +
+    '@keyframes codoBob{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}' +
+    '.codo-help{display:inline-flex;align-items:center;gap:10px;background:linear-gradient(135deg,rgba(96,165,250,0.12),rgba(167,139,250,0.12));border:1px solid rgba(96,165,250,0.35);border-radius:40px;padding:6px 16px 6px 6px;cursor:pointer;transition:all 0.2s;}' +
+    '.codo-help:hover{border-color:rgba(96,165,250,0.7);box-shadow:0 4px 16px rgba(96,165,250,0.25);transform:translateY(-1px);}' +
+    '.codo-help img{width:40px;height:40px;border-radius:50%;object-fit:cover;background:#0b0e14;flex-shrink:0;transform-origin:70% 70%;animation:codoBob 3s ease-in-out infinite;}' +
+    '.codo-help:hover img{animation:codoWave 1s ease-in-out;}' +
+    '.codo-help.codo-greet img{animation:codoWave 1s ease-in-out 2;}' +
+    '.codo-help .codo-say{font-size:0.82rem;font-weight:700;color:#93c5fd;white-space:nowrap;}';
+  document.head.appendChild(style);
+}
+
+/**
+ * Build the Codo mascot "Can I help?" button for a quiz/exercise.
+ * `idAttr` is the data-quizid/data-exerciseid attribute string.
+ */
+function _codoHelpButton(kind, idAttr) {
+  _ensureCodoStyles();
+  // One-time greeting wave shortly after render.
+  setTimeout(function () {
+    const btns = document.querySelectorAll('.codo-help:not(.codo-greeted)');
+    btns.forEach(function (b) {
+      b.classList.add('codo-greet', 'codo-greeted');
+      setTimeout(function () { b.classList.remove('codo-greet'); }, 2200);
+    });
+  }, 400);
+  return (
+    '<span class="codo-help lesson-help-btn" data-stage="hint" data-kind="' + kind + '" ' + idAttr +
+    ' onclick="requestLessonHelp(this)" title="Ask Codo for help">' +
+    '<img src="assets/codo.jpg" alt="Codo"/>' +
+    '<span class="codo-say">Stuck? Can I help? \uD83D\uDC4B</span>' +
+    '</span>'
+  );
+}
+
+/**
+ * "Help from Codo" for a quiz question or theory exercise.
  *
  * Two-stage, kid-friendly flow driven by the button's data-stage:
  *   1st tap  (stage="hint")   -> gentle hint, button becomes "Show the answer"
@@ -616,11 +658,19 @@ async function requestLessonHelp(btn) {
   }
   if (!panel) return;
 
-  // Loading state.
+  // Loading state. For the Codo mascot, keep the image and only change the
+  // speech-bubble text; for a plain button, swap the whole label.
   const origHtml = btn.innerHTML;
-  btn.disabled = true;
-  btn.style.opacity = '0.6';
-  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Coco is thinking...';
+  const sayEl = btn.querySelector ? btn.querySelector('.codo-say') : null;
+  const origSay = sayEl ? sayEl.innerHTML : '';
+  btn.style.opacity = '0.75';
+  btn.style.pointerEvents = 'none';
+  if (sayEl) {
+    sayEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Codo is thinking...';
+  } else {
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Codo is thinking...';
+  }
   panel.style.display = 'block';
   panel.innerHTML = '';
 
@@ -638,7 +688,7 @@ async function requestLessonHelp(btn) {
 
     if (data && data.success && data.help) {
       const isHint = stage === 'hint';
-      const title = isHint ? '💡 Coco\u2019s hint' : '\u2705 The answer, explained';
+      const title = isHint ? '💡 Codo\u2019s hint' : '\u2705 The answer, explained';
       const accent = isHint ? '#fbbf24' : '#22c55e';
       const bg = isHint ? 'rgba(251,191,36,0.08)' : 'rgba(34,197,94,0.08)';
       const border = isHint ? 'rgba(251,191,36,0.25)' : 'rgba(34,197,94,0.25)';
@@ -648,29 +698,81 @@ async function requestLessonHelp(btn) {
 
       const block = document.createElement('div');
       block.style.cssText = 'margin-top:12px;padding:14px 16px;background:' + bg + ';border:1px solid ' + border + ';border-radius:12px;';
-      block.innerHTML =
-        '<div style="font-size:0.82rem;font-weight:800;color:' + accent + ';margin-bottom:8px;display:flex;align-items:center;gap:6px;">' +
-        '<span style="font-size:1.1rem;">\uD83E\uDD9C</span> ' + title + '</div>' +
+
+      // Plain text (markdown stripped) for Codo to read aloud.
+      const spokenText = _plainForSpeech(data.help);
+      const speakId = 'codo-speak-' + Date.now();
+
+      let inner =
+        '<div style="font-size:0.82rem;font-weight:800;color:' + accent + ';margin-bottom:8px;display:flex;align-items:center;gap:8px;">' +
+        '<span style="font-size:1.1rem;">\uD83E\uDD9C</span> ' + title +
+        '<button id="' + speakId + '" onclick="toggleCodoSpeak(this)" data-text="' + encodeURIComponent(spokenText) + '" title="Hear Codo read it" style="margin-left:auto;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:20px;padding:4px 10px;color:' + accent + ';font-size:0.72rem;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:5px;"><i class="fas fa-volume-up"></i> Listen</button>' +
+        '</div>' +
         '<div style="font-size:0.86rem;line-height:1.6;color:#e2e8f0;">' + formatted + '</div>';
+
+      // Source attribution (answer stage only): where did this come from?
+      if (!isHint) {
+        const srcType = data.source; // study_material | teacher_note | ai
+        const sources = Array.isArray(data.sources) ? data.sources : [];
+
+        if (srcType === 'study_material' && sources.length > 0) {
+          inner += '<div style="margin-top:12px;padding-top:10px;border-top:1px dashed rgba(255,255,255,0.12);">';
+          inner += '<div style="font-size:0.72rem;font-weight:700;color:#86efac;margin-bottom:6px;">\uD83D\uDCD8 From your course material:</div>';
+          sources.forEach(function (s) {
+            const name = sanitize(s.name || 'Document');
+            inner += '<div style="margin:8px 0;padding:8px 10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:8px;">';
+            if (s.fileUrl) {
+              // Clickable — opens the document to verify the explanation.
+              inner += '<a href="#" onclick="openHelpSource(this); return false;" data-fileurl="' + encodeURIComponent(s.fileUrl) + '" style="color:#60a5fa;font-size:0.8rem;font-weight:600;text-decoration:none;display:inline-flex;align-items:center;gap:6px;"><i class="fas fa-file-pdf" style="color:#f87171;"></i> ' + name + ' <i class="fas fa-external-link-alt" style="font-size:0.65rem;opacity:0.7;"></i></a>';
+            } else {
+              inner += '<div style="color:#cbd5e1;font-size:0.8rem;font-weight:600;"><i class="fas fa-file-alt"></i> ' + name + '</div>';
+            }
+            // "Search for this" snippet so kids can Ctrl+F in a big PDF.
+            if (s.snippet) {
+              inner += '<div style="margin-top:6px;font-size:0.74rem;color:#94a3b8;line-height:1.4;"><span style="color:#fbbf24;">\uD83D\uDD0D Find this in the doc:</span> \u201C' + sanitize(s.snippet) + '\u201D</div>';
+            }
+            inner += '</div>';
+          });
+          inner += '</div>';
+        } else if (srcType === 'teacher_note') {
+          inner += '<div style="margin-top:12px;padding-top:10px;border-top:1px dashed rgba(255,255,255,0.12);font-size:0.72rem;color:#cbd5e1;">\uD83D\uDCDD Based on the lesson\u2019s teacher note.</div>';
+        } else if (srcType === 'ai') {
+          inner += '<div style="margin-top:12px;padding-top:10px;border-top:1px dashed rgba(255,255,255,0.12);font-size:0.72rem;color:#cbd5e1;">\uD83E\uDD16 General explanation (not found in your course material).</div>';
+        }
+      }
+
+      block.innerHTML = inner;
       panel.appendChild(block);
+
+      // Codo reads the hint/answer aloud automatically (same text as on screen).
+      _codoSpeak(spokenText, document.getElementById(speakId));
 
       // After a HINT, flip the button to reveal the full answer on next tap.
       if (isHint) {
+        // After a HINT, flip to reveal the full answer on next tap.
         btn.setAttribute('data-stage', 'answer');
-        btn.innerHTML = '<i class="fas fa-check-circle"></i> Still stuck? Show the answer';
+        btn.style.pointerEvents = '';
+        if (sayEl) {
+          sayEl.innerHTML = 'Still stuck? Show the answer';
+        } else {
+          btn.disabled = false;
+          btn.innerHTML = '<i class="fas fa-check-circle"></i> Still stuck? Show the answer';
+        }
       } else {
         // Answer shown — nothing more to reveal; hide the button.
         btn.style.display = 'none';
       }
     } else {
-      btn.innerHTML = origHtml;
-      panel.innerHTML = '<div style="margin-top:12px;padding:12px 14px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:10px;color:#f59e0b;font-size:0.82rem;">\u23f3 ' + sanitize((data && data.message) || 'Coco is a little busy. Please try again in a moment.') + '</div>';
+      // Request succeeded but no help text — restore and show a gentle notice.
+      btn.style.pointerEvents = '';
+      if (sayEl) { sayEl.innerHTML = origSay; } else { btn.disabled = false; btn.innerHTML = origHtml; }
+      panel.innerHTML = '<div style="margin-top:12px;padding:12px 14px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:10px;color:#f59e0b;font-size:0.82rem;">\u23f3 ' + sanitize((data && data.message) || 'Codo is a little busy. Please try again in a moment.') + '</div>';
     }
   } catch (e) {
-    btn.disabled = false;
     btn.style.opacity = '1';
-    btn.innerHTML = origHtml;
-    panel.innerHTML = '<div style="margin-top:12px;padding:12px 14px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:10px;color:#f59e0b;font-size:0.82rem;">\u23f3 Coco is a little busy. Please try again in a moment.</div>';
+    btn.style.pointerEvents = '';
+    if (sayEl) { sayEl.innerHTML = origSay; } else { btn.disabled = false; btn.innerHTML = origHtml; }
+    panel.innerHTML = '<div style="margin-top:12px;padding:12px 14px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:10px;color:#f59e0b;font-size:0.82rem;">\u23f3 Codo is a little busy. Please try again in a moment.</div>';
   }
 }
 
@@ -690,4 +792,132 @@ function _formatHelpText(text) {
     })
     .replace(/\*\*([^*]+)\*\*/g, '<strong style="color:#fff;">$1</strong>')
     .replace(/\n/g, '<br/>');
+}
+
+/**
+ * Open a source document (PDF/notes) referenced by a Help answer.
+ * Private S3 files need a short-lived signed URL, which we fetch from the
+ * backend (/api/media/signed-url) before opening in the external browser.
+ */
+async function openHelpSource(linkEl) {
+  if (!linkEl) return;
+  const fileUrl = decodeURIComponent(linkEl.getAttribute('data-fileurl') || '');
+  if (!fileUrl) return;
+
+  const origText = linkEl.innerHTML;
+  linkEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Opening...';
+
+  try {
+    const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+    const res = await fetch(BASE_URL + '/api/media/signed-url', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      body: JSON.stringify({ url: fileUrl }),
+    });
+    const data = await res.json();
+    const openUrl = (data && data.success && data.signedUrl) ? data.signedUrl : fileUrl;
+
+    // Open in the user's default browser. The preload exposes shell.openExternal
+    // as window.electron.openExternal (see preload.js / main.js 'open-external').
+    if (window.electron && typeof window.electron.openExternal === 'function') {
+      window.electron.openExternal(openUrl);
+    } else {
+      window.open(openUrl, '_blank');
+    }
+  } catch (e) {
+    // On failure, try opening the raw URL as a last resort.
+    try { window.open(fileUrl, '_blank'); } catch (_) {}
+  } finally {
+    linkEl.innerHTML = origText;
+  }
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Codo voice — reads hints/answers aloud using the browser's built-in
+// Web Speech API (speechSynthesis). No external service, no cost, works
+// offline inside Electron's Chromium.
+// ───────────────────────────────────────────────────────────────────────────
+
+/**
+ * Convert help text (which may contain markdown/code) into clean, natural
+ * text for speech. Removes code fences, backticks, bold markers, emojis, and
+ * collapses whitespace so Codo doesn't read "asterisk" or symbol noise.
+ */
+function _plainForSpeech(text) {
+  return String(text || '')
+    .replace(/```[\s\S]*?```/g, ' . Here is a code example on screen. ') // skip code blocks
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/[*_#>`]/g, '')
+    // strip most emoji / pictographs
+    .replace(/[\u2190-\u21FF\u2300-\u27BF\u2B00-\u2BFF\uFE0F]/g, '')
+    .replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Pick a pleasant voice for Codo (prefers an English, slightly higher-pitched
+ * voice for a friendly kid-buddy feel). Falls back to the default voice.
+ */
+function _codoPickVoice() {
+  try {
+    const voices = window.speechSynthesis ? window.speechSynthesis.getVoices() : [];
+    if (!voices || !voices.length) return null;
+    // Prefer a natural English voice; many systems label good ones "Google"/"Natural".
+    return (
+      voices.find(function (v) { return /en(-|_)?(US|GB|IN)/i.test(v.lang) && /natural|google|zira|aria/i.test(v.name); }) ||
+      voices.find(function (v) { return /^en/i.test(v.lang); }) ||
+      voices[0]
+    );
+  } catch (e) { return null; }
+}
+
+/**
+ * Speak the given text as Codo. Stops any current speech first so a new
+ * hint/answer never overlaps the previous one. Updates the Listen button icon.
+ */
+function _codoSpeak(text, btn) {
+  if (!text || !('speechSynthesis' in window)) return;
+  try {
+    window.speechSynthesis.cancel(); // stop anything already playing
+
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.rate = 0.95;   // a touch slower — easier for kids
+    utter.pitch = 1.15;  // slightly higher — friendly mascot
+    utter.volume = 1;
+    const voice = _codoPickVoice();
+    if (voice) utter.voice = voice;
+
+    if (btn) {
+      utter.onstart = function () { btn.innerHTML = '<i class="fas fa-stop"></i> Stop'; };
+      utter.onend = function () { btn.innerHTML = '<i class="fas fa-volume-up"></i> Listen'; };
+      utter.onerror = function () { btn.innerHTML = '<i class="fas fa-volume-up"></i> Listen'; };
+    }
+    // Voices may load async on first use; retry once if none were ready.
+    if (!voice && window.speechSynthesis.getVoices().length === 0) {
+      window.speechSynthesis.onvoiceschanged = function () {
+        const v = _codoPickVoice();
+        if (v) utter.voice = v;
+        window.speechSynthesis.speak(utter);
+        window.speechSynthesis.onvoiceschanged = null;
+      };
+    } else {
+      window.speechSynthesis.speak(utter);
+    }
+  } catch (e) { /* speech is best-effort — never break the UI */ }
+}
+
+/**
+ * Listen button toggle: if Codo is speaking, stop; otherwise read the text.
+ */
+function toggleCodoSpeak(btn) {
+  if (!btn || !('speechSynthesis' in window)) return;
+  if (window.speechSynthesis.speaking) {
+    window.speechSynthesis.cancel();
+    btn.innerHTML = '<i class="fas fa-volume-up"></i> Listen';
+    return;
+  }
+  const text = decodeURIComponent(btn.getAttribute('data-text') || '');
+  _codoSpeak(text, btn);
 }
