@@ -986,16 +986,26 @@ async function openHelpSource(linkEl) {
     const data = await res.json();
     const openUrl = (data && data.success && data.signedUrl) ? data.signedUrl : fileUrl;
 
-    // Open in the user's default browser. The preload exposes shell.openExternal
-    // as window.electron.openExternal (see preload.js / main.js 'open-external').
-    if (window.electron && typeof window.electron.openExternal === 'function') {
+    // Open INSIDE the app using the built-in PDF canvas viewer (same one course
+    // content uses) instead of the external browser. _openPdfInCanvas is defined
+    // in pdf-viewer.js and loaded globally in the renderer.
+    if (typeof _openPdfInCanvas === 'function') {
+      _openPdfInCanvas(openUrl);
+    } else if (typeof openPdfInApp === 'function') {
+      // Fallback to the higher-level opener (it signs S3 URLs itself).
+      openPdfInApp(fileUrl);
+    } else if (window.electron && typeof window.electron.openExternal === 'function') {
+      // Last resort: external browser.
       window.electron.openExternal(openUrl);
     } else {
       window.open(openUrl, '_blank');
     }
   } catch (e) {
-    // On failure, try opening the raw URL as a last resort.
-    try { window.open(fileUrl, '_blank'); } catch (_) {}
+    // On failure, try the in-app opener, else the raw URL.
+    try {
+      if (typeof openPdfInApp === 'function') openPdfInApp(fileUrl);
+      else window.open(fileUrl, '_blank');
+    } catch (_) {}
   } finally {
     linkEl.innerHTML = origText;
   }
@@ -1018,9 +1028,13 @@ function _plainForSpeech(text) {
     .replace(/`([^`]+)`/g, '$1')
     .replace(/\*\*([^*]+)\*\*/g, '$1')
     .replace(/[*_#>`]/g, '')
-    // strip most emoji / pictographs
-    .replace(/[\u2190-\u21FF\u2300-\u27BF\u2B00-\u2BFF\uFE0F]/g, '')
-    .replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, '')
+    // Strip emoji & pictographs so TTS never reads "star"/"rocket"/"चमकता सितारा".
+    .replace(/\p{Extended_Pictographic}/gu, '')
+    .replace(/[\u2600-\u27BF\u2B00-\u2BFF\u2190-\u21FF\uFE0F\u200D\u20E3]/g, '')
+    .replace(/[\u{1F000}-\u{1FAFF}]/gu, '')
+    // Remove brackets/symbols that TTS reads aloud ("open bracket", "slash"...).
+    // Keep sentence punctuation (. , ? !) so speech still sounds natural.
+    .replace(/[()[\]{}<>|/\\~=+^]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
