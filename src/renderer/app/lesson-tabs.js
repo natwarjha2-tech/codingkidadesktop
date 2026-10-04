@@ -1027,14 +1027,26 @@ function _plainForSpeech(text) {
     .replace(/```[\s\S]*?```/g, ' . Here is a code example on screen. ') // skip code blocks
     .replace(/`([^`]+)`/g, '$1')
     .replace(/\*\*([^*]+)\*\*/g, '$1')
-    .replace(/[*_#>`]/g, '')
+    .replace(/[_#>`]/g, '')
     // Strip emoji & pictographs so TTS never reads "star"/"rocket"/"चमकता सितारा".
     .replace(/\p{Extended_Pictographic}/gu, '')
     .replace(/[\u2600-\u27BF\u2B00-\u2BFF\u2190-\u21FF\uFE0F\u200D\u20E3]/g, '')
     .replace(/[\u{1F000}-\u{1FAFF}]/gu, '')
-    // Remove brackets/symbols that TTS reads aloud ("open bracket", "slash"...).
+    // Speak MATH/LOGIC operators as words so "5+4" reads "5 plus 4", not "5 4".
+    .replace(/\+/g, ' plus ')
+    .replace(/(\w)\s*-\s*(\w)/g, '$1 minus $2') // minus only between terms
+    .replace(/\*/g, ' times ')
+    .replace(/÷/g, ' divided by ')
+    .replace(/=/g, ' equals ')
+    .replace(/%/g, ' percent ')
+    .replace(/&&/g, ' and ')
+    .replace(/\|\|/g, ' or ')
+    .replace(/&/g, ' and ')
+    .replace(/</g, ' less than ')
+    .replace(/>/g, ' greater than ')
+    // Remove only the noisy brackets/slashes TTS would read as "open bracket".
     // Keep sentence punctuation (. , ? !) so speech still sounds natural.
-    .replace(/[()[\]{}<>|/\\~=+^]/g, ' ')
+    .replace(/[()[\]{}|/\\~^]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
