@@ -206,6 +206,10 @@ async function submitQuiz(qIndex) {
     // hidden before answering and when the answer is correct.
     const codoWrap = card.querySelector('.codo-help-wrap');
     if (codoWrap) codoWrap.style.display = '';
+    // Warm the cache in the background so tapping Codo is instant. Cached items
+    // return immediately; uncached ones generate once now instead of on tap.
+    const _qid = card.dataset.quizid || '';
+    if (_qid) { try { prefetchLessonHelp('quiz', _qid, ''); } catch (e) {} }
   }
 
   // Hide submit button
@@ -651,6 +655,61 @@ function _codoHelpButton(kind, idAttr) {
  * explanation. Shares the global BASE_URL / sanitize / token pattern used by
  * the rest of the renderer.
  */
+/**
+ * Warm the help cache in the BACKGROUND the moment a quiz answer is wrong, so
+ * when the student actually taps Codo the text + audio are already fetched and
+ * playback/rendering is instant. Fetches both the hint and the answer (text
+ * only here — the server returns stored audio in the done frame, which we seed
+ * into _codoTtsCache keyed by the exact _plainForSpeech() string the player
+ * uses). Best-effort and silent: never shows UI, never throws.
+ */
+async function prefetchLessonHelp(kind, quizId, exerciseId) {
+  const stages = ['hint', 'answer'];
+  const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+  for (let s = 0; s < stages.length; s++) {
+    const stage = stages[s];
+    try {
+      const res = await fetch(BASE_URL + '/api/lesson-help', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+        body: JSON.stringify({ kind, quizId, exerciseId, stage, stream: true }),
+      });
+      if (!res.ok || !res.body) continue;
+      // Drain the SSE stream silently; capture the final `done` frame to seed
+      // the audio cache so the first real tap plays instantly with no /api/tts.
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let full = '';
+      let meta = null;
+      while (true) {
+        const r = await reader.read();
+        if (r.done) break;
+        buffer += decoder.decode(r.value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i].trim();
+          if (line.indexOf('data:') !== 0) continue;
+          const payload = line.slice(5).trim();
+          if (!payload) continue;
+          let frame;
+          try { frame = JSON.parse(payload); } catch (e) { continue; }
+          if (frame.type === 'text' && frame.chunk) { full += frame.chunk; }
+          else if (frame.type === 'done') {
+            meta = frame;
+            if (typeof frame.help === 'string' && frame.help) full = frame.help;
+          }
+        }
+      }
+      if (meta && meta.audio && full) {
+        const spokenText = _plainForSpeech(full);
+        _codoTtsCache[spokenText] = meta.audio;
+      }
+    } catch (e) { /* best-effort prefetch — ignore */ }
+  }
+}
+
 async function requestLessonHelp(btn) {
   if (!btn) return;
   const stage = btn.getAttribute('data-stage') || 'hint';
