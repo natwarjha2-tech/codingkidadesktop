@@ -137,8 +137,12 @@ function renderQuizTab(quizData) {
     html += '</div>';
     html += '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:18px;">';
     html += '<button class="quiz-submit-btn" style="margin-top:0;" onclick="submitQuiz(' + qIndex + ')">Check Answer</button>';
-    // Codo mascot — waves and offers help; hint first, then answer on next tap.
+    // Codo mascot — hint first, then answer on next tap. Hidden until the
+    // student submits a WRONG answer (revealed in submitQuiz). No help before
+    // answering, and none when the answer is correct.
+    html += '<span class="codo-help-wrap" style="display:none;">';
     html += _codoHelpButton('quiz', 'data-quizid="' + (quiz.id || '') + '"');
+    html += '</span>';
     html += '</div>';
     html += '<div class="lesson-help-panel" id="lesson-help-quiz-' + (quiz.id || qIndex) + '" style="display:none;"></div>';
     html += '<div class="quiz-result" id="quiz-result-' + qIndex + '" style="display:none;"></div>';
@@ -198,6 +202,10 @@ async function submitQuiz(qIndex) {
       result.className = 'quiz-result wrong';
       result.innerHTML = '<i class="fas fa-times-circle"></i> Incorrect. The correct answer is highlighted.';
     }
+    // Only now (wrong answer) reveal Codo's help for THIS question. It stays
+    // hidden before answering and when the answer is correct.
+    const codoWrap = card.querySelector('.codo-help-wrap');
+    if (codoWrap) codoWrap.style.display = '';
   }
 
   // Hide submit button
@@ -1085,15 +1093,44 @@ function _codoPickHindiVoice() {
 var _codoAudio = null;
 // Simple client cache: text -> base64 mp3, so replaying is instant and free.
 var _codoTtsCache = {};
+// True while a TTS fetch is in flight. Blocks repeated Listen/Stop taps so a
+// second request can't start (and voices can't overlap) until the current
+// fetch finishes.
+var _codoLoading = false;
 
 /** Stop any Codo audio AND any browser speech currently playing. */
 function _codoStopAll() {
-  try { if (_codoAudio) { _codoAudio.pause(); _codoAudio.src = ''; _codoAudio = null; } } catch (e) {}
+  try {
+    if (_codoAudio) {
+      // Detach handlers BEFORE pausing/clearing. Clearing src fires the audio
+      // element's 'error' event; if onerror were still attached it would wrongly
+      // trigger the browser-voice fallback (causing a second, English voice to
+      // start on a stop/quick-replay). Nulling them keeps a stop silent.
+      _codoAudio.onended = null;
+      _codoAudio.onerror = null;
+      _codoAudio.pause();
+      _codoAudio.src = '';
+      _codoAudio = null;
+    }
+  } catch (e) {}
   try { if ('speechSynthesis' in window) window.speechSynthesis.cancel(); } catch (e) {}
 }
 
 function _codoSetBtn(btn, state) {
   if (!btn) return;
+  if (state === 'thinking') {
+    // Fetching audio/text from the server. Disable so rapid Listen/Stop taps
+    // can't fire a second request or start/stop overlap mid-fetch.
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Thinking...';
+    btn.setAttribute('disabled', 'disabled');
+    btn.style.pointerEvents = 'none';
+    btn.style.opacity = '0.6';
+    return;
+  }
+  // Any non-thinking state re-enables the button.
+  btn.removeAttribute('disabled');
+  btn.style.pointerEvents = '';
+  btn.style.opacity = '';
   btn.innerHTML = state === 'stop'
     ? '<i class="fas fa-stop"></i> Stop'
     : '<i class="fas fa-volume-up"></i> Listen';
@@ -1113,18 +1150,28 @@ async function _codoSpeak(text, btn) {
   try {
     let b64 = _codoTtsCache[text];
     if (!b64) {
+      // Fetch needed — show "Thinking..." and lock the button so repeated
+      // Listen/Stop taps can't fire another request or overlap voices.
+      _codoLoading = true;
+      _codoSetBtn(btn, 'thinking');
       const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
-      const res = await fetch(BASE_URL + '/api/tts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-        body: JSON.stringify({ text: text }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data && data.success && data.audio) {
-          b64 = data.audio;
-          _codoTtsCache[text] = b64;
+      try {
+        const res = await fetch(BASE_URL + '/api/tts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+          body: JSON.stringify({ text: text }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.success && data.audio) {
+            b64 = data.audio;
+            _codoTtsCache[text] = b64;
+          }
         }
+      } finally {
+        // Fetch finished (success or fail) — release the lock. The button
+        // state is set below (stop while playing, or listen on fallback).
+        _codoLoading = false;
       }
     }
     if (b64) {
@@ -1132,15 +1179,37 @@ async function _codoSpeak(text, btn) {
       _codoAudio = audio;
       _codoSetBtn(btn, 'stop');
       audio.onended = function () { _codoSetBtn(btn, 'listen'); if (_codoAudio === audio) _codoAudio = null; };
-      audio.onerror = function () { _codoSetBtn(btn, 'listen'); if (_codoAudio === audio) _codoAudio = null; _codoSpeakBrowser(text, btn); };
-      await audio.play();
-      return; // premium voice is playing
+      // IMPORTANT: do NOT fall back to the browser (English) voice here. We
+      // already have the premium MP3 in hand; an 'error' at this point is
+      // almost always a stop/quick-replay interruption, not a decode failure.
+      // Falling back would start a second, different voice. Just reset the UI.
+      audio.onerror = function () { _codoSetBtn(btn, 'listen'); if (_codoAudio === audio) _codoAudio = null; };
+      try {
+        await audio.play();
+      } catch (e) {
+        // play() rejects (e.g. AbortError) when a previous play was stopped and
+        // replayed quickly. The MP3 is valid and cached — retry once on the same
+        // premium audio rather than switching to the browser voice.
+        try {
+          audio.currentTime = 0;
+          await audio.play();
+        } catch (e2) {
+          _codoSetBtn(btn, 'listen');
+          if (_codoAudio === audio) _codoAudio = null;
+        }
+      }
+      return; // premium voice is playing (or will retry) — never browser voice here
     }
   } catch (e) {
-    // fall through to the browser voice
+    // fall through to the browser voice only when we truly have no MP3
+  } finally {
+    // Safety: never leave the button stuck in the disabled "thinking" lock,
+    // whatever path we took above.
+    _codoLoading = false;
   }
 
-  // 2) Fallback: browser voice.
+  // 2) Fallback: browser voice — only reached when the premium MP3 could not be
+  // obtained at all (TTS not configured / network error on first fetch).
   _codoSpeakBrowser(text, btn);
 }
 
@@ -1183,6 +1252,11 @@ function _codoSpeakBrowser(text, btn) {
  * otherwise read the text.
  */
 function toggleCodoSpeak(btn) {
+  // Ignore taps while a TTS fetch is in flight. The button is already shown as
+  // "Thinking..." and disabled; this is a belt-and-braces guard so a stray
+  // programmatic call can't start a second request or overlap voices.
+  if (_codoLoading) return;
+
   const speaking = (_codoAudio && !_codoAudio.paused) ||
     (('speechSynthesis' in window) && window.speechSynthesis.speaking);
   if (speaking) {
