@@ -752,6 +752,15 @@ function updateVideoProgressBar(completedCount, totalLessons) {
 }
 
 function goToNextLesson() {
+  // Codo "finish the quiz first?" nudge — if the lesson is ≥90% watched and the
+  // quiz isn't done, Codo intercepts going to the next lesson. "Not now" resumes.
+  try {
+    if (typeof codoMaybeInterceptLeave === 'function' &&
+        codoMaybeInterceptLeave(function () { goToNextLesson(); })) {
+      return;
+    }
+  } catch (e) {}
+
   const ctx = _currentLessonContext;
   if (!ctx) return;
   const { courseId, moduleId, lessons, seq, currentLessonId } = ctx;

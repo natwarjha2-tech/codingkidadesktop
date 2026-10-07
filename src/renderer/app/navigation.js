@@ -185,11 +185,12 @@ function updateBackButtonVisibility() {
 function _navigateInternal(page, addToHistory) {
   // Codo "lesson complete → take a quiz?" nudge: if we're leaving the lesson
   // video page after ≥90% watched (and the quiz isn't done), Codo intercepts
-  // and asks the student to take the quiz. If it returns true, it has shown the
+  // and asks the student to take the quiz. If it returns true, it showed the
   // prompt and will resume this navigation itself on "Not now" — so we stop here.
   try {
     if (getCurrentActivePage() === 'video' && page !== 'video' &&
-        typeof codoMaybeInterceptLeave === 'function' && codoMaybeInterceptLeave(page)) {
+        typeof codoMaybeInterceptLeave === 'function' &&
+        codoMaybeInterceptLeave(function () { _navigateInternal(page, addToHistory); })) {
       return;
     }
   } catch (e) {}

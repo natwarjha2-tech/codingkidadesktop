@@ -123,10 +123,22 @@ function renderQuizTab(quizData) {
     html += '</div>';
   }
   
+  // One-question-at-a-time (like mobile): show only the current question card,
+  // hide the rest. A "Next Question" button (added in submitQuiz) advances.
+  _quizCurrentIndex = 0;
+  _quizTotalCount = quizzes.length;
+
   quizzes.forEach((quiz, qIndex) => {
     const letters = ['A', 'B', 'C', 'D', 'E', 'F'];
-    html += '<div class="quiz-question-card" data-answer="' + quiz.answer + '" data-qindex="' + qIndex + '" data-quizid="' + (quiz.id || '') + '">';
-    html += '<div class="quiz-question-text">' + (quizzes.length > 1 ? 'Q' + (qIndex + 1) + '. ' : '') + sanitize(quiz.question) + '</div>';
+    // Only the first question is visible initially; others are hidden until the
+    // student advances with "Next Question".
+    var cardHidden = qIndex === 0 ? '' : 'display:none;';
+    html += '<div class="quiz-question-card" style="' + cardHidden + '" data-answer="' + quiz.answer + '" data-qindex="' + qIndex + '" data-quizid="' + (quiz.id || '') + '">';
+    // Progress label "Question X of N" like mobile.
+    if (quizzes.length > 1) {
+      html += '<div style="font-size:0.72rem;font-weight:700;color:var(--muted);margin-bottom:6px;">Question ' + (qIndex + 1) + ' of ' + quizzes.length + '</div>';
+    }
+    html += '<div class="quiz-question-text">' + sanitize(quiz.question) + '</div>';
     html += '<div class="quiz-options">';
     quiz.options.forEach((opt, i) => {
       html += '<div class="quiz-option" onclick="selectQuizOption(this, ' + qIndex + ')" data-index="' + i + '">';
@@ -216,6 +228,17 @@ async function submitQuiz(qIndex) {
   const btn = card.querySelector('.quiz-submit-btn');
   if (btn) btn.style.display = 'none';
 
+  // One-at-a-time flow (like mobile): if there's a next question, show a
+  // "Next Question →" button that reveals it. Added once per card.
+  if (qIndex < _quizTotalCount - 1 && !card.querySelector('.quiz-next-btn')) {
+    var nextBtn = document.createElement('button');
+    nextBtn.className = 'quiz-submit-btn quiz-next-btn';
+    nextBtn.style.cssText = 'margin-top:14px;background:#22c55e;';
+    nextBtn.textContent = 'Next Question →';
+    nextBtn.onclick = function () { goToNextQuizQuestion(qIndex); };
+    card.appendChild(nextBtn);
+  }
+
   // Calculate time taken (seconds since quiz tab was opened)
   const timeTaken = _quizStartTime ? Math.round((Date.now() - _quizStartTime) / 1000) : null;
 
@@ -269,6 +292,21 @@ async function submitQuiz(qIndex) {
     completionEl.innerHTML = '<div style="font-size:1rem;font-weight:800;color:#22c55e;margin-bottom:4px;">🎉 You completed this quiz with ' + correctCount + '/' + totalQuestions + ' Correct</div>';
     // Codo pops up with a thank-you now that the quiz is fully completed.
     if (typeof _codoShowQuizThanks === 'function') _codoShowQuizThanks();
+  }
+}
+
+/**
+ * Advance to the next quiz question (one-at-a-time flow, like mobile).
+ * Hides the current card and shows the next one, then scrolls it into view.
+ */
+function goToNextQuizQuestion(fromIndex) {
+  var cur = document.querySelector('.quiz-question-card[data-qindex="' + fromIndex + '"]');
+  var next = document.querySelector('.quiz-question-card[data-qindex="' + (fromIndex + 1) + '"]');
+  if (cur) cur.style.display = 'none';
+  if (next) {
+    next.style.display = '';
+    _quizCurrentIndex = fromIndex + 1;
+    try { next.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (e) {}
   }
 }
 
@@ -1203,6 +1241,10 @@ function _helpKey(kind, itemId, stage) { return (kind || '') + '|' + (itemId || 
 // /api/codo-scripts and are voiced via the existing /api/tts (cached) — zero
 // AI cost, identical for every student.
 // ───────────────────────────────────────────────────────────────────────────
+// One-question-at-a-time quiz navigation (desktop, matching mobile).
+var _quizCurrentIndex = 0;
+var _quizTotalCount = 0;
+
 var _codoScripts = {};            // { lesson_complete_prompt, quiz_complete_thanks }
 var _codoLessonCompleted = false; // set true when the video crosses 90%
 var _codoQuizDone = false;        // set true once the lesson quiz is completed/attempted
@@ -1282,36 +1324,35 @@ function _codoShowPrompt(message, acceptLabel, onAccept, rejectLabel, onReject) 
 }
 
 /**
- * Decide whether to intercept a navigation AWAY from the lesson video page.
- * Returns true to BLOCK the navigation (prompt shown); false to allow it.
- * Called from _navigateInternal before switching pages.
+ * General gate for ANY attempt to leave the lesson video screen (navigate to a
+ * page, go to the next lesson, log out, click another playlist video, etc.).
+ *
+ * If the student has watched ≥90%, hasn't done the quiz, and we haven't nagged
+ * yet, this shows Codo's "take a quiz?" prompt and returns true (BLOCK). The
+ * caller must stop its own action; "Not now" then runs `resume` to perform the
+ * original action. Returns false to ALLOW the action to proceed normally.
+ *
+ * @param {Function} resume - the original leave action to run on "Not now".
  */
-function codoMaybeInterceptLeave(targetPage) {
-  // Only when leaving the video page, after ≥90% watched, quiz not done, and we
-  // haven't already nagged for this lesson. Also require that a quiz exists.
-  if (targetPage === 'video') return false;
+function codoMaybeInterceptLeave(resume) {
   if (!_codoLessonCompleted || _codoQuizDone || _codoPromptShown) return false;
   if (!_codoQuizExistsForCurrentLesson()) return false;
 
   _codoPromptShown = true;
-  _codoPendingNav = targetPage;
   _codoShowPrompt(
     _codoScripts.lesson_complete_prompt || '',
     'Take the Quiz',
     function () {
-      // Accept → stay here and open the Quiz tab.
-      _codoPendingNav = null;
+      // Accept → stay here and open the Quiz tab. The held action is dropped.
       _codoOpenQuizTab();
     },
     'Not now',
     function () {
-      // Reject → resume the navigation we held.
-      var p = _codoPendingNav;
-      _codoPendingNav = null;
-      if (p && typeof navigate === 'function') navigate(p);
+      // Reject → run the original leave action we held.
+      if (typeof resume === 'function') resume();
     }
   );
-  return true; // block the original navigation
+  return true; // block the original action
 }
 
 // Does the current lesson actually have a quiz? (so we don't nag on quiz-less lessons)

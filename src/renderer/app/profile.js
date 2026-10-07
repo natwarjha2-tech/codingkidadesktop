@@ -4,6 +4,17 @@
  */
 
 function logout() {
+  // Codo "finish the quiz first?" nudge — if the student is on the lesson video
+  // screen, has watched ≥90%, and hasn't done the quiz, Codo asks before they
+  // log out. "Not now" resumes the logout.
+  try {
+    if (typeof getCurrentActivePage === 'function' && getCurrentActivePage() === 'video' &&
+        typeof codoMaybeInterceptLeave === 'function' &&
+        codoMaybeInterceptLeave(function () { logout(); })) {
+      return;
+    }
+  } catch (e) {}
+
   const userId = getCurrentUserId();
   if (userId) {
     _attendanceRecordLogout(userId);
