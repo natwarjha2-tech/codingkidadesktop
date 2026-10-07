@@ -264,6 +264,9 @@ async function submitQuiz(qIndex) {
   var userId = (typeof getCurrentUserId === 'function') ? getCurrentUserId() : '';
   if (lessonId && userId) {
     localStorage.setItem('ck_quiz_attempted_' + userId + '_' + lessonId, 'true');
+    // Mark Codo's quiz-done flag so the prompt doesn't re-fire if the student
+    // navigates away during this same session after completing the quiz.
+    _codoQuizDone = true;
   }
 
   // Check if this was the last question — show completion summary
@@ -1267,10 +1270,18 @@ _codoLoadScripts();
 // Reset the per-lesson Codo nudge state. Called when a new lesson's tabs render.
 function _codoResetLessonState() {
   _codoLessonCompleted = false;
-  _codoQuizDone = false;
   _codoPromptShown = false;
   _codoThanksShown = false;
   _codoPendingNav = null;
+  // Pre-check: if the quiz for this lesson was already attempted (this session
+  // OR a previous session via localStorage), mark quiz as done so Codo never
+  // nags the student to take a quiz they already did.
+  var _lessonId = _currentLessonForTabs ? _currentLessonForTabs.lessonId : '';
+  var _userId = (typeof getCurrentUserId === 'function') ? getCurrentUserId() : '';
+  var _localAttempted = _lessonId && _userId
+    ? localStorage.getItem('ck_quiz_attempted_' + _userId + '_' + _lessonId) === 'true'
+    : false;
+  _codoQuizDone = !!_vpQuizAttempted || _localAttempted;
 }
 
 // Called by the video player when the lesson crosses 90% watched.
@@ -1355,9 +1366,23 @@ function codoMaybeInterceptLeave(resume) {
   return true; // block the original action
 }
 
-// Does the current lesson actually have a quiz? (so we don't nag on quiz-less lessons)
+// Does the current lesson have a quiz that the student hasn't attempted yet?
+// Only returns true if there are quiz cards in the DOM AND the quiz hasn't
+// been done (neither in this session nor in a previous one via localStorage).
 function _codoQuizExistsForCurrentLesson() {
-  return !!document.querySelector('.quiz-question-card');
+  // No quiz cards rendered → lesson has no quiz.
+  if (!document.querySelector('.quiz-question-card')) return false;
+  // Already done this session.
+  if (_codoQuizDone) return false;
+  // Belt-and-braces: also check _vpQuizAttempted and localStorage directly.
+  if (_vpQuizAttempted) return false;
+  var _lessonId = _currentLessonForTabs ? _currentLessonForTabs.lessonId : '';
+  var _userId = (typeof getCurrentUserId === 'function') ? getCurrentUserId() : '';
+  if (_lessonId && _userId &&
+      localStorage.getItem('ck_quiz_attempted_' + _userId + '_' + _lessonId) === 'true') {
+    return false;
+  }
+  return true;
 }
 
 // Open the lesson's Quiz tab (desktop uses vp-tab buttons + vp-quiz panel).

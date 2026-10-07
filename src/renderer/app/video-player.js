@@ -31,7 +31,9 @@ function switchVpTab(el, panelId) {
     } else if (panelId === 'vp-exercise' && !_tabDataLoaded.exercise) {
       _tabDataLoaded.exercise = true;
       _lazyLoadExercise(lessonId, token);
-    } else if (panelId === 'vp-rate') {
+    } else if (panelId === 'vp-rate' && !_tabDataLoaded.rate) {
+      // Guard so reviews only fetch once per lesson — not on every tab click.
+      _tabDataLoaded.rate = true;
       _initLessonRateTab();
     } else if (panelId === 'vp-doubts') {
       // Lazy-init the lesson Q&A doubt chat (loads history + opens live stream).
@@ -100,7 +102,11 @@ async function _lazyLoadQuiz(lessonId, token) {
     if (ckCacheIsFresh(cacheKey)) return;
   } else {
     _vpQuizAttempted = false;
-    if (el) el.innerHTML = '<div class="tab-card" style="text-align:center;padding:30px;"><div class="skeleton-shimmer" style="width:60%;height:16px;margin:0 auto 12px;"></div><div class="skeleton-shimmer" style="width:80%;height:12px;margin:0 auto 8px;"></div><div class="skeleton-shimmer" style="width:40%;height:12px;margin:0 auto;"></div></div>';
+    if (el) el.innerHTML = '<div class="tab-card" style="text-align:center;padding:30px 20px;">' +
+      '<i class="fas fa-spinner fa-spin" style="font-size:1.5rem;color:rgba(167,139,250,0.6);margin-bottom:14px;display:block;"></i>' +
+      '<div style="color:var(--muted);font-size:0.85rem;font-weight:600;">Loading quiz...</div>' +
+      '<div style="margin-top:16px;"><div class="skeleton-shimmer" style="width:80%;height:12px;margin:0 auto 8px;border-radius:6px;"></div><div class="skeleton-shimmer" style="width:60%;height:12px;margin:0 auto 8px;border-radius:6px;"></div><div class="skeleton-shimmer" style="width:70%;height:12px;margin:0 auto;border-radius:6px;"></div></div>' +
+      '</div>';
   }
   try {
     const quizRes = await fetch(BASE_URL + '/api/quiz?lessonId=' + lessonId, {
@@ -110,6 +116,9 @@ async function _lazyLoadQuiz(lessonId, token) {
     if (quizData.success && quizData.quizzes && quizData.quizzes.length > 0) {
       ckCacheSet(cacheKey, quizData);
       _vpQuizAttempted = !!quizData.attempted; // persistent flag from backend
+      // If the backend confirms this quiz was already attempted, mark Codo as
+      // done so it never prompts the student to take it again.
+      if (_vpQuizAttempted && typeof _codoQuizDone !== 'undefined') _codoQuizDone = true;
       renderQuizTab(quizData.quizzes);
     } else {
       renderQuizTab(null);
@@ -126,7 +135,11 @@ async function _lazyLoadExercise(lessonId, token) {
     renderExerciseTab(cached.exercises);
     if (ckCacheIsFresh(cacheKey)) return;
   } else {
-    if (el) el.innerHTML = '<div class="tab-card" style="text-align:center;padding:30px;"><div class="skeleton-shimmer" style="width:60%;height:16px;margin:0 auto 12px;"></div><div class="skeleton-shimmer" style="width:80%;height:12px;margin:0 auto 8px;"></div><div class="skeleton-shimmer" style="width:40%;height:12px;margin:0 auto;"></div></div>';
+    if (el) el.innerHTML = '<div class="tab-card" style="text-align:center;padding:30px 20px;">' +
+      '<i class="fas fa-spinner fa-spin" style="font-size:1.5rem;color:rgba(167,139,250,0.6);margin-bottom:14px;display:block;"></i>' +
+      '<div style="color:var(--muted);font-size:0.85rem;font-weight:600;">Loading exercise...</div>' +
+      '<div style="margin-top:16px;"><div class="skeleton-shimmer" style="width:80%;height:12px;margin:0 auto 8px;border-radius:6px;"></div><div class="skeleton-shimmer" style="width:60%;height:12px;margin:0 auto 8px;border-radius:6px;"></div><div class="skeleton-shimmer" style="width:70%;height:12px;margin:0 auto;border-radius:6px;"></div></div>' +
+      '</div>';
   }
   try {
     const exRes = await fetch(BASE_URL + '/api/exercise?lessonId=' + lessonId, {
@@ -659,13 +672,7 @@ async function openVideoFromBackend(courseId, moduleId, lessonId) {
     // Cleanup any previous Monaco editor instances
     if (typeof codingCleanupEditors === 'function') codingCleanupEditors();
 
-    // Eagerly load Quiz + Exercise so they're ready when user clicks tab
-    const _eagToken = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
-    _tabDataLoaded.quiz = true;
-    _lazyLoadQuiz(lesson.id, _eagToken);
-    _tabDataLoaded.exercise = true;
-    _lazyLoadExercise(lesson.id, _eagToken);
-    // Remove old streak tab if exists
+    navigate('video');
     const oldStreakTab = document.getElementById('streak-tab-btn');
     if (oldStreakTab) oldStreakTab.remove();
     const oldStreakPanel = document.getElementById('vp-streak');
@@ -726,22 +733,52 @@ async function openVideoFromBackend(courseId, moduleId, lessonId) {
 
     navigate('video');
 
-    // Prefetch quiz + exercise in background after video is visible
-    // so when user clicks the tab, data is already rendered
-    const _prefetchToken = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
-    const _prefetchLessonId = lesson.id;
-    setTimeout(() => {
-      if (_currentLessonForTabs && _currentLessonForTabs.lessonId === _prefetchLessonId) {
-        if (!_tabDataLoaded.quiz) {
-          _tabDataLoaded.quiz = true;
-          _lazyLoadQuiz(_prefetchLessonId, _prefetchToken);
-        }
-        if (!_tabDataLoaded.exercise) {
-          _tabDataLoaded.exercise = true;
-          _lazyLoadExercise(_prefetchLessonId, _prefetchToken);
-        }
+    // Load ALL tabs in parallel immediately after the video page is in the DOM.
+    // Using setTimeout(0) defers to the next event-loop tick so the page has
+    // painted before we touch the tab panel elements — prevents the "DOM not
+    // ready yet" race that caused quiz/exercise to silently fail to render.
+    // Quiz, Exercise, Rate, and AskNow all fire together; none waits for another.
+    const _allTabsToken = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+    const _allTabsLessonId = lesson.id;
+    setTimeout(function () {
+      if (!_currentLessonForTabs || _currentLessonForTabs.lessonId !== _allTabsLessonId) return;
+      if (!_tabDataLoaded.quiz) {
+        _tabDataLoaded.quiz = true;
+        _lazyLoadQuiz(_allTabsLessonId, _allTabsToken);
       }
-    }, 1500);
+      if (!_tabDataLoaded.exercise) {
+        _tabDataLoaded.exercise = true;
+        _lazyLoadExercise(_allTabsLessonId, _allTabsToken);
+      }
+      if (!_tabDataLoaded.rate) {
+        _tabDataLoaded.rate = true;
+        // Seed a spinner so the Rate tab shows "Loading..." immediately
+        // while _initLessonRateTab fetches the reviews in the background.
+        var _ratePanel = document.getElementById('vp-rate');
+        if (_ratePanel) {
+          var _existing = _ratePanel.querySelector('.tab-card');
+          if (_existing) {
+            var _rateSpinner = document.createElement('div');
+            _rateSpinner.id = 'vp-rate-loading';
+            _rateSpinner.style.cssText = 'text-align:center;padding:14px 0 6px;';
+            _rateSpinner.innerHTML = '<i class="fas fa-spinner fa-spin" style="font-size:1.1rem;color:rgba(167,139,250,0.6);"></i>' +
+              '<span style="margin-left:8px;color:var(--muted);font-size:0.82rem;">Loading reviews...</span>';
+            _existing.insertBefore(_rateSpinner, _existing.querySelector('#vp-rate-stars')
+              ? _existing.querySelector('#vp-rate-stars').parentElement : _existing.firstChild);
+          }
+        }
+        _initLessonRateTab();
+      }
+      if (typeof initLessonChat === 'function') {
+        // Seed "Loading discussion…" so AskNow shows a spinner immediately.
+        var _msgs = document.getElementById('vp-doubts-messages');
+        if (_msgs && !_chatLoaded) {
+          _msgs.innerHTML = '<div style="color:var(--muted);font-size:0.85rem;text-align:center;padding:20px 0;">' +
+            '<i class="fas fa-spinner fa-spin" style="margin-right:6px;"></i>Loading discussion...</div>';
+        }
+        initLessonChat(_allTabsLessonId);
+      }
+    }, 0);
 
   } catch {}
 }

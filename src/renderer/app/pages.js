@@ -2774,6 +2774,10 @@ async function _loadLessonReviews() {
   var panel = document.getElementById('vp-rate');
   if (!panel) return;
 
+  // Remove the initial loading spinner once reviews start rendering.
+  var loadingSpinner = document.getElementById('vp-rate-loading');
+  if (loadingSpinner) loadingSpinner.remove();
+
   // Find or create reviews container
   var reviewsDiv = document.getElementById('vp-rate-reviews');
   if (!reviewsDiv) {
