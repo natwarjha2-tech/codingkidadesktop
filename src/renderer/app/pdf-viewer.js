@@ -62,12 +62,35 @@ function _openPdfInCanvas(url) {
 
   if (typeof pdfjsLib !== 'undefined') {
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'lib/pdf.worker.min.js';
-    pdfjsLib.getDocument(url).promise.then(function(pdf) {
+    // Pass the token + explicit range/stream options. withCredentials stays
+    // false (signed S3 URLs don't need cookies); disableStream/disableRange
+    // help with servers that don't support HTTP range requests (which caused
+    // large PDFs to fail to load after the server move).
+    var _task = pdfjsLib.getDocument({
+      url: url,
+      withCredentials: false,
+      disableRange: false,
+      disableStream: false,
+    });
+    _task.promise.then(function(pdf) {
       _pdfDoc = pdf;
       _renderPdfPage(1);
-    }).catch(function() {
-      alert('Could not load PDF.');
-      closePdfViewer();
+    }).catch(function(err) {
+      // Surface the real reason (CORS, 403 expired URL, range-not-supported)
+      // instead of a generic message, and retry once with range/stream
+      // disabled — the common fix when a server rejects range requests.
+      console.warn('PDF load failed:', err && (err.name + ': ' + err.message));
+      var _retry = pdfjsLib.getDocument({ url: url, withCredentials: false, disableRange: true, disableStream: true });
+      _retry.promise.then(function(pdf) {
+        _pdfDoc = pdf;
+        _renderPdfPage(1);
+      }).catch(function(err2) {
+        console.warn('PDF retry failed:', err2 && (err2.name + ': ' + err2.message));
+        alert('Could not load PDF. ' + (err2 && err2.name === 'MissingPDFException'
+          ? 'The file link may have expired — please reopen the lesson.'
+          : 'Please check your connection and try again.'));
+        closePdfViewer();
+      });
     });
   } else {
     alert('PDF viewer not available.');

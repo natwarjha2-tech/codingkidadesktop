@@ -539,6 +539,26 @@
   </div>
 
   <script>
+    // ── Remember-me: prefill saved credentials on load ──────────────────────
+    // When the user ticked "Remember me" on a previous login, we saved their
+    // email + password locally. Prefill them here so the next launch opens with
+    // the fields filled and "Remember me" checked — they can just click Log In
+    // (or edit the values). Stored in localStorage (device-local). To forget,
+    // the user unchecks "Remember me" and logs in (which clears the saved copy).
+    (function prefillSavedCredentials() {
+      try {
+        var saved = JSON.parse(localStorage.getItem('ck_saved_login') || 'null');
+        if (saved && saved.email) {
+          var emailEl = document.getElementById('email');
+          var passEl = document.getElementById('password');
+          var rememberEl = document.getElementById('remember');
+          if (emailEl) emailEl.value = saved.email;
+          if (passEl && saved.password) passEl.value = saved.password;
+          if (rememberEl) rememberEl.checked = true;
+        }
+      } catch (e) { /* ignore corrupt data */ }
+    })();
+
     // Toggle password visibility
     function togglePassword() {
       const input = document.getElementById('password');
@@ -691,6 +711,15 @@
           });
 
           if (response.success) {
+            // Remember-me: on success, save (or clear) the credentials locally
+            // so they prefill next time. Only saved when the box is ticked.
+            try {
+              if (remember) {
+                localStorage.setItem('ck_saved_login', JSON.stringify({ email: email, password: password }));
+              } else {
+                localStorage.removeItem('ck_saved_login');
+              }
+            } catch (e) { /* ignore storage errors */ }
             // Success - main process will load index.html
             loginBtn.innerHTML = '<span>✓</span><span>Success!</span>';
           } else {

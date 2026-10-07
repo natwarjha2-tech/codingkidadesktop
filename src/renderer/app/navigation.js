@@ -183,6 +183,26 @@ function updateBackButtonVisibility() {
 }
 
 function _navigateInternal(page, addToHistory) {
+  // Leaving the lesson video page: stop any Codo voice AND pause the lesson
+  // video immediately so neither keeps playing in the background on another
+  // screen (dashboard, courses, etc.).
+  try {
+    if (getCurrentActivePage() === 'video' && page !== 'video') {
+      if (typeof _codoStopAll === 'function') _codoStopAll();
+      // Pause the lesson video so its audio/playback stops when we leave.
+      var _vpVideoEl = document.getElementById('video-player');
+      if (_vpVideoEl && typeof _vpVideoEl.pause === 'function' && !_vpVideoEl.paused) {
+        _vpVideoEl.pause();
+      }
+      // Also stop the YouTube/iframe fallback player by clearing its src
+      // (reopening the lesson rebuilds it via openVideoFromBackend).
+      var _vpIframe = document.getElementById('video-iframe');
+      if (_vpIframe && _vpIframe.style.display !== 'none' && _vpIframe.src) {
+        _vpIframe.src = '';
+      }
+    }
+  } catch (e) {}
+
   // Codo "lesson complete → take a quiz?" nudge: if we're leaving the lesson
   // video page after ≥90% watched (and the quiz isn't done), Codo intercepts
   // and asks the student to take the quiz. If it returns true, it showed the

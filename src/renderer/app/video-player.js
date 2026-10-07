@@ -728,9 +728,19 @@ async function openVideoFromBackend(courseId, moduleId, lessonId) {
           '<i class="fas ' + (isCompleted ? 'fa-check-circle' : (canAccess ? 'fa-play-circle' : 'fa-lock')) + '" style="color:' + (isCompleted ? 'var(--success)' : (canAccess ? (isActive ? '#a78bfa' : 'var(--muted)') : 'var(--danger)')) + ';font-size:0.8rem;flex-shrink:0;"></i>' +
           '<span class="item-title">' + sanitize(l.title) + '</span>' +
           '<span class="item-duration" data-vp-lesson-id="' + l.id + '">' + _plDur + '</span>';
+        if (isActive) item.setAttribute('data-vp-active-item', '1');
         playlist.appendChild(item);
       });
     });
+
+    // Scroll the currently-playing lesson into view within the playlist, so the
+    // user immediately sees which lesson is selected without having to scroll.
+    setTimeout(function () {
+      var activeItem = playlist.querySelector('[data-vp-active-item="1"]');
+      if (activeItem && activeItem.scrollIntoView) {
+        try { activeItem.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
+      }
+    }, 100);
 
     // Reset to notes tab
     document.querySelectorAll('.vp-tab').forEach((t, i) => t.classList.toggle('active', i === 0));

@@ -127,6 +127,9 @@ function renderQuizTab(quizData) {
   // hide the rest. A "Next Question" button (added in submitQuiz) advances.
   _quizCurrentIndex = 0;
   _quizTotalCount = quizzes.length;
+  // Record that this lesson HAS a quiz (used by Codo's nudge, independent of
+  // whether the quiz tab/DOM is currently rendered/visible).
+  if (quizzes.length > 0) _codoLessonHasQuiz = true;
 
   quizzes.forEach((quiz, qIndex) => {
     const letters = ['A', 'B', 'C', 'D', 'E', 'F'];
@@ -1249,6 +1252,7 @@ var _quizCurrentIndex = 0;
 var _quizTotalCount = 0;
 
 var _codoScripts = {};            // { lesson_complete_prompt, quiz_complete_thanks }
+var _codoLessonHasQuiz = false;   // set true when this lesson's quiz data loads (>=1 question)
 var _codoLessonCompleted = false; // set true when the video crosses 90%
 var _codoQuizDone = false;        // set true once the lesson quiz is completed/attempted
 var _codoPromptShown = false;     // nag the quiz prompt at most once per lesson
@@ -1269,7 +1273,10 @@ _codoLoadScripts();
 
 // Reset the per-lesson Codo nudge state. Called when a new lesson's tabs render.
 function _codoResetLessonState() {
+  // Stop any Codo voice from the previous lesson so it never carries over.
+  try { if (typeof _codoStopAll === 'function') _codoStopAll(); } catch (e) {}
   _codoLessonCompleted = false;
+  _codoLessonHasQuiz = false;
   _codoPromptShown = false;
   _codoThanksShown = false;
   _codoPendingNav = null;
@@ -1370,8 +1377,11 @@ function codoMaybeInterceptLeave(resume) {
 // Only returns true if there are quiz cards in the DOM AND the quiz hasn't
 // been done (neither in this session nor in a previous one via localStorage).
 function _codoQuizExistsForCurrentLesson() {
-  // No quiz cards rendered → lesson has no quiz.
-  if (!document.querySelector('.quiz-question-card')) return false;
+  // Lesson has a quiz if the quiz data loaded with >=1 question. Uses a flag
+  // (not a DOM query) so it works even if the quiz tab hasn't been viewed yet
+  // or the quiz panel isn't currently rendered — fixes the corner case where
+  // the prompt didn't appear because .quiz-question-card wasn't in the DOM.
+  if (!_codoLessonHasQuiz && !document.querySelector('.quiz-question-card')) return false;
   // Already done this session.
   if (_codoQuizDone) return false;
   // Belt-and-braces: also check _vpQuizAttempted and localStorage directly.

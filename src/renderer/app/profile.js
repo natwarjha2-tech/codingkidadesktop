@@ -4,6 +4,8 @@
  */
 
 function logout() {
+  // Stop any Codo voice immediately on logout.
+  try { if (typeof _codoStopAll === 'function') _codoStopAll(); } catch (e) {}
   // Codo "finish the quiz first?" nudge — if the student is on the lesson video
   // screen, has watched ≥90%, and hasn't done the quiz, Codo asks before they
   // log out. "Not now" resumes the logout.
