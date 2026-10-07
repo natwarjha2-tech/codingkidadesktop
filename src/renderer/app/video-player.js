@@ -241,7 +241,7 @@ function _vpInitPlayer(videoEl) {
       var _wc=(_currentLessonContext&&_currentLessonContext.courseId)?_currentLessonContext.courseId:'x';
       awardXP('lesson-watch:'+_wc+':'+_pendingLessonComplete, XP_REWARDS.lessonWatch80);
     }
-    if(!_lessonMarkedComplete&&_pendingLessonComplete&&videoEl.duration&&videoEl.currentTime/videoEl.duration>=0.9){_lessonMarkedComplete=true;markLessonComplete(_pendingLessonComplete);}
+    if(!_lessonMarkedComplete&&_pendingLessonComplete&&videoEl.duration&&videoEl.currentTime/videoEl.duration>=0.9){_lessonMarkedComplete=true;markLessonComplete(_pendingLessonComplete);if(typeof codoMarkLessonComplete==='function')codoMarkLessonComplete();}
     var pct=videoEl.duration?(videoEl.currentTime/videoEl.duration)*100:0;
     var pb=document.getElementById('vp-prog-bar');if(pb)pb.style.width=pct+'%';
     var tm=document.getElementById('vp-time');if(tm)tm.textContent=_vpFmt(videoEl.currentTime)+' / '+_vpFmt(videoEl.duration);
@@ -537,6 +537,8 @@ async function openVideoFromBackend(courseId, moduleId, lessonId) {
     _vpLoadReactions(lesson.id);
     // Video completion: mark complete only when 90%+ watched (handled by video player event)
     _pendingLessonComplete = lesson.id;
+    // Reset Codo's "lesson complete → take a quiz?" nudge state for the new lesson.
+    if (typeof _codoResetLessonState === 'function') _codoResetLessonState();
     // Auto-load rate tab reviews
     _initLessonRateTab();
     // Reset the doubt-chat for the new lesson (closes any prior live stream).

@@ -267,6 +267,8 @@ async function submitQuiz(qIndex) {
       if (tabCard) tabCard.appendChild(completionEl);
     }
     completionEl.innerHTML = '<div style="font-size:1rem;font-weight:800;color:#22c55e;margin-bottom:4px;">🎉 You completed this quiz with ' + correctCount + '/' + totalQuestions + ' Correct</div>';
+    // Codo pops up with a thank-you now that the quiz is fully completed.
+    if (typeof _codoShowQuizThanks === 'function') _codoShowQuizThanks();
   }
 }
 
@@ -702,9 +704,19 @@ async function prefetchLessonHelp(kind, quizId, exerciseId) {
           }
         }
       }
-      if (meta && meta.audio && full) {
-        const spokenText = _plainForSpeech(full);
-        _codoTtsCache[spokenText] = meta.audio;
+      if (full) {
+        // Cache the full response in memory so the Codo tap needs NO backend
+        // call — text renders and voice plays straight from memory.
+        const itemId = kind === 'quiz' ? quizId : exerciseId;
+        _lessonHelpCache[_helpKey(kind, itemId, stage)] = {
+          help: full,
+          source: (meta && meta.source) || 'ai',
+          sources: (meta && Array.isArray(meta.sources)) ? meta.sources : [],
+        };
+        if (meta && meta.audio) {
+          const spokenText = _plainForSpeech(full);
+          _codoTtsCache[spokenText] = meta.audio;
+        }
       }
     } catch (e) { /* best-effort prefetch — ignore */ }
   }
@@ -746,6 +758,20 @@ async function requestLessonHelp(btn) {
   panel.innerHTML = '';
 
   try {
+    // ---- Memory-first: if the background prefetch (on a wrong answer) already
+    // loaded this item/stage, render it INSTANTLY with NO backend call. Voice
+    // also plays from _codoTtsCache. ----------------------------------------
+    const _memItemId = kind === 'quiz' ? quizId : exerciseId;
+    const _mem = _lessonHelpCache[_helpKey(kind, _memItemId, stage)];
+    if (_mem && _mem.help) {
+      const seeded = _codoTtsCache[_plainForSpeech(_mem.help)] || null;
+      await _streamLessonHelp(null, {
+        btn, panel, stage, sayEl, origSay, origHtml,
+        cached: { help: _mem.help, source: _mem.source, sources: _mem.sources, audio: seeded },
+      });
+      return;
+    }
+
     const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
     const res = await fetch(BASE_URL + '/api/lesson-help', {
       method: 'POST',
@@ -901,44 +927,53 @@ async function _streamLessonHelp(res, ctx) {
   const bodyEl = block.querySelector('.codo-help-body');
   const sourcesEl = block.querySelector('.codo-help-sources');
 
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
   let full = '';
   let meta = null;
-  let started = false;
 
   const flushText = function () {
     bodyEl.innerHTML = _formatHelpText(full);
   };
 
-  try {
-    while (true) {
-      const r = await reader.read();
-      if (r.done) break;
-      buffer += decoder.decode(r.value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i].trim();
-        if (line.indexOf('data:') !== 0) continue;
-        const payload = line.slice(5).trim();
-        if (!payload) continue;
-        let frame;
-        try { frame = JSON.parse(payload); } catch (e) { continue; }
-        if (frame.type === 'text' && frame.chunk) {
-          if (!started) { started = true; bodyEl.innerHTML = ''; }
-          full += frame.chunk;
-          flushText();
-        } else if (frame.type === 'done') {
-          meta = frame;
-          if (typeof frame.help === 'string' && frame.help) { full = frame.help; }
-          flushText();
+  if (ctx.cached && ctx.cached.help) {
+    // INSTANT path: everything came from memory (prefetch). No network, no
+    // stream to read — render the full text at once and treat the cached meta
+    // as the `done` frame (so sources + audio behave identically).
+    full = ctx.cached.help;
+    meta = { source: ctx.cached.source, sources: ctx.cached.sources, audio: ctx.cached.audio || null };
+    flushText();
+  } else {
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let started = false;
+    try {
+      while (true) {
+        const r = await reader.read();
+        if (r.done) break;
+        buffer += decoder.decode(r.value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i].trim();
+          if (line.indexOf('data:') !== 0) continue;
+          const payload = line.slice(5).trim();
+          if (!payload) continue;
+          let frame;
+          try { frame = JSON.parse(payload); } catch (e) { continue; }
+          if (frame.type === 'text' && frame.chunk) {
+            if (!started) { started = true; bodyEl.innerHTML = ''; }
+            full += frame.chunk;
+            flushText();
+          } else if (frame.type === 'done') {
+            meta = frame;
+            if (typeof frame.help === 'string' && frame.help) { full = frame.help; }
+            flushText();
+          }
         }
       }
+    } catch (e) {
+      // Stream broke mid-way — if we have partial text, keep it; else error out.
     }
-  } catch (e) {
-    // Stream broke mid-way — if we have partial text, keep it; else error out.
   }
 
   if (!full) {
@@ -1152,6 +1187,164 @@ function _codoPickHindiVoice() {
 var _codoAudio = null;
 // Simple client cache: text -> base64 mp3, so replaying is instant and free.
 var _codoTtsCache = {};
+// Full help response cached in memory, keyed by kind|itemId|stage. Seeded by
+// the background prefetch on a wrong answer so a Codo tap renders the text
+// INSTANTLY with NO backend call (voice also plays from _codoTtsCache).
+// Shape per entry: { help, source, sources }.
+var _lessonHelpCache = {};
+function _helpKey(kind, itemId, stage) { return (kind || '') + '|' + (itemId || '') + '|' + (stage || ''); }
+
+// ───────────────────────────────────────────────────────────────────────────
+// Codo "lesson complete → take a quiz?" nudge (desktop).
+// When a student has watched ≥90% of the video and then tries to navigate away
+// without having done the quiz, Codo pops up, speaks a fixed (DB-backed, no-AI)
+// line, and offers "Take the Quiz" / "Not now". After the quiz is completed,
+// Codo pops up again with a thank-you. The spoken lines come from
+// /api/codo-scripts and are voiced via the existing /api/tts (cached) — zero
+// AI cost, identical for every student.
+// ───────────────────────────────────────────────────────────────────────────
+var _codoScripts = {};            // { lesson_complete_prompt, quiz_complete_thanks }
+var _codoLessonCompleted = false; // set true when the video crosses 90%
+var _codoQuizDone = false;        // set true once the lesson quiz is completed/attempted
+var _codoPromptShown = false;     // nag the quiz prompt at most once per lesson
+var _codoPendingNav = null;       // held navigation to resume on "Not now"
+var _codoThanksShown = false;     // show the thank-you at most once per lesson
+
+// Fetch the fixed Codo lines once (best-effort; falls back silently).
+function _codoLoadScripts() {
+  try {
+    var token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+    fetch(BASE_URL + '/api/codo-scripts', { headers: { Authorization: 'Bearer ' + token } })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) { if (d && d.success && d.scripts) _codoScripts = d.scripts; })
+      .catch(function () {});
+  } catch (e) {}
+}
+_codoLoadScripts();
+
+// Reset the per-lesson Codo nudge state. Called when a new lesson's tabs render.
+function _codoResetLessonState() {
+  _codoLessonCompleted = false;
+  _codoQuizDone = false;
+  _codoPromptShown = false;
+  _codoThanksShown = false;
+  _codoPendingNav = null;
+}
+
+// Called by the video player when the lesson crosses 90% watched.
+function codoMarkLessonComplete() { _codoLessonCompleted = true; }
+
+/**
+ * Build + show the Codo prompt overlay. Speaks `message`, shows an accept button
+ * (optional) and a reject/dismiss button. Reuses _codoSpeak for voice.
+ */
+function _codoShowPrompt(message, acceptLabel, onAccept, rejectLabel, onReject) {
+  if (!message) { // nothing to say — just run the reject/continue path
+    if (onReject) onReject();
+    return;
+  }
+  // Remove any existing overlay first.
+  var existing = document.getElementById('codo-prompt-overlay');
+  if (existing) existing.remove();
+
+  var overlay = document.createElement('div');
+  overlay.id = 'codo-prompt-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:100000;display:flex;align-items:center;justify-content:center;padding:20px;';
+
+  var acceptBtnHtml = acceptLabel
+    ? '<button id="codo-prompt-accept" style="flex:1;padding:12px 16px;border:none;border-radius:12px;background:#a78bfa;color:#fff;font-size:0.9rem;font-weight:700;cursor:pointer;">' + acceptLabel + '</button>'
+    : '';
+
+  overlay.innerHTML =
+    '<div style="width:100%;max-width:400px;background:#1a1230;border:1px solid rgba(168,85,247,0.35);border-radius:18px;padding:22px;text-align:center;box-shadow:0 10px 30px rgba(0,0,0,0.5);">' +
+      '<img src="assets/codo.jpg" alt="Codo" style="width:72px;height:72px;border-radius:50%;background:#0b0e14;margin-bottom:14px;"/>' +
+      '<div style="color:#e2e8f0;font-size:0.95rem;line-height:1.5;font-weight:500;margin-bottom:18px;">' + sanitize(message) + '</div>' +
+      '<div style="display:flex;gap:12px;justify-content:center;">' +
+        '<button id="codo-prompt-reject" style="flex:1;padding:12px 16px;border:1px solid rgba(255,255,255,0.15);border-radius:12px;background:rgba(255,255,255,0.08);color:#cbd5e1;font-size:0.9rem;font-weight:700;cursor:pointer;">' + (rejectLabel || 'Not now') + '</button>' +
+        acceptBtnHtml +
+      '</div>' +
+    '</div>';
+
+  document.body.appendChild(overlay);
+
+  // Speak the line (same clean voice as the rest of Codo).
+  try { if (typeof _codoSpeak === 'function') _codoSpeak(_plainForSpeech(message), null); } catch (e) {}
+
+  function close() {
+    try { if (typeof _codoStopAll === 'function') _codoStopAll(); } catch (e) {}
+    var el = document.getElementById('codo-prompt-overlay');
+    if (el) el.remove();
+  }
+  var rej = document.getElementById('codo-prompt-reject');
+  if (rej) rej.onclick = function () { close(); if (onReject) onReject(); };
+  var acc = document.getElementById('codo-prompt-accept');
+  if (acc) acc.onclick = function () { close(); if (onAccept) onAccept(); };
+}
+
+/**
+ * Decide whether to intercept a navigation AWAY from the lesson video page.
+ * Returns true to BLOCK the navigation (prompt shown); false to allow it.
+ * Called from _navigateInternal before switching pages.
+ */
+function codoMaybeInterceptLeave(targetPage) {
+  // Only when leaving the video page, after ≥90% watched, quiz not done, and we
+  // haven't already nagged for this lesson. Also require that a quiz exists.
+  if (targetPage === 'video') return false;
+  if (!_codoLessonCompleted || _codoQuizDone || _codoPromptShown) return false;
+  if (!_codoQuizExistsForCurrentLesson()) return false;
+
+  _codoPromptShown = true;
+  _codoPendingNav = targetPage;
+  _codoShowPrompt(
+    _codoScripts.lesson_complete_prompt || '',
+    'Take the Quiz',
+    function () {
+      // Accept → stay here and open the Quiz tab.
+      _codoPendingNav = null;
+      _codoOpenQuizTab();
+    },
+    'Not now',
+    function () {
+      // Reject → resume the navigation we held.
+      var p = _codoPendingNav;
+      _codoPendingNav = null;
+      if (p && typeof navigate === 'function') navigate(p);
+    }
+  );
+  return true; // block the original navigation
+}
+
+// Does the current lesson actually have a quiz? (so we don't nag on quiz-less lessons)
+function _codoQuizExistsForCurrentLesson() {
+  return !!document.querySelector('.quiz-question-card');
+}
+
+// Open the lesson's Quiz tab (desktop uses vp-tab buttons + vp-quiz panel).
+function _codoOpenQuizTab() {
+  // Find the Quiz tab button and click it so lazy-load + active state run.
+  var tabs = document.querySelectorAll('.vp-tab');
+  for (var i = 0; i < tabs.length; i++) {
+    var t = tabs[i];
+    if ((t.textContent || '').toLowerCase().indexOf('quiz') !== -1) {
+      if (typeof switchVpTab === 'function') switchVpTab(t, 'vp-quiz');
+      else t.click();
+      return;
+    }
+  }
+}
+
+// Show Codo's thank-you after the quiz is completed (once per lesson).
+function _codoShowQuizThanks() {
+  if (_codoThanksShown) return;
+  _codoThanksShown = true;
+  _codoQuizDone = true;
+  _codoShowPrompt(
+    _codoScripts.quiz_complete_thanks || '',
+    null, null,
+    'Yay!',
+    null
+  );
+}
 // True while a TTS fetch is in flight. Blocks repeated Listen/Stop taps so a
 // second request can't start (and voices can't overlap) until the current
 // fetch finishes.
