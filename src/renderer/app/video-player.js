@@ -97,6 +97,11 @@ async function _lazyLoadQuiz(lessonId, token) {
   var cached = ckCacheGet(cacheKey);
   if (cached && cached.success && cached.quizzes && cached.quizzes.length > 0) {
     _vpQuizAttempted = !!cached.attempted;
+    // Keep Codo's quiz-done flag in sync with the cached attempted state.
+    if (typeof _codoQuizDone !== 'undefined') {
+      if (_vpQuizAttempted) _codoQuizDone = true;
+      // else leave _codoQuizDone as set by _codoResetLessonState (localStorage check)
+    }
     renderQuizTab(cached.quizzes);
     // If cache is fresh, skip API call
     if (ckCacheIsFresh(cacheKey)) return;

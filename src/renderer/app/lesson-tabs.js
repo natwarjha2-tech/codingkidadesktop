@@ -1273,15 +1273,15 @@ function _codoResetLessonState() {
   _codoPromptShown = false;
   _codoThanksShown = false;
   _codoPendingNav = null;
-  // Pre-check: if the quiz for this lesson was already attempted (this session
-  // OR a previous session via localStorage), mark quiz as done so Codo never
-  // nags the student to take a quiz they already did.
+  // Pre-check ONLY the per-lesson localStorage flag (lesson-specific, reliable).
+  // Do NOT read the global _vpQuizAttempted here — at reset time it still holds
+  // the PREVIOUS lesson's value (the new lesson's quiz hasn't loaded yet), which
+  // would wrongly suppress Codo on a fresh lesson. _lazyLoadQuiz sets
+  // _codoQuizDone correctly once THIS lesson's quiz loads and confirms attempted.
   var _lessonId = _currentLessonForTabs ? _currentLessonForTabs.lessonId : '';
   var _userId = (typeof getCurrentUserId === 'function') ? getCurrentUserId() : '';
-  var _localAttempted = _lessonId && _userId
-    ? localStorage.getItem('ck_quiz_attempted_' + _userId + '_' + _lessonId) === 'true'
-    : false;
-  _codoQuizDone = !!_vpQuizAttempted || _localAttempted;
+  _codoQuizDone = !!(_lessonId && _userId &&
+    localStorage.getItem('ck_quiz_attempted_' + _userId + '_' + _lessonId) === 'true');
 }
 
 // Called by the video player when the lesson crosses 90% watched.
