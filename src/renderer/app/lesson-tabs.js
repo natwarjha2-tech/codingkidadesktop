@@ -1271,8 +1271,12 @@ function _codoLoadScripts() {
 }
 _codoLoadScripts();
 
-// Reset the per-lesson Codo nudge state. Called when a new lesson's tabs render.
-function _codoResetLessonState() {
+// Reset the per-lesson Codo nudge state. Called when a new lesson opens.
+// IMPORTANT: the NEW lesson's id must be passed in explicitly, because this is
+// invoked BEFORE _currentLessonForTabs is updated to the new lesson — reading
+// _currentLessonForTabs here would give the PREVIOUS lesson's id and check the
+// wrong attempt flag, which wrongly suppressed Codo on the next lesson.
+function _codoResetLessonState(newLessonId) {
   // Stop any Codo voice from the previous lesson so it never carries over.
   try { if (typeof _codoStopAll === 'function') _codoStopAll(); } catch (e) {}
   _codoLessonCompleted = false;
@@ -1280,12 +1284,12 @@ function _codoResetLessonState() {
   _codoPromptShown = false;
   _codoThanksShown = false;
   _codoPendingNav = null;
-  // Pre-check ONLY the per-lesson localStorage flag (lesson-specific, reliable).
-  // Do NOT read the global _vpQuizAttempted here — at reset time it still holds
-  // the PREVIOUS lesson's value (the new lesson's quiz hasn't loaded yet), which
-  // would wrongly suppress Codo on a fresh lesson. _lazyLoadQuiz sets
-  // _codoQuizDone correctly once THIS lesson's quiz loads and confirms attempted.
-  var _lessonId = _currentLessonForTabs ? _currentLessonForTabs.lessonId : '';
+  // Pre-check ONLY the per-lesson localStorage flag for THIS new lesson. Do not
+  // use the global _vpQuizAttempted — it still holds the previous lesson's value
+  // until the new lesson's quiz loads. _lazyLoadQuiz will set _codoQuizDone
+  // correctly once this lesson's quiz confirms attempted.
+  var _lessonId = newLessonId ||
+    (_currentLessonForTabs ? _currentLessonForTabs.lessonId : '');
   var _userId = (typeof getCurrentUserId === 'function') ? getCurrentUserId() : '';
   _codoQuizDone = !!(_lessonId && _userId &&
     localStorage.getItem('ck_quiz_attempted_' + _userId + '_' + _lessonId) === 'true');
@@ -1382,10 +1386,11 @@ function _codoQuizExistsForCurrentLesson() {
   // or the quiz panel isn't currently rendered — fixes the corner case where
   // the prompt didn't appear because .quiz-question-card wasn't in the DOM.
   if (!_codoLessonHasQuiz && !document.querySelector('.quiz-question-card')) return false;
-  // Already done this session.
+  // Already done this session (set by submitQuiz or _lazyLoadQuiz for THIS
+  // lesson). NOTE: we intentionally do NOT check the global _vpQuizAttempted
+  // here — it can hold the previous lesson's value and wrongly suppress Codo.
   if (_codoQuizDone) return false;
-  // Belt-and-braces: also check _vpQuizAttempted and localStorage directly.
-  if (_vpQuizAttempted) return false;
+  // Attempted in a previous session? (lesson-specific localStorage key).
   var _lessonId = _currentLessonForTabs ? _currentLessonForTabs.lessonId : '';
   var _userId = (typeof getCurrentUserId === 'function') ? getCurrentUserId() : '';
   if (_lessonId && _userId &&

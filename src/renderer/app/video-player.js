@@ -555,8 +555,10 @@ async function openVideoFromBackend(courseId, moduleId, lessonId) {
     _vpLoadReactions(lesson.id);
     // Video completion: mark complete only when 90%+ watched (handled by video player event)
     _pendingLessonComplete = lesson.id;
-    // Reset Codo's "lesson complete → take a quiz?" nudge state for the new lesson.
-    if (typeof _codoResetLessonState === 'function') _codoResetLessonState();
+    // Reset Codo's "lesson complete → take a quiz?" nudge state for the new
+    // lesson. Pass the NEW lesson id explicitly — _currentLessonForTabs is still
+    // the previous lesson at this point (it's updated further below).
+    if (typeof _codoResetLessonState === 'function') _codoResetLessonState(lesson.id);
     // Auto-load rate tab reviews
     _initLessonRateTab();
     // Reset the doubt-chat for the new lesson (closes any prior live stream).

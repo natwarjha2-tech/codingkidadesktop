@@ -116,7 +116,7 @@ async function openPdfInApp(url) {
   try {
     const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
     let pdfUrl = url;
-    if (url.includes('amazonaws.com')) {
+    if (url.includes('amazonaws.com') || url.includes('cloudfront.net')) {
       const res = await fetch(BASE_URL + '/api/media/signed-url', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },

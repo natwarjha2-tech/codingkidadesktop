@@ -339,7 +339,7 @@ async function playDownloadedVideo(index) {
     document.getElementById('video-meta').textContent = (d.courseTitle || '') + (d.moduleTitle ? ' · ' + d.moduleTitle : '');
     // Get fresh signed URL before playing — stored URL may be expired
     let playUrl = d.videoUrl || '';
-    if (playUrl && playUrl.includes('amazonaws.com')) {
+    if (playUrl && (playUrl.includes('amazonaws.com') || playUrl.includes('cloudfront.net'))) {
       const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
       try {
         const res = await fetch(BASE_URL + '/api/media/signed-url', {
@@ -395,7 +395,7 @@ async function downloadOffline() {
 
   // Get signed URL immediately before passing to main process — minimises TTL gap
   async function getSignedUrl(url) {
-    if (!url || !url.includes('amazonaws.com')) return url;
+    if (!url || (!url.includes('amazonaws.com') && !url.includes('cloudfront.net'))) return url;
     try {
       const res = await fetch(BASE_URL + '/api/media/signed-url', {
         method: 'POST',
@@ -455,7 +455,7 @@ async function downloadPdfOffline(notesUrl) {
   try {
     // Get signed URL immediately before passing to main process
     let dlUrl = notesUrl;
-    if (notesUrl.includes('amazonaws.com')) {
+    if (notesUrl.includes('amazonaws.com') || notesUrl.includes('cloudfront.net')) {
       const res = await fetch(BASE_URL + '/api/media/signed-url', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
@@ -763,7 +763,8 @@ async function deleteOfflineContent(lessonId, type) {
 // cached one from a course opened days ago will 403). Falls back to the given
 // URL if signing fails. Requires a valid auth token.
 async function _freshSignedUrl(fileUrl, forDownload) {
-  if (!fileUrl || fileUrl.indexOf('amazonaws.com') === -1) return fileUrl;
+  // Re-sign S3 OR CloudFront URLs (both are private and need a fresh signature).
+  if (!fileUrl || (fileUrl.indexOf('amazonaws.com') === -1 && fileUrl.indexOf('cloudfront.net') === -1)) return fileUrl;
   var token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
   try {
     var res = await fetch(BASE_URL + '/api/media/signed-url', {
