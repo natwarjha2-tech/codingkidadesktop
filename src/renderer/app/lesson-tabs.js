@@ -306,6 +306,9 @@ async function submitQuiz(qIndex) {
  * Hides the current card and shows the next one, then scrolls it into view.
  */
 function goToNextQuizQuestion(fromIndex) {
+  // Stop any Codo voice (prefix/solution/postfix) when moving to a new question,
+  // so the previous question's answer doesn't keep playing over the new one.
+  try { if (typeof _codoStopAll === 'function') _codoStopAll(); } catch (e) {}
   var cur = document.querySelector('.quiz-question-card[data-qindex="' + fromIndex + '"]');
   var next = document.querySelector('.quiz-question-card[data-qindex="' + (fromIndex + 1) + '"]');
   if (cur) cur.style.display = 'none';
@@ -904,11 +907,15 @@ async function requestLessonHelp(btn) {
 
       // Speak: prefix → solution → postfix in sequence.
       // Prefix/postfix come from _codoScripts (fetched once, audio cached).
+      // A chain token lets a Stop / question-change truly cancel the sequence.
       var prefixText = _codoScriptText('codo_solution_prefix', '');
       var postfixText = _codoScriptText('codo_solution_postfix', '');
       (async function () {
+        var myChain = _codoChainToken;
         if (prefixText) { await _codoSpeakAsync(prefixText); }
+        if (myChain !== _codoChainToken) return;
         await _codoSpeakAsync(spokenText, document.getElementById(speakId));
+        if (myChain !== _codoChainToken) return;
         if (postfixText) { await _codoSpeakAsync(postfixText); }
       })();
 
@@ -1042,11 +1049,15 @@ async function _streamLessonHelp(res, ctx) {
   }
 
   // Speak: prefix → solution → postfix in sequence (prefix/postfix from DB cache).
+  // A chain token lets a Stop / question-change truly cancel the sequence.
   var prefixText = _codoScriptText('codo_solution_prefix', '');
   var postfixText = _codoScriptText('codo_solution_postfix', '');
   (async function () {
+    var myChain = _codoChainToken;
     if (prefixText) { await _codoSpeakAsync(prefixText); }
+    if (myChain !== _codoChainToken) return;
     await _codoSpeakAsync(spokenText, speakBtn);
+    if (myChain !== _codoChainToken) return;
     if (postfixText) { await _codoSpeakAsync(postfixText); }
   })();
 
@@ -1450,8 +1461,14 @@ function _codoShowQuizThanks() {
 // fetch finishes.
 var _codoLoading = false;
 
+// Bumped on every stop — the sequential prefix→solution→postfix chain checks
+// this token before playing each next part, so stopping truly ends the chain
+// (not just the current clip).
+var _codoChainToken = 0;
+
 /** Stop any Codo audio AND any browser speech currently playing. */
 function _codoStopAll() {
+  _codoChainToken++; // cancel any in-flight prefix/solution/postfix sequence
   try {
     if (_codoAudio) {
       // Detach handlers BEFORE pausing/clearing. Clearing src fires the audio

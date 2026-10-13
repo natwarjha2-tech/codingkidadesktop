@@ -359,24 +359,43 @@ async function loadVideo(url, hlsMasterUrl, hlsQualities) {
   // loads. If the browser/Electron autoplay policy blocks it, we fall back to
   // starting MUTED (always allowed) so playback still begins; the user can
   // unmute. If even that is blocked, the existing click-to-play still works.
+  var _autoplayDone = false;
   var _tryAutoplay = function () {
+    if (_autoplayDone) return;
+    // Only autoplay THIS video (guard against a stale listener firing for a
+    // source that was since replaced).
+    if (videoEl.src !== url && videoEl.currentSrc !== url) { /* still try — src may be normalized */ }
     var p = videoEl.play();
-    if (p && typeof p.catch === 'function') {
-      p.catch(function () {
-        // Autoplay-with-sound blocked → retry muted (allowed everywhere).
+    if (p && typeof p.then === 'function') {
+      p.then(function () {
+        _autoplayDone = true;
+        // Reflect playing state in the UI (flip play → pause icon).
+        var pi = document.getElementById('vp-play-icon'); if (pi) pi.className = 'fas fa-pause';
+      }).catch(function () {
+        // Autoplay-with-sound blocked → retry MUTED (always allowed).
         try {
           videoEl.muted = true;
-          var vi = document.getElementById('vp-vol-icon');
-          if (vi) _vpUpdVolIcon();
-          videoEl.play().catch(function () { /* give up — click-to-play remains */ });
+          if (typeof _vpUpdVolIcon === 'function') _vpUpdVolIcon();
+          var p2 = videoEl.play();
+          if (p2 && typeof p2.then === 'function') {
+            p2.then(function () {
+              _autoplayDone = true;
+              var pi2 = document.getElementById('vp-play-icon'); if (pi2) pi2.className = 'fas fa-pause';
+            }).catch(function () { /* give up — click-to-play remains */ });
+          }
         } catch (e) {}
       });
     }
   };
-  // Start on canplay (first frame ready) so we don't fight the initial buffer.
+  // Try on multiple readiness events — in Electron, 'canplay' can be flaky, so
+  // 'loadeddata' + 'canplaythrough' give more chances to start reliably.
+  videoEl.addEventListener('loadeddata', _tryAutoplay, { once: true });
   videoEl.addEventListener('canplay', _tryAutoplay, { once: true });
-  // Safety: also try shortly after in case 'canplay' already fired.
-  setTimeout(_tryAutoplay, 300);
+  videoEl.addEventListener('canplaythrough', _tryAutoplay, { once: true });
+  // Safety: also try shortly after, in case the event already fired before the
+  // listener attached (source set synchronously above).
+  setTimeout(_tryAutoplay, 250);
+  setTimeout(_tryAutoplay, 800);
 }
 
 // ─── Engagement: Like/Dislike/Views ─────────────────────────────────────────
