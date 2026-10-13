@@ -353,6 +353,30 @@ async function loadVideo(url, hlsMasterUrl, hlsQualities) {
   _vpBuildQualityMenu();
   var ql = document.getElementById('vp-quality-label');
   if (ql) ql.textContent = _vpCurrentQuality;
+
+  // Autoplay as soon as the source can play — mirrors the mobile app (which
+  // starts automatically). The user no longer has to click Play after the video
+  // loads. If the browser/Electron autoplay policy blocks it, we fall back to
+  // starting MUTED (always allowed) so playback still begins; the user can
+  // unmute. If even that is blocked, the existing click-to-play still works.
+  var _tryAutoplay = function () {
+    var p = videoEl.play();
+    if (p && typeof p.catch === 'function') {
+      p.catch(function () {
+        // Autoplay-with-sound blocked → retry muted (allowed everywhere).
+        try {
+          videoEl.muted = true;
+          var vi = document.getElementById('vp-vol-icon');
+          if (vi) _vpUpdVolIcon();
+          videoEl.play().catch(function () { /* give up — click-to-play remains */ });
+        } catch (e) {}
+      });
+    }
+  };
+  // Start on canplay (first frame ready) so we don't fight the initial buffer.
+  videoEl.addEventListener('canplay', _tryAutoplay, { once: true });
+  // Safety: also try shortly after in case 'canplay' already fired.
+  setTimeout(_tryAutoplay, 300);
 }
 
 // ─── Engagement: Like/Dislike/Views ─────────────────────────────────────────

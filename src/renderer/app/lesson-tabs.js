@@ -681,7 +681,7 @@ function _codoHelpButton(kind, idAttr) {
     });
   }, 400);
   return (
-    '<span class="codo-help lesson-help-btn" data-stage="hint" data-kind="' + kind + '" ' + idAttr +
+    '<span class="codo-help lesson-help-btn" data-stage="answer" data-kind="' + kind + '" ' + idAttr +
     ' onclick="requestLessonHelp(this)" title="Ask Codo for help">' +
     '<img src="assets/codo.jpg" alt="Codo"/>' +
     '<span class="codo-say">Stuck? Can I help? \uD83D\uDC4B</span>' +
@@ -710,7 +710,7 @@ function _codoHelpButton(kind, idAttr) {
  * uses). Best-effort and silent: never shows UI, never throws.
  */
 async function prefetchLessonHelp(kind, quizId, exerciseId) {
-  const stages = ['hint', 'answer'];
+  const stages = ['answer']; // hint stage removed — always go straight to solution
   const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
   for (let s = 0; s < stages.length; s++) {
     const stage = stages[s];
@@ -768,7 +768,7 @@ async function prefetchLessonHelp(kind, quizId, exerciseId) {
 
 async function requestLessonHelp(btn) {
   if (!btn) return;
-  const stage = btn.getAttribute('data-stage') || 'hint';
+  const stage = btn.getAttribute('data-stage') || 'answer'; // hint stage removed
   const kind = btn.getAttribute('data-kind') || 'quiz';
   const quizId = btn.getAttribute('data-quizid') || '';
   const exerciseId = btn.getAttribute('data-exerciseid') || '';
@@ -839,11 +839,11 @@ async function requestLessonHelp(btn) {
     btn.style.opacity = '1';
 
     if (data && data.success && data.help) {
-      const isHint = stage === 'hint';
-      const title = isHint ? '💡 Codo\u2019s hint' : '\u2705 The answer, explained';
-      const accent = isHint ? '#fbbf24' : '#22c55e';
-      const bg = isHint ? 'rgba(251,191,36,0.08)' : 'rgba(34,197,94,0.08)';
-      const border = isHint ? 'rgba(251,191,36,0.25)' : 'rgba(34,197,94,0.25)';
+      // Hint stage removed — always show the full solution.
+      const title = '\u2705 Codo\u2019s solution';
+      const accent = '#22c55e';
+      const bg = 'rgba(34,197,94,0.08)';
+      const border = 'rgba(34,197,94,0.25)';
 
       // Light markdown: code fences, inline code, bold, newlines.
       const formatted = _formatHelpText(data.help);
@@ -902,24 +902,18 @@ async function requestLessonHelp(btn) {
         _codoTtsCache[spokenText] = data.audio;
       }
 
-      // Codo reads the hint/answer aloud automatically (same text as on screen).
-      _codoSpeak(spokenText, document.getElementById(speakId));
+      // Speak: prefix → solution → postfix in sequence.
+      // Prefix/postfix come from _codoScripts (fetched once, audio cached).
+      var prefixText = _codoScriptText('codo_solution_prefix', '');
+      var postfixText = _codoScriptText('codo_solution_postfix', '');
+      (async function () {
+        if (prefixText) { await _codoSpeakAsync(prefixText); }
+        await _codoSpeakAsync(spokenText, document.getElementById(speakId));
+        if (postfixText) { await _codoSpeakAsync(postfixText); }
+      })();
 
-      // After a HINT, flip the button to reveal the full answer on next tap.
-      if (isHint) {
-        // After a HINT, flip to reveal the full answer on next tap.
-        btn.setAttribute('data-stage', 'answer');
-        btn.style.pointerEvents = '';
-        if (sayEl) {
-          sayEl.innerHTML = 'Still stuck? Show the answer';
-        } else {
-          btn.disabled = false;
-          btn.innerHTML = '<i class="fas fa-check-circle"></i> Still stuck? Show the answer';
-        }
-      } else {
-        // Answer shown — nothing more to reveal; hide the button.
-        btn.style.display = 'none';
-      }
+      // Answer shown — hide the button (nothing more to reveal).
+      btn.style.display = 'none';
     } else {
       // Request succeeded but no help text — restore and show a gentle notice.
       btn.style.pointerEvents = '';
@@ -946,11 +940,11 @@ async function requestLessonHelp(btn) {
 async function _streamLessonHelp(res, ctx) {
   const btn = ctx.btn, panel = ctx.panel, stage = ctx.stage;
   const sayEl = ctx.sayEl;
-  const isHint = stage === 'hint';
-  const title = isHint ? '💡 Codo\u2019s hint' : '\u2705 The answer, explained';
-  const accent = isHint ? '#fbbf24' : '#22c55e';
-  const bg = isHint ? 'rgba(251,191,36,0.08)' : 'rgba(34,197,94,0.08)';
-  const border = isHint ? 'rgba(251,191,36,0.25)' : 'rgba(34,197,94,0.25)';
+  // Hint stage removed — always answer style.
+  const title = '\u2705 Codo\u2019s solution';
+  const accent = '#22c55e';
+  const bg = 'rgba(34,197,94,0.08)';
+  const border = 'rgba(34,197,94,0.25)';
   const speakId = 'codo-speak-' + Date.now();
 
   btn.disabled = false;
@@ -1027,8 +1021,8 @@ async function _streamLessonHelp(res, ctx) {
     return;
   }
 
-  // Source attribution (answer stage only).
-  if (!isHint && meta) {
+  // Source attribution (always shown — hint stage removed).
+  if (meta) {
     _renderHelpSources(sourcesEl, meta.source, Array.isArray(meta.sources) ? meta.sources : []);
   }
 
@@ -1046,17 +1040,18 @@ async function _streamLessonHelp(res, ctx) {
   if (meta && meta.audio) {
     _codoTtsCache[spokenText] = meta.audio;
   }
-  _codoSpeak(spokenText, speakBtn);
 
-  // Flip the button: after a hint, reveal the answer next; after an answer, hide.
-  if (isHint) {
-    btn.setAttribute('data-stage', 'answer');
-    btn.style.pointerEvents = '';
-    if (sayEl) { sayEl.innerHTML = 'Still stuck? Show the answer'; }
-    else { btn.disabled = false; btn.innerHTML = '<i class="fas fa-check-circle"></i> Still stuck? Show the answer'; }
-  } else {
-    btn.style.display = 'none';
-  }
+  // Speak: prefix → solution → postfix in sequence (prefix/postfix from DB cache).
+  var prefixText = _codoScriptText('codo_solution_prefix', '');
+  var postfixText = _codoScriptText('codo_solution_postfix', '');
+  (async function () {
+    if (prefixText) { await _codoSpeakAsync(prefixText); }
+    await _codoSpeakAsync(spokenText, speakBtn);
+    if (postfixText) { await _codoSpeakAsync(postfixText); }
+  })();
+
+  // Answer shown — hide the button (hint stage removed, nothing more to reveal).
+  btn.style.display = 'none';
 }
 
 /**
@@ -1260,16 +1255,40 @@ var _codoPendingNav = null;       // held navigation to resume on "Not now"
 var _codoThanksShown = false;     // show the thank-you at most once per lesson
 
 // Fetch the fixed Codo lines once (best-effort; falls back silently).
+// Now returns {key:{text,audio}} shape — also seeds _codoTtsCache with pre-computed
+// audio so prefix/postfix play instantly without a separate /api/tts call.
 function _codoLoadScripts() {
   try {
     var token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
     fetch(BASE_URL + '/api/codo-scripts', { headers: { Authorization: 'Bearer ' + token } })
       .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (d) { if (d && d.success && d.scripts) _codoScripts = d.scripts; })
+      .then(function (d) {
+        if (!d || !d.success || !d.scripts) return;
+        _codoScripts = d.scripts;              // { key: text } (string shape)
+        var audioMap = d.scriptsAudio || {};   // { key: audioBase64|null }
+        // Seed TTS cache with pre-computed audio so all scripts (including
+        // prefix/postfix) play instantly without a separate /api/tts round-trip.
+        for (var k in _codoScripts) {
+          var text = _codoScripts[k];
+          var audio = audioMap[k];
+          if (text && audio) {
+            _codoTtsCache[_plainForSpeech(text)] = audio;
+          }
+        }
+      })
       .catch(function () {});
   } catch (e) {}
 }
 _codoLoadScripts();
+
+/** Get the text of a Codo script by key (string shape: { key: text }). */
+function _codoScriptText(key, fallback) {
+  var s = _codoScripts[key];
+  if (typeof s === 'string') return s;
+  // Tolerate the {text,audio} object shape too, just in case.
+  if (s && typeof s === 'object' && s.text) return s.text;
+  return fallback || '';
+}
 
 // Reset the per-lesson Codo nudge state. Called when a new lesson opens.
 // IMPORTANT: the NEW lesson's id must be passed in explicitly, because this is
@@ -1362,7 +1381,7 @@ function codoMaybeInterceptLeave(resume) {
 
   _codoPromptShown = true;
   _codoShowPrompt(
-    _codoScripts.lesson_complete_prompt || '',
+    _codoScriptText('lesson_complete_prompt', ''),
     'Take the Quiz',
     function () {
       // Accept → stay here and open the Quiz tab. The held action is dropped.
@@ -1420,7 +1439,7 @@ function _codoShowQuizThanks() {
   _codoThanksShown = true;
   _codoQuizDone = true;
   _codoShowPrompt(
-    _codoScripts.quiz_complete_thanks || '',
+    _codoScriptText('quiz_complete_thanks', ''),
     null, null,
     'Yay!',
     null
@@ -1599,4 +1618,32 @@ function toggleCodoSpeak(btn) {
   }
   const text = decodeURIComponent((btn && btn.getAttribute('data-text')) || '');
   _codoSpeak(text, btn);
+}
+
+/**
+ * Promise-based wrapper around _codoSpeak used to chain prefix → solution →
+ * postfix in sequence. Resolves when the audio finishes (or immediately if
+ * nothing plays). Never rejects.
+ */
+async function _codoSpeakAsync(text, btn) {
+  if (!text) return;
+  return new Promise(function (resolve) {
+    // Override audio.onended to also resolve the promise.
+    var _origAudio = _codoAudio;
+    _codoSpeak(text, btn).then ? null : null; // _codoSpeak is async but we can't await it here
+    // Poll for when speech ends (simple, works for both MP3 and browser speech).
+    var checkInterval = setInterval(function () {
+      var stillSpeaking = (_codoAudio && !_codoAudio.paused) ||
+        (('speechSynthesis' in window) && window.speechSynthesis.speaking) ||
+        _codoLoading;
+      if (!stillSpeaking) {
+        clearInterval(checkInterval);
+        resolve();
+      }
+    }, 100);
+    // Start speaking.
+    _codoSpeak(text, btn);
+    // Safety timeout so postfix never gets stuck if audio errors out silently.
+    setTimeout(function () { clearInterval(checkInterval); resolve(); }, 30000);
+  });
 }
