@@ -1179,15 +1179,22 @@ function _plainForSpeech(text) {
     .replace(/```[\s\S]*?```/g, ' . Here is a code example on screen. ') // skip code blocks
     .replace(/`([^`]+)`/g, '$1')
     .replace(/\*\*([^*]+)\*\*/g, '$1')
+    // Emoticons (:) :-( ;)) — remove before symbol handling.
+    .replace(/[:;]-?[)(DP]/g, ' ')
     .replace(/[_#>`]/g, '')
     // Strip emoji & pictographs so TTS never reads "star"/"rocket"/"चमकता सितारा".
     .replace(/\p{Extended_Pictographic}/gu, '')
     .replace(/[\u2600-\u27BF\u2B00-\u2BFF\u2190-\u21FF\uFE0F\u200D\u20E3]/g, '')
     .replace(/[\u{1F000}-\u{1FAFF}]/gu, '')
-    // Speak MATH/LOGIC operators as words so "5+4" reads "5 plus 4", not "5 4".
+    // Function calls like printf(), main() → "printf function" and drop the ().
+    .replace(/([A-Za-z_]\w*)\s*\(\s*\)/g, '$1 function')
+    // MATH operators → words, but ONLY between numbers (so "ready-made" and
+    // "built-in" are NOT read as "ready minus made").
+    .replace(/(\d)\s*-\s*(\d)/g, '$1 minus $2')
+    .replace(/(\w)-(\w)/g, '$1 $2')          // compound-word hyphen → space
+    .replace(/(\d)\s*\+\s*(\d)/g, '$1 plus $2')
     .replace(/\+/g, ' plus ')
-    .replace(/(\w)\s*-\s*(\w)/g, '$1 minus $2') // minus only between terms
-    .replace(/\*/g, ' times ')
+    .replace(/(\d)\s*\*\s*(\d)/g, '$1 times $2')
     .replace(/÷/g, ' divided by ')
     .replace(/=/g, ' equals ')
     .replace(/%/g, ' percent ')
@@ -1198,7 +1205,7 @@ function _plainForSpeech(text) {
     .replace(/>/g, ' greater than ')
     // Remove only the noisy brackets/slashes TTS would read as "open bracket".
     // Keep sentence punctuation (. , ? !) so speech still sounds natural.
-    .replace(/[()[\]{}|/\\~^]/g, ' ')
+    .replace(/[()[\]{}|/\\~^*]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
