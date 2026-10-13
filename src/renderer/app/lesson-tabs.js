@@ -1638,29 +1638,60 @@ function toggleCodoSpeak(btn) {
 }
 
 /**
- * Promise-based wrapper around _codoSpeak used to chain prefix → solution →
- * postfix in sequence. Resolves when the audio finishes (or immediately if
- * nothing plays). Never rejects.
+ * Play ONE Codo audio clip and resolve ONLY when it actually finishes, so the
+ * caller can chain prefix → solution → postfix reliably. Never rejects.
+ *
+ * This does NOT use _codoSpeak (which stops any previous audio and manages a
+ * Listen button) — chaining needs the opposite: each part must wait for the
+ * previous to END. So we fetch/seed the MP3 ourselves and resolve on 'ended'.
  */
 async function _codoSpeakAsync(text, btn) {
   if (!text) return;
-  return new Promise(function (resolve) {
-    // Override audio.onended to also resolve the promise.
-    var _origAudio = _codoAudio;
-    _codoSpeak(text, btn).then ? null : null; // _codoSpeak is async but we can't await it here
-    // Poll for when speech ends (simple, works for both MP3 and browser speech).
-    var checkInterval = setInterval(function () {
-      var stillSpeaking = (_codoAudio && !_codoAudio.paused) ||
-        (('speechSynthesis' in window) && window.speechSynthesis.speaking) ||
-        _codoLoading;
-      if (!stillSpeaking) {
-        clearInterval(checkInterval);
-        resolve();
+  // Fetch the audio (cache-first; same cache _codoSpeak uses).
+  var b64 = _codoTtsCache[text];
+  if (!b64) {
+    try {
+      var token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+      var res = await fetch(BASE_URL + '/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+        body: JSON.stringify({ text: text }),
+      });
+      if (res.ok) {
+        var data = await res.json();
+        if (data && data.success && data.audio) { b64 = data.audio; _codoTtsCache[text] = b64; }
       }
-    }, 100);
-    // Start speaking.
-    _codoSpeak(text, btn);
-    // Safety timeout so postfix never gets stuck if audio errors out silently.
-    setTimeout(function () { clearInterval(checkInterval); resolve(); }, 30000);
+    } catch (e) { /* fall through — nothing to play */ }
+  }
+  if (!b64) return; // no audio — skip this part, continue the chain
+
+  return new Promise(function (resolve) {
+    try {
+      // Stop the previous CLIP (but do NOT bump the chain token — that would
+      // cancel our own sequence). Just detach + pause the current audio.
+      if (_codoAudio) {
+        try { _codoAudio.onended = null; _codoAudio.onerror = null; _codoAudio.pause(); _codoAudio.src = ''; } catch (e) {}
+        _codoAudio = null;
+      }
+      try { if ('speechSynthesis' in window) window.speechSynthesis.cancel(); } catch (e) {}
+      var audio = new Audio('data:audio/mp3;base64,' + b64);
+      _codoAudio = audio;
+      if (btn) _codoSetBtn(btn, 'stop');
+      var done = false;
+      var finish = function () {
+        if (done) return; done = true;
+        if (btn) _codoSetBtn(btn, 'listen');
+        if (_codoAudio === audio) _codoAudio = null;
+        resolve();
+      };
+      audio.onended = finish;
+      audio.onerror = finish;
+      audio.play().catch(function () {
+        // Retry once (quick stop/replay can reject), else finish.
+        try { audio.currentTime = 0; audio.play().catch(finish); } catch (e) { finish(); }
+      });
+      // Safety: never hang the chain if 'ended' never fires.
+      setTimeout(finish, 60000);
+    } catch (e) { resolve(); }
   });
 }
