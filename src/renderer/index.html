@@ -3,14 +3,25 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com https://cdn.jsdelivr.net; font-src https://cdnjs.cloudflare.com https://fonts.gstatic.com https://cdn.jsdelivr.net; connect-src http://localhost:3000 http://127.0.0.1:* https://www.codingkida.com https://generativelanguage.googleapis.com https://*.amazonaws.com https://*.s3.amazonaws.com https://*.cloudfront.net https://cdn.jsdelivr.net; frame-src https://www.youtube.com http://127.0.0.1:*; media-src https://*.amazonaws.com https://*.s3.amazonaws.com https://*.cloudfront.net blob: data: http://127.0.0.1:*; img-src 'self' data: https://*.amazonaws.com https://*.cloudfront.net; worker-src 'self' blob:;"/>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com https://cdn.jsdelivr.net; font-src https://cdnjs.cloudflare.com https://fonts.gstatic.com https://cdn.jsdelivr.net; connect-src http://localhost:3000 http://127.0.0.1:* https://www.codingkida.com https://generativelanguage.googleapis.com https://*.amazonaws.com https://*.s3.amazonaws.com https://*.cloudfront.net https://cdn.jsdelivr.net https://*.chime.aws wss://*.chime.aws wss://*.amazonaws.com; frame-src https://www.youtube.com http://127.0.0.1:*; media-src https://*.amazonaws.com https://*.s3.amazonaws.com https://*.cloudfront.net blob: data: http://127.0.0.1:*; img-src 'self' data: https://*.amazonaws.com https://*.cloudfront.net; worker-src 'self' blob:;"/>
   <title>CodingKida</title>
   <link rel="stylesheet" href="styles/global.css"/>
   <link rel="stylesheet" href="styles/coding-editor.css"/>
   <link rel="stylesheet" href="styles/coding-playground.css"/>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+  <!--
+    Node-global shim for the vendored Amazon Chime SDK (UMD build). With
+    contextIsolation:true + nodeIntegration:false, the renderer has no `global`
+    object, so the Chime SDK throws "ReferenceError: global is not defined" the
+    moment a meeting session is created. Mapping `global` → `window` (before the
+    SDK loads) fixes it without weakening Electron's security settings.
+  -->
+  <script>
+    if (typeof window.global === 'undefined') { window.global = window; }
+  </script>
   <script src="lib/hls.min.js"></script>
+  <script src="lib/chime-sdk.min.js"></script>
 </head>
 <body>
 
@@ -943,37 +954,89 @@
       </div>
     </div>
 
-    <!-- LIVE CLASS PAGE -->
+    <!-- LIVE CLASS PAGE (ISOLATED feature — rendered by live.js) -->
     <div id="page-live" class="page">
-      <div class="page-header"><h1>Live Classes</h1><p>Join live sessions with expert instructors</p></div>
-      <div style="display:flex;flex-direction:column;gap:16px">
-        <div class="live-card">
-          <div class="live-info">
-            <h4><span class="live-dot"></span>Java Spring Boot - Live Now</h4>
-            <p>Rahul Sharma - IIT Delhi - 1,240 watching</p>
+      <div class="page-header"><h1>Live Classes</h1><p>Join live sessions from your enrolled courses</p></div>
+
+      <!-- Loading spinner -->
+      <div id="live-loading" style="display:none;align-items:center;justify-content:center;padding:48px 0;">
+        <i class="fas fa-spinner fa-spin" style="font-size:1.5rem;color:var(--primary);"></i>
+      </div>
+
+      <!-- Empty / unavailable message -->
+      <div id="live-empty" style="display:none;text-align:center;color:var(--muted);padding:40px 16px;border:1px dashed var(--border);border-radius:12px;background:rgba(255,255,255,0.02);"></div>
+
+      <!-- Class list (populated by live.js) -->
+      <div id="live-list" style="display:flex;flex-direction:column;gap:16px"></div>
+    </div>
+
+    <!-- LIVE CLASS ROOM (ISOLATED feature — driven by live-room.js) -->
+    <div id="page-live-room" class="page">
+      <div class="lr-shell">
+        <!-- Header: title + status -->
+        <div class="lr-header">
+          <div class="lr-title-wrap">
+            <span class="live-dot"></span>
+            <h3 id="lr-title">Live Class</h3>
           </div>
-          <button class="btn btn-danger">Join Now <i class="fas fa-arrow-right"></i></button>
+          <div style="display:flex;align-items:center;gap:10px;">
+            <span id="lr-rec-indicator" class="lr-rec-indicator" style="display:none;"><span class="lr-rec-dot"></span> Recording</span>
+            <div id="lr-status" class="lr-status">Connecting…</div>
+          </div>
         </div>
-        <div class="live-card">
-          <div class="live-info">
-            <h4>DSA Problem Solving Session</h4>
-            <p>Vikram Singh - Today 8:00 PM - 320 registered</p>
+
+        <!-- Video tile grid (remote + local tiles are added by live-room.js in B2b) -->
+        <!-- Body: video grid (left) + chat panel (right) -->
+        <div class="lr-body">
+          <div id="lr-grid" class="lr-grid">
+            <!-- Audio-only placeholder shown until video tiles arrive -->
+            <div id="lr-audio-note" class="lr-audio-note">
+              <i class="fas fa-headphones"></i>
+              <p>You're connected. Audio is live.</p>
+              <span>Turn on your camera or share your screen to show video.</span>
+            </div>
           </div>
-          <button class="btn btn-outline">Set Reminder <i class="fas fa-bell"></i></button>
+
+          <!-- Chat panel (teacher + students) -->
+          <div id="lr-chat" class="lr-chat">
+            <div class="lr-chat-head"><i class="fas fa-comments"></i> Class Chat</div>
+            <div id="lr-chat-messages" class="lr-chat-messages"></div>
+            <div class="lr-chat-reactions" id="lr-chat-reactions"></div>
+            <div class="lr-chat-input">
+              <input id="lr-chat-text" type="text" placeholder="Type a message…" maxlength="4000" autocomplete="off"/>
+              <button id="lr-chat-send" class="lr-chat-send" title="Send"><i class="fas fa-paper-plane"></i></button>
+            </div>
+          </div>
         </div>
-        <div class="live-card">
-          <div class="live-info">
-            <h4>React Hooks Deep Dive</h4>
-            <p>Priya Nair - Tomorrow 7:00 PM - 540 registered</p>
-          </div>
-          <button class="btn btn-outline">Set Reminder <i class="fas fa-bell"></i></button>
+
+        <!-- Control bar -->
+        <div class="lr-controls">
+          <button id="lr-mic-btn" class="lr-ctrl-btn" title="Mute / Unmute">
+            <i class="fas fa-microphone"></i>
+          </button>
+          <button id="lr-cam-btn" class="lr-ctrl-btn cam-off" title="Turn camera on / off">
+            <i class="fas fa-video-slash"></i>
+          </button>
+          <button id="lr-share-btn" class="lr-ctrl-btn" title="Share your screen" style="display:none;">
+            <i class="fas fa-desktop"></i> Share
+          </button>
+          <button id="lr-rec-btn" class="lr-ctrl-btn" title="Record this class" style="display:none;">
+            <i class="fas fa-circle"></i> Record
+          </button>
+          <button id="lr-leave-btn" class="lr-ctrl-btn lr-leave" title="Leave class">
+            <i class="fas fa-phone-slash"></i> Leave
+          </button>
         </div>
-        <div class="live-card">
-          <div class="live-info">
-            <h4>Python for Data Science</h4>
-            <p>Amit Verma - Saturday 6:00 PM - 890 registered</p>
+      </div>
+
+      <!-- Screen-share source picker (teacher) -->
+      <div id="lr-picker" class="lr-picker" style="display:none;">
+        <div class="lr-picker-box">
+          <div class="lr-picker-head">
+            <h4>Share your screen</h4>
+            <button id="lr-picker-close" class="lr-picker-close"><i class="fas fa-times"></i></button>
           </div>
-          <button class="btn btn-outline">Set Reminder <i class="fas fa-bell"></i></button>
+          <div id="lr-picker-grid" class="lr-picker-grid"></div>
         </div>
       </div>
     </div>
@@ -2142,6 +2205,9 @@
 <script src="app/lesson-tabs.js"></script>
 <script src="app/ai-chat.js"></script>
 <script src="app/lesson-chat.js"></script>
+<script src="app/live.js"></script>
+<script src="app/live-room.js"></script>
+<script src="app/live-room-chat.js"></script>
 <script src="app/downloads.js"></script>
 <script src="app/pdf-viewer.js"></script>
 <script src="app/pages.js"></script>

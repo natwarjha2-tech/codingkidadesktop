@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, dialog, desktopCapturer, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -67,8 +67,75 @@ function createWindow() {
     }
   });
 
+  // Live Class (ISOLATED): allow camera + microphone + screen-share for the
+  // Chime A/V session. Scoped to media / display-capture only — every other
+  // permission keeps Electron's default (deny) behaviour, so this does not
+  // loosen security for the rest of the app.
+  try {
+    mainWindow.webContents.session.setPermissionRequestHandler((wc, permission, callback) => {
+      if (permission === 'media' || permission === 'display-capture') return callback(true);
+      return callback(false);
+    });
+  } catch {}
+
+  // Live Class screen-share (teacher): the renderer calls getDisplayMedia(); we
+  // handle the request by giving Chrome the source the user picked in our own
+  // picker. The renderer first calls the 'live-screen-sources' IPC to show the
+  // picker, stores the chosen id, then calls getDisplayMedia — this handler
+  // reads that id back. Isolated to the live feature; no effect elsewhere.
+  try {
+    mainWindow.webContents.session.setDisplayMediaRequestHandler((request, callback) => {
+      desktopCapturer.getSources({ types: ['screen', 'window'] }).then((sources) => {
+        const chosenId = global.__ckLiveShareSourceId;
+        const picked = sources.find((s) => s.id === chosenId) || sources[0];
+        if (picked) {
+          callback({ video: picked, audio: 'loopback' });
+        } else {
+          // No source — cancel the request cleanly.
+          callback();
+        }
+      }).catch(() => callback());
+    }, { useSystemPicker: false });
+  } catch {}
+
+  // Allow opening DevTools with F12 / Ctrl+Shift+I so console errors (e.g. live
+  // class connection failures) can be diagnosed. Harmless in production too.
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    const key = (input.key || '').toLowerCase();
+    if (input.type === 'keyDown' && (key === 'f12' ||
+        (input.control && input.shift && key === 'i'))) {
+      mainWindow.webContents.toggleDevTools();
+      event.preventDefault();
+    }
+  });
+
   mainWindow.loadFile(path.join(__dirname, 'src/renderer/login.html'));
 }
+
+// Live Class screen-share: return the list of shareable screens/windows (with
+// thumbnails) so the renderer can show a picker. ISOLATED — live feature only.
+ipcMain.handle('live-screen-sources', async () => {
+  try {
+    const sources = await desktopCapturer.getSources({
+      types: ['screen', 'window'],
+      thumbnailSize: { width: 320, height: 180 },
+      fetchWindowIcons: false,
+    });
+    return sources.map((s) => ({
+      id: s.id,
+      name: s.name,
+      thumbnail: s.thumbnail ? s.thumbnail.toDataURL() : '',
+    }));
+  } catch {
+    return [];
+  }
+});
+
+// Record the source the teacher picked, read back by the display-media handler.
+ipcMain.handle('live-set-screen-source', (event, sourceId) => {
+  global.__ckLiveShareSourceId = sourceId || null;
+  return { success: true };
+});
 
 // Provide pending auth to renderer on load
 ipcMain.handle('get-pending-auth', () => {

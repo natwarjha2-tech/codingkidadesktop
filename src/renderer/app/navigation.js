@@ -12,9 +12,9 @@ const navigationHistory = [];
 let currentPageIndex = -1;
 const MAX_HISTORY = 50; // Memory-efficient limit
 
-const appPages = ['dashboard','courses','course-detail','video','chat','ai','live','downloads','offline-downloads','profile','enrolled-detail','completed-videos','streak-history','achievements','parent-report','help','referral','orders','mall','rate-us','about','student-progress','coding'];
+const appPages = ['dashboard','courses','course-detail','video','chat','ai','live','live-room','downloads','offline-downloads','profile','enrolled-detail','completed-videos','streak-history','achievements','parent-report','help','referral','orders','mall','rate-us','about','student-progress','coding'];
 const authPages = ['login','signup'];
-const sidebarMap = { dashboard:'nav-dashboard', courses:'nav-courses', 'course-detail':'nav-courses', video:'nav-courses', chat:'nav-chat', ai:'nav-ai', live:'nav-live', downloads:'nav-downloads', 'offline-downloads':'nav-offline-downloads', profile:'nav-profile', 'enrolled-detail':'nav-dashboard', 'completed-videos':'nav-dashboard', 'streak-history':'nav-dashboard', 'achievements':'nav-dashboard', 'parent-report':'nav-profile', 'help':'nav-profile', 'referral':'nav-profile', 'orders':'nav-profile', 'mall':'nav-profile', 'rate-us':'nav-profile', 'about':'nav-profile', 'student-progress':'nav-profile','coding':'nav-coding' };
+const sidebarMap = { dashboard:'nav-dashboard', courses:'nav-courses', 'course-detail':'nav-courses', video:'nav-courses', chat:'nav-chat', ai:'nav-ai', live:'nav-live', 'live-room':'nav-live', downloads:'nav-downloads', 'offline-downloads':'nav-offline-downloads', profile:'nav-profile', 'enrolled-detail':'nav-dashboard', 'completed-videos':'nav-dashboard', 'streak-history':'nav-dashboard', 'achievements':'nav-dashboard', 'parent-report':'nav-profile', 'help':'nav-profile', 'referral':'nav-profile', 'orders':'nav-profile', 'mall':'nav-profile', 'rate-us':'nav-profile', 'about':'nav-profile', 'student-progress':'nav-profile','coding':'nav-coding' };
 
 function getCurrentPageContext() {
   const currentPage = getCurrentActivePage();
@@ -247,6 +247,7 @@ function _navigateInternal(page, addToHistory) {
 
   if (page === 'downloads') renderDownloads();
   if (page === 'offline-downloads') renderOfflineDownloads();
+  if (page === 'live' && typeof initLivePage === 'function') initLivePage();
   if (page === 'parent-report') loadParentReport();
   if (page === 'help') loadHelpPage();
   if (page === 'referral') loadReferralPage();
