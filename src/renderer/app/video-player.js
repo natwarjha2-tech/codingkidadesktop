@@ -21,6 +21,23 @@ function switchVpTab(el, panelId) {
   const panel = document.getElementById(panelId);
   if (panel) panel.classList.add('active');
 
+  // Clicking the Quiz tab auto-opens the full-screen quiz overlay (mobile-like).
+  // Guarded so a manual Close stays closed until the tab is re-opened.
+  if (panelId === 'vp-quiz') {
+    setTimeout(function () {
+      try {
+        if (typeof openQuizFullscreen === 'function' &&
+            !_quizFullscreenManuallyClosed &&
+            document.querySelector('#vp-quiz .quiz-question-card')) {
+          openQuizFullscreen();
+        }
+      } catch (e) {}
+    }, 350); // small delay so the quiz DOM is rendered first
+  } else {
+    // Leaving the quiz tab — allow auto-open again next time it's clicked.
+    _quizFullscreenManuallyClosed = false;
+  }
+
   // Lazy load: fetch data on first tab click
   if (_currentLessonForTabs) {
     const lessonId = _currentLessonForTabs.lessonId;

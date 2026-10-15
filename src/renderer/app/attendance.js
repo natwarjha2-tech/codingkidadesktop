@@ -31,16 +31,62 @@ function _attendanceRecordLogout(userId) {
     const key = _attendanceKey(userId);
     const sessions = JSON.parse(localStorage.getItem(key) || '[]');
     const now = Date.now();
+    var closedDate = null, closedMins = 0;
     // Close the most recent open session
     for (var i = sessions.length - 1; i >= 0; i--) {
       if (!sessions[i].logoutTime) {
         sessions[i].logoutTime = now;
         sessions[i].durationMins = Math.round((now - sessions[i].loginTime) / 60000);
+        closedDate = sessions[i].date;
+        closedMins = sessions[i].durationMins;
         break;
       }
     }
     localStorage.setItem(key, JSON.stringify(sessions));
+    // Persist this session's minutes to the SERVER so the report can show the
+    // full history (join month → now) across devices. Best-effort, non-blocking.
+    if (closedDate && closedMins > 0) {
+      _attendanceSyncToServer(closedDate, closedMins, 1);
+    }
   } catch {}
+}
+
+/**
+ * Record a day's learning minutes + one session to the backend. Best-effort:
+ * never throws, never blocks. The server accumulates minutes per (user, day).
+ */
+function _attendanceSyncToServer(dateStr, minutes, sessions) {
+  try {
+    var token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+    if (!token || !dateStr || !(minutes > 0)) return;
+    fetch(BASE_URL + '/api/attendance', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      body: JSON.stringify({ date: dateStr, minutes: minutes, sessions: sessions || 1 }),
+      keepalive: true, // allow the request to finish even as the app closes
+    }).catch(function () {});
+  } catch (e) {}
+}
+
+/**
+ * Fetch the full server-side attendance history for the current user.
+ * Returns { joinedAt: 'YYYY-MM-DD'|null, days: [{date,minutes,sessions}] }.
+ * Falls back to an empty result on any error (report then uses local data).
+ */
+async function _attendanceFetchServerHistory() {
+  try {
+    var token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+    if (!token) return { joinedAt: null, days: [] };
+    var res = await fetch(BASE_URL + '/api/attendance', {
+      headers: { Authorization: 'Bearer ' + token },
+    });
+    if (!res.ok) return { joinedAt: null, days: [] };
+    var data = await res.json();
+    if (data && data.success) {
+      return { joinedAt: data.joinedAt || null, days: Array.isArray(data.days) ? data.days : [] };
+    }
+  } catch (e) {}
+  return { joinedAt: null, days: [] };
 }
 
 // Returns attendance summary for the report

@@ -494,10 +494,25 @@ function updateWeeklyChallenge(completed, total) {
 
 // ─── Parent Report ────────────────────────────────────────────────────────────
 
+// Server-side attendance history for the report calendar: { joinedAt, days }.
+// Populated by loadParentReport before rendering, so the calendar can show all
+// months from the join month → now. Falls back to {} (local-only) on error.
+var _prServerHistory = { joinedAt: null, days: [] };
+
 async function loadParentReport() {
   const loading = document.getElementById('parent-report-loading');
   const content = document.getElementById('parent-report-content');
   if (!loading || !content) return;
+
+  // Fetch the full server-side attendance history up front so the calendar can
+  // render all months since joining. Best-effort — on failure we fall back to
+  // local-only data (current ~30 days). Also push today's local total to the
+  // server so an abruptly-closed previous session still gets recorded.
+  try {
+    if (typeof _attendanceFetchServerHistory === 'function') {
+      _prServerHistory = await _attendanceFetchServerHistory();
+    }
+  } catch (e) { _prServerHistory = { joinedAt: null, days: [] }; }
 
   const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
   if (!token) {
@@ -613,7 +628,11 @@ function _renderParentReport(dashData, achievements, totalCoins, coinTransaction
       '</div>';
   }).join('');
 
-  // Attendance calendar
+  // Attendance calendar — renders ONE month grid per month from the student's
+  // join month → the current month (newest first). Day data is merged from the
+  // SERVER history (_prServerHistory, full history) + the local calendar (covers
+  // the current session before it syncs). This is what makes the report show
+  // "July → October" instead of only the current month.
   var attMeta = document.getElementById('pr-attendance-meta');
   var attCal = document.getElementById('pr-attendance-calendar');
   if (attMeta) attMeta.textContent = '';
@@ -621,81 +640,51 @@ function _renderParentReport(dashData, achievements, totalCoins, coinTransaction
     var today = new Date();
     var curYear = today.getFullYear();
     var curMonth = today.getMonth(); // 0-based
-    var todayDate = today.getDate();
     var monthNamesShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    var monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
-    // Map real attendance records by their exact calendar date.
-    // rec.date is a 'YYYY-MM-DD' string produced by _attendanceGetSummary(); we
-    // parse its own year/month/day so matching is timezone-consistent with the
-    // data source (no fabrication, no re-calculation, no activity moved).
+    // Merge server days + local calendar into one YMD → {mins, active} map.
     var attByYmd = {};
-    (att.calendar || []).forEach(function(rec) {
-      if (rec && rec.date) {
-        var p = String(rec.date).split('-'); // [YYYY, MM, DD]
-        if (p.length === 3) attByYmd[Number(p[0]) + ':' + Number(p[1]) + ':' + Number(p[2])] = rec;
-      }
+    function _mergeDay(dateStr, mins) {
+      if (!dateStr) return;
+      var p = String(dateStr).split('-');
+      if (p.length !== 3) return;
+      var k = Number(p[0]) + ':' + Number(p[1]) + ':' + Number(p[2]);
+      var m = Math.min(Number(mins) || 0, 1440);
+      // Keep the LARGER minutes if both sources have the day (server is the
+      // long-term source; local may have fresher current-session minutes).
+      var prev = attByYmd[k] ? attByYmd[k].mins : 0;
+      var best = Math.max(prev, m);
+      attByYmd[k] = { mins: best, active: best > 0 };
+    }
+    // Server history first (full history), then local (current session freshness).
+    (_prServerHistory && _prServerHistory.days ? _prServerHistory.days : []).forEach(function (d) {
+      if (d && d.date) _mergeDay(d.date, d.minutes);
+    });
+    (att.calendar || []).forEach(function (rec) {
+      if (rec && rec.date) _mergeDay(rec.date, rec.mins);
     });
 
-    // Active Days for the DISPLAYED calendar month only. Denominator = real number
-    // of days in that month (not a fixed 30). Counts unique active dates within the
-    // month, excluding future dates, from the same real attendance records.
-    var daysInMonth = new Date(curYear, curMonth + 1, 0).getDate();
-    var monthActiveDays = 0;
-    for (var mad = 1; mad <= daysInMonth; mad++) {
-      if (mad > todayDate) break; // future dates never active (current month)
-      var madRec = attByYmd[curYear + ':' + (curMonth + 1) + ':' + mad];
-      if (madRec && madRec.active) monthActiveDays++;
+    // Determine the first month to show: the student's JOIN month (from the
+    // server) if known; else fall back to 1 month back (so we still show the
+    // current month cleanly even before any server data exists).
+    var startYear = curYear, startMonth = curMonth;
+    var joinedAt = _prServerHistory && _prServerHistory.joinedAt ? _prServerHistory.joinedAt : null;
+    if (joinedAt) {
+      var jp = String(joinedAt).split('-');
+      if (jp.length === 3) {
+        var jy = Number(jp[0]), jm = Number(jp[1]) - 1;
+        // Guard against bad data: only use if it's in the past (and within ~5 years).
+        if (jy >= curYear - 5 && (jy < curYear || (jy === curYear && jm <= curMonth))) {
+          startYear = jy; startMonth = jm;
+        }
+      }
     }
 
-    // Stats strip — Active Days for the displayed month (X / days-in-month), centered
-    var statsHtml = '<div style="display:flex;justify-content:center;margin-bottom:18px;">' +
-      '<div style="background:rgba(139,92,246,0.05);border:1px solid rgba(139,92,246,0.1);border-radius:10px;padding:10px 24px;text-align:center;min-width:150px;">' +
-      '<div style="font-size:1rem;font-weight:800;color:#fff;">' + monthActiveDays + ' <span style="font-size:0.7rem;font-weight:500;color:#64748b;">/ ' + daysInMonth + '</span></div>' +
-      '<div style="font-size:0.65rem;color:#64748b;margin-top:2px;">Active Days</div></div>' +
-      '</div>';
-
-    // Weekday header (Mon-first)
+    // Shared pieces.
     var weekdayHtml = '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-bottom:6px;text-align:center;">';
     ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].forEach(function(d) { weekdayHtml += '<span style="font-size:0.6rem;font-weight:600;color:#64748b;">' + d + '</span>'; });
     weekdayHtml += '</div>';
-
-    // Real month grid: leading pad (Mon-first) + day 1..lastDay of current month only.
-    var firstDow = new Date(curYear, curMonth, 1).getDay(); // 0=Sun
-    var startPad = firstDow === 0 ? 6 : firstDow - 1;        // Mon-first offset
-    var lastDay = new Date(curYear, curMonth + 1, 0).getDate();
-
-    var cellsHtml = '';
-    for (var pi = 0; pi < startPad; pi++) { cellsHtml += '<div style="width:44px;height:44px;"></div>'; }
-
-    for (var dnum = 1; dnum <= lastDay; dnum++) {
-      var key = curYear + ':' + (curMonth + 1) + ':' + dnum;
-      var rec = attByYmd[key];
-      var mins = rec ? (rec.mins || 0) : 0;
-      var active = rec ? !!rec.active : false;
-      var isToday = dnum === todayDate;
-      var isFuture = dnum > todayDate;
-
-      if (isFuture) {
-        var _fKey = curYear + '-' + String(curMonth + 1).padStart(2, '0') + '-' + String(dnum).padStart(2, '0');
-        cellsHtml += '<div title="Plan your coding!" onclick="showDayDetail(\'' + _fKey + '\',\'future\')" style="cursor:pointer;width:44px;height:44px;border-radius:8px;background:rgba(15,15,30,0.6);border:1px dashed rgba(139,92,246,0.15);display:flex;align-items:center;justify-content:center;font-size:0.68rem;color:rgba(100,116,139,0.5);font-weight:500;transition:all 0.18s;margin:0 auto;" onmouseover="this.style.borderColor=\'rgba(139,92,246,0.35)\';this.style.color=\'rgba(139,92,246,0.6)\'" onmouseout="this.style.borderColor=\'rgba(139,92,246,0.15)\';this.style.color=\'rgba(100,116,139,0.5)\'">' + dnum + '</div>';
-        continue;
-      }
-
-      var displayMins = Math.min(mins, 1440);
-      var intensity = mins === 0 ? 0 : mins < 15 ? 0.3 : mins < 30 ? 0.6 : 1;
-      var bg, borderColor, textColor, shadow;
-      if (!active) { bg = 'rgba(255,255,255,0.03)'; borderColor = 'rgba(255,255,255,0.07)'; textColor = '#94A3B8'; shadow = 'none'; }
-      else if (intensity <= 0.3) { bg = 'rgba(124,58,237,0.25)'; borderColor = 'rgba(124,58,237,0.3)'; textColor = '#C4B5FD'; shadow = 'none'; }
-      else if (intensity <= 0.6) { bg = 'linear-gradient(135deg,#7C3AED,#A855F7)'; borderColor = 'rgba(168,85,247,0.4)'; textColor = '#fff'; shadow = '0 0 8px rgba(168,85,247,0.2)'; }
-      else { bg = 'linear-gradient(135deg,#A855F7,#EC4899)'; borderColor = 'rgba(236,72,153,0.4)'; textColor = '#fff'; shadow = '0 0 12px rgba(236,72,153,0.4)'; }
-      if (isToday) { borderColor = '#A78BFA'; shadow = (shadow === 'none' ? '' : shadow + ',') + '0 0 0 2px rgba(167,139,250,0.4)'; if (!active) { bg = 'rgba(139,92,246,0.1)'; textColor = '#A78BFA'; } }
-
-      var titleTxt = monthNamesShort[curMonth] + ' ' + dnum + ', ' + curYear + (displayMins > 0 ? ' \u00b7 ' + _fmtMins(displayMins) : (isToday ? ' \u00b7 Today' : ''));
-      var _dayKey = curYear + '-' + String(curMonth + 1).padStart(2, '0') + '-' + String(dnum).padStart(2, '0');
-      cellsHtml += '<div title="' + titleTxt + '" onclick="showDayDetail(\'' + _dayKey + '\')" style="cursor:pointer;width:44px;height:44px;border-radius:8px;background:' + bg + ';border:1px solid ' + borderColor + ';display:flex;align-items:center;justify-content:center;font-size:0.68rem;color:' + textColor + ';font-weight:' + (isToday || active ? '700' : '500') + ';box-shadow:' + shadow + ';transition:all 0.18s ease;margin:0 auto;" onmouseover="this.style.transform=\'scale(1.1)\'" onmouseout="this.style.transform=\'scale(1)\'">' + dnum + '</div>';
-    }
-
-    // Legend (single, clean, centered)
     var legendHtml = '<div style="display:flex;align-items:center;justify-content:center;gap:14px;margin-top:14px;font-size:0.62rem;color:#64748B;">' +
       '<span style="display:flex;align-items:center;gap:4px;"><span style="width:9px;height:9px;border-radius:3px;background:rgba(15,15,30,0.6);border:1px solid rgba(100,116,139,0.15);"></span> Inactive</span>' +
       '<span style="display:flex;align-items:center;gap:4px;"><span style="width:9px;height:9px;border-radius:3px;background:rgba(88,28,135,0.5);"></span> Started</span>' +
@@ -703,15 +692,76 @@ function _renderParentReport(dashData, achievements, totalCoins, coinTransaction
       '<span style="display:flex;align-items:center;gap:4px;"><span style="width:9px;height:9px;border-radius:3px;background:linear-gradient(135deg,#A855F7,#EC4899);box-shadow:0 0 6px rgba(236,72,153,0.4);"></span> On Fire</span>' +
       '</div>';
 
-    // Month label — matches the month being rendered
-    var monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-    var monthLabel = '<div style="font-size:0.72rem;font-weight:600;color:#94A3B8;letter-spacing:0.5px;margin-bottom:10px;text-align:center;">' + monthNames[curMonth] + ' ' + curYear + '</div>';
+    // Build the list of months to render (newest → oldest).
+    var monthsList = [];
+    var yy = curYear, mm = curMonth;
+    while (yy > startYear || (yy === startYear && mm >= startMonth)) {
+      monthsList.push({ y: yy, m: mm });
+      mm--;
+      if (mm < 0) { mm = 11; yy--; }
+      if (monthsList.length > 120) break; // hard safety cap (10 years)
+    }
 
-    attCal.innerHTML = statsHtml +
-      '<div style="background:rgba(19,21,40,0.5);padding:16px 18px;border-radius:14px;border:1px solid rgba(255,255,255,0.04);">' +
-      monthLabel + weekdayHtml +
-      '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:8px;place-items:center;">' + cellsHtml + '</div>' +
-      legendHtml + '</div>';
+    // Render one grid per month.
+    function _renderMonthGrid(y, m) {
+      var isCurMonth = (y === curYear && m === curMonth);
+      var todayDate = today.getDate();
+      var daysInMonth = new Date(y, m + 1, 0).getDate();
+
+      // Active days in this month (exclude future days of the current month).
+      var monthActiveDays = 0;
+      for (var mad = 1; mad <= daysInMonth; mad++) {
+        if (isCurMonth && mad > todayDate) break;
+        var madRec = attByYmd[y + ':' + (m + 1) + ':' + mad];
+        if (madRec && madRec.active) monthActiveDays++;
+      }
+
+      var firstDow = new Date(y, m, 1).getDay();
+      var startPad = firstDow === 0 ? 6 : firstDow - 1;
+      var cellsHtml = '';
+      for (var pi = 0; pi < startPad; pi++) cellsHtml += '<div style="width:44px;height:44px;"></div>';
+
+      for (var dnum = 1; dnum <= daysInMonth; dnum++) {
+        var rec = attByYmd[y + ':' + (m + 1) + ':' + dnum];
+        var mins = rec ? (rec.mins || 0) : 0;
+        var active = rec ? !!rec.active : false;
+        var isToday = isCurMonth && dnum === todayDate;
+        var isFuture = isCurMonth && dnum > todayDate;
+        var _dayKey = y + '-' + String(m + 1).padStart(2, '0') + '-' + String(dnum).padStart(2, '0');
+
+        if (isFuture) {
+          cellsHtml += '<div title="Plan your coding!" onclick="showDayDetail(\'' + _dayKey + '\',\'future\')" style="cursor:pointer;width:44px;height:44px;border-radius:8px;background:rgba(15,15,30,0.6);border:1px dashed rgba(139,92,246,0.15);display:flex;align-items:center;justify-content:center;font-size:0.68rem;color:rgba(100,116,139,0.5);font-weight:500;transition:all 0.18s;margin:0 auto;" onmouseover="this.style.borderColor=\'rgba(139,92,246,0.35)\';this.style.color=\'rgba(139,92,246,0.6)\'" onmouseout="this.style.borderColor=\'rgba(139,92,246,0.15)\';this.style.color=\'rgba(100,116,139,0.5)\'">' + dnum + '</div>';
+          continue;
+        }
+
+        var displayMins = Math.min(mins, 1440);
+        var intensity = mins === 0 ? 0 : mins < 15 ? 0.3 : mins < 30 ? 0.6 : 1;
+        var bg, borderColor, textColor, shadow;
+        if (!active) { bg = 'rgba(255,255,255,0.03)'; borderColor = 'rgba(255,255,255,0.07)'; textColor = '#94A3B8'; shadow = 'none'; }
+        else if (intensity <= 0.3) { bg = 'rgba(124,58,237,0.25)'; borderColor = 'rgba(124,58,237,0.3)'; textColor = '#C4B5FD'; shadow = 'none'; }
+        else if (intensity <= 0.6) { bg = 'linear-gradient(135deg,#7C3AED,#A855F7)'; borderColor = 'rgba(168,85,247,0.4)'; textColor = '#fff'; shadow = '0 0 8px rgba(168,85,247,0.2)'; }
+        else { bg = 'linear-gradient(135deg,#A855F7,#EC4899)'; borderColor = 'rgba(236,72,153,0.4)'; textColor = '#fff'; shadow = '0 0 12px rgba(236,72,153,0.4)'; }
+        if (isToday) { borderColor = '#A78BFA'; shadow = (shadow === 'none' ? '' : shadow + ',') + '0 0 0 2px rgba(167,139,250,0.4)'; if (!active) { bg = 'rgba(139,92,246,0.1)'; textColor = '#A78BFA'; } }
+
+        var titleTxt = monthNamesShort[m] + ' ' + dnum + ', ' + y + (displayMins > 0 ? ' \u00b7 ' + _fmtMins(displayMins) : (isToday ? ' \u00b7 Today' : ''));
+        cellsHtml += '<div title="' + titleTxt + '" onclick="showDayDetail(\'' + _dayKey + '\')" style="cursor:pointer;width:44px;height:44px;border-radius:8px;background:' + bg + ';border:1px solid ' + borderColor + ';display:flex;align-items:center;justify-content:center;font-size:0.68rem;color:' + textColor + ';font-weight:' + (isToday || active ? '700' : '500') + ';box-shadow:' + shadow + ';transition:all 0.18s ease;margin:0 auto;" onmouseover="this.style.transform=\'scale(1.1)\'" onmouseout="this.style.transform=\'scale(1)\'">' + dnum + '</div>';
+      }
+
+      var monthLabel = '<div style="font-size:0.78rem;font-weight:700;color:#C4B5FD;letter-spacing:0.5px;margin-bottom:10px;text-align:center;">' + monthNames[m] + ' ' + y +
+        ' <span style="font-size:0.62rem;font-weight:500;color:#64748b;">\u00b7 ' + monthActiveDays + ' active day' + (monthActiveDays === 1 ? '' : 's') + '</span></div>';
+
+      return '<div style="background:rgba(19,21,40,0.5);padding:16px 18px;border-radius:14px;border:1px solid rgba(255,255,255,0.04);margin-bottom:16px;">' +
+        monthLabel + weekdayHtml +
+        '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:8px;place-items:center;">' + cellsHtml + '</div>' +
+        '</div>';
+    }
+
+    var allMonthsHtml = '';
+    for (var mi = 0; mi < monthsList.length; mi++) {
+      allMonthsHtml += _renderMonthGrid(monthsList[mi].y, monthsList[mi].m);
+    }
+
+    attCal.innerHTML = allMonthsHtml + legendHtml;
   }
 
   // Motivational message + Next Mission

@@ -85,8 +85,14 @@ function renderQuizTab(quizData) {
   if (!el) return;
 
   let html = '<div class="tab-card">';
-  html += '<div class="tab-card-title"><i class="fas fa-tasks"></i> Quiz</div>';
-  html += '<p style="font-size:0.76rem;color:var(--muted);margin:-8px 0 16px 0;">Test what you\'ve learned</p>';
+  // Header row: title + an "Open in full page" button (only when there's a quiz).
+  html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">';
+  html += '<div class="tab-card-title" style="margin:0;"><i class="fas fa-tasks"></i> Quiz</div>';
+  if (quizData) {
+    html += '<button onclick="openQuizFullscreen()" title="Open quiz in full page" style="background:rgba(108,71,255,0.15);border:1px solid rgba(108,71,255,0.35);color:#a78bfa;border-radius:8px;padding:6px 12px;font-size:0.74rem;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:6px;"><i class="fas fa-expand"></i> Open</button>';
+  }
+  html += '</div>';
+  html += '<p style="font-size:0.76rem;color:var(--muted);margin:6px 0 16px 0;">Test what you\'ve learned</p>';
 
   if (!quizData) {
     html += '<div style="text-align:center; padding:30px 20px;">';
@@ -166,6 +172,22 @@ function renderQuizTab(quizData) {
 
   html += '</div>';
   el.innerHTML = html;
+
+  // Auto-open the full-screen quiz if the Quiz tab is the active one and the
+  // student hasn't manually closed it. Covers the first-load case where the
+  // quiz data arrives (and renders) after the tab was clicked.
+  try {
+    var quizPanel = document.getElementById('vp-quiz');
+    var isQuizActive = quizPanel && quizPanel.classList.contains('active');
+    if (isQuizActive && quizData && !_quizFullscreenManuallyClosed &&
+        typeof openQuizFullscreen === 'function') {
+      setTimeout(function () {
+        var modal = document.getElementById('quiz-fullscreen-modal');
+        var alreadyOpen = modal && modal.style.display === 'flex';
+        if (!alreadyOpen && !_quizFullscreenManuallyClosed) openQuizFullscreen();
+      }, 100);
+    }
+  } catch (e) {}
 }
 
 /**
@@ -298,6 +320,15 @@ async function submitQuiz(qIndex) {
     completionEl.innerHTML = '<div style="font-size:1rem;font-weight:800;color:#22c55e;margin-bottom:4px;">🎉 You completed this quiz with ' + correctCount + '/' + totalQuestions + ' Correct</div>';
     // Codo pops up with a thank-you now that the quiz is fully completed.
     if (typeof _codoShowQuizThanks === 'function') _codoShowQuizThanks();
+
+    // If the quiz was opened full-screen, auto-close it after a short moment so
+    // the student sees the score + hears Codo's thanks, then returns to normal.
+    var qModal = document.getElementById('quiz-fullscreen-modal');
+    if (qModal && qModal.style.display === 'flex') {
+      setTimeout(function () {
+        if (typeof closeQuizFullscreen === 'function') closeQuizFullscreen();
+      }, 3500);
+    }
   }
 }
 
@@ -316,6 +347,52 @@ function goToNextQuizQuestion(fromIndex) {
     next.style.display = '';
     _quizCurrentIndex = fromIndex + 1;
     try { next.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (e) {}
+  }
+}
+
+/**
+ * Open the quiz in a clean full-screen overlay. We MOVE the live #vp-quiz panel
+ * node into the overlay (not clone it), so every existing handler
+ * (selectQuizOption, submitQuiz, goToNextQuizQuestion, requestLessonHelp) and
+ * all element IDs keep working unchanged. On close we move it back to its
+ * original tab slot — so the inline quiz shows exactly as before, with the SAME
+ * progress/state the student had in the overlay.
+ */
+function openQuizFullscreen() {
+  var panel = document.getElementById('vp-quiz');
+  var body = document.getElementById('quiz-fullscreen-body');
+  var modal = document.getElementById('quiz-fullscreen-modal');
+  if (!panel || !body || !modal) return;
+  // Remember where the panel lived so we can put it back exactly.
+  if (!panel._originalParent) {
+    panel._originalParent = panel.parentNode;
+    panel._originalNext = panel.nextSibling;
+  }
+  body.appendChild(panel);          // move the live node in
+  panel.style.display = 'block';    // ensure visible inside the overlay
+  modal.style.display = 'flex';
+}
+
+/** Close the quiz overlay and move the #vp-quiz panel back to its tab slot. */
+function closeQuizFullscreen() {
+  // Mark as manually closed so switching tabs doesn't instantly re-open it.
+  _quizFullscreenManuallyClosed = true;
+  // Stop any Codo voice that may be playing.
+  try { if (typeof _codoStopAll === 'function') _codoStopAll(); } catch (e) {}
+  var panel = document.getElementById('vp-quiz');
+  var modal = document.getElementById('quiz-fullscreen-modal');
+  if (modal) modal.style.display = 'none';
+  if (panel && panel._originalParent) {
+    // Put it back in its original position within the tab content.
+    if (panel._originalNext && panel._originalNext.parentNode === panel._originalParent) {
+      panel._originalParent.insertBefore(panel, panel._originalNext);
+    } else {
+      panel._originalParent.appendChild(panel);
+    }
+    // Restore the tab-panel's active-state visibility (CSS controls display via
+    // the .active class on .vp-tab-panel; inline display:block from the overlay
+    // must be cleared so the tab system governs it again).
+    panel.style.display = '';
   }
 }
 
@@ -1263,6 +1340,9 @@ function _helpKey(kind, itemId, stage) { return (kind || '') + '|' + (itemId || 
 // One-question-at-a-time quiz navigation (desktop, matching mobile).
 var _quizCurrentIndex = 0;
 var _quizTotalCount = 0;
+// True after the student manually Closes the full-screen quiz, so switching
+// tabs doesn't instantly auto-reopen it. Reset on leaving the Quiz tab.
+var _quizFullscreenManuallyClosed = false;
 
 var _codoScripts = {};            // { lesson_complete_prompt, quiz_complete_thanks }
 var _codoLessonHasQuiz = false;   // set true when this lesson's quiz data loads (>=1 question)
