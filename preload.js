@@ -21,4 +21,7 @@ contextBridge.exposeInMainWorld('electron', {
   getDownloads: (args) => ipcRenderer.invoke('get-downloads', args),
   playDownload: (args) => ipcRenderer.invoke('play-download', args),
   deleteDownload: (args) => ipcRenderer.invoke('delete-download', args),
+  // Live Class screen-share (ISOLATED — live feature only)
+  getLiveScreenSources: () => ipcRenderer.invoke('live-screen-sources'),
+  setLiveScreenSource: (sourceId) => ipcRenderer.invoke('live-set-screen-source', sourceId),
 });
