@@ -183,6 +183,11 @@ function updateBackButtonVisibility() {
 }
 
 function _navigateInternal(page, addToHistory) {
+  // Capture the page we are leaving BEFORE the active class is swapped below —
+  // used by the Live Class PiP triggers (Step 4) to detect leaving/returning
+  // to the live room.
+  const _navLeavingPage = getCurrentActivePage();
+
   // Leaving the lesson video page: stop any Codo voice AND pause the lesson
   // video immediately so neither keeps playing in the background on another
   // screen (dashboard, courses, etc.).
@@ -239,6 +244,32 @@ function _navigateInternal(page, addToHistory) {
 
   const target = document.getElementById('page-' + page);
   if (target) target.classList.add('active');
+
+  // Live Class PiP triggers (Step 4): leaving the live room while a class runs
+  // → pop out into the floating mini-window; returning → close it + show the
+  // room inline. Guarded (typeof) so this is a no-op when PiP isn't present and
+  // never interferes with any other page.
+  //
+  // CRITICAL (in-app navigate): a running live class must NOT be destroyed when
+  // the user moves to another in-app page. A normal page switch sets the
+  // live-room page to display:none, which tears down the Chime media session
+  // (→ forced rejoin) and also kills the PiP video source. So while a class is
+  // live and we leave the room, we keep #page-live-room ALIVE BUT OFF-SCREEN
+  // (rendered, session intact) via the `lr-page-alive` class instead of hiding
+  // it. Returning to the room removes that class so it shows normally again.
+  var _liveRoomEl = document.getElementById('page-live-room');
+  var _classIsLive = (typeof _lrConnected !== 'undefined' && _lrConnected);
+
+  if (_navLeavingPage === 'live-room' && page !== 'live-room') {
+    if (_classIsLive && _liveRoomEl) {
+      _liveRoomEl.classList.add('lr-page-alive'); // keep session + video alive
+    }
+    if (typeof lrPipOpen === 'function') { try { lrPipOpen(); } catch (e) {} }
+  }
+  if (page === 'live-room') {
+    if (_liveRoomEl) _liveRoomEl.classList.remove('lr-page-alive');
+    if (typeof lrPipClose === 'function') { try { lrPipClose(); } catch (e) {} }
+  }
 
   // Reset the shared scroll container to the top on every page switch so pages
   // (My Report, Help & Support, Rate Us, Student Progress, etc.) always open at the top.

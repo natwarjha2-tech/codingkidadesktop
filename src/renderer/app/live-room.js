@@ -25,6 +25,11 @@ var _lrIsHost = false;        // is the current user the host/teacher?
 var _lrRecording = false;     // local recording state (teacher)
 var _lrRecBusy = false;       // guard against double start/stop clicks
 var _LR_REC_TOPIC = 'ck-live-rec'; // Chime data-message topic for rec status
+var _lrMicLocked = false;     // host has disabled this user's audio (Phase 7)
+var _lrCamLocked = false;     // host has disabled this user's video (Phase 7)
+var _lrConnected = false;     // Chime session fully connected? (gates PiP — Phase 8)
+var _lrStartedAtMs = 0;       // class start time (ms epoch) for the elapsed timer
+var _lrTimerInterval = null;  // setInterval handle for the elapsed timer
 
 function _lrToken() {
   return localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
@@ -35,6 +40,39 @@ function _lrSetStatus(text, kind) {
   if (!el) return;
   el.textContent = text;
   el.className = 'lr-status' + (kind ? ' ' + kind : '');
+}
+
+// ── Elapsed timer (how long the class has been running) ──────────────────────
+
+// Format elapsed ms as mm:ss, or h:mm:ss past an hour.
+function _lrFormatElapsed(ms) {
+  var total = Math.max(0, Math.floor(ms / 1000));
+  var h = Math.floor(total / 3600);
+  var m = Math.floor((total % 3600) / 60);
+  var s = total % 60;
+  var pad = function (n) { return (n < 10 ? '0' : '') + n; };
+  return h > 0 ? (h + ':' + pad(m) + ':' + pad(s)) : (pad(m) + ':' + pad(s));
+}
+
+function _lrTimerTick() {
+  var txt = document.getElementById('lr-timer-text');
+  if (txt && _lrStartedAtMs) txt.textContent = _lrFormatElapsed(Date.now() - _lrStartedAtMs);
+}
+
+// Start (or restart) the elapsed timer + show it. Idempotent.
+function _lrStartTimer() {
+  var box = document.getElementById('lr-timer');
+  if (box) box.style.display = 'inline-flex';
+  _lrTimerTick();
+  if (_lrTimerInterval) clearInterval(_lrTimerInterval);
+  _lrTimerInterval = setInterval(_lrTimerTick, 1000);
+}
+
+// Stop + hide the elapsed timer.
+function _lrStopTimer() {
+  if (_lrTimerInterval) { clearInterval(_lrTimerInterval); _lrTimerInterval = null; }
+  var box = document.getElementById('lr-timer');
+  if (box) box.style.display = 'none';
 }
 
 /**
@@ -63,6 +101,13 @@ async function openLiveRoom(classId, joinData) {
   _lrRecBusy = false;
   _lrShowRecIndicator(false); // hidden until a recording actually starts
 
+  // Elapsed timer source: the class's actual start time (same for everyone).
+  // Parsed from the join payload; falls back to "now" if it's missing (e.g. an
+  // older class row without startedAt).
+  var _startedAtIso = joinData.liveClass && joinData.liveClass.startedAt;
+  var _startedMs = _startedAtIso ? Date.parse(_startedAtIso) : NaN;
+  _lrStartedAtMs = isNaN(_startedMs) ? Date.now() : _startedMs;
+
   // Fresh grid each open (remove any stale tiles, keep the audio note).
   _lrResetGrid();
 
@@ -82,6 +127,11 @@ async function openLiveRoom(classId, joinData) {
     // audioVideoDidStart / audioVideoDidStop observer (wired in _lrConnect).
     // Start in-room chat + reactions once the session is live (B5).
     if (typeof lrcStart === 'function') lrcStart();
+    // Start the participants panel (Phase 6): real-time presence + roster.
+    if (typeof lrpStart === 'function') lrpStart();
+    // Wire the native PiP mini-window command bridge (Phase 8 / Step 2). Safe
+    // no-op when the bridge isn't present. Opening the window is a later step.
+    if (typeof lrPipWireCommands === 'function') lrPipWireCommands();
   } catch (e) {
     // Surface the REAL reason in the devtools console so connection failures
     // are diagnosable instead of being swallowed.
@@ -129,7 +179,12 @@ async function _lrConnect(meeting, attendee) {
   _lrAV.addObserver({
     // Meeting session fully connected (audio/video channels up).
     audioVideoDidStart: function () {
+      _lrConnected = true;
       _lrSetStatus('● Live', 'connected');
+      _lrStartTimer(); // begin the elapsed-time counter
+      if (typeof lrPipSyncState === 'function') lrPipSyncState();
+      // Arm blur auto-PiP (Case 3) now that the class is actually live.
+      if (typeof lrPipSetArmed === 'function') lrPipSetArmed(true);
     },
     // Session stopped. If it stopped with a non-OK status, this is the real
     // connection failure (e.g. 403/network) — reflect it instead of a stale
@@ -138,6 +193,7 @@ async function _lrConnect(meeting, attendee) {
       var code = -1;
       try { code = sessionStatus.statusCode(); } catch (e) {}
       console.warn('[live-room] audioVideoDidStop, Chime statusCode =', code);
+      _lrConnected = false;
       // 1 === MeetingEnded (normal), 0 === OK. Anything else = failure while
       // we are not deliberately leaving.
       if (!_lrLeaving && code !== 1 && code !== 0) {
@@ -173,6 +229,11 @@ async function _lrConnect(meeting, attendee) {
 }
 
 // Hidden <audio> sink for remote meeting audio.
+// IMPORTANT (Phase 8 PiP): the sink lives INSIDE .lr-shell so that when the
+// room is moved into the Picture-in-Picture window, the audio element moves
+// WITH it and remote audio keeps playing there. (Previously it was appended to
+// document.body and got left behind on pop-out, cutting audio.) Chime binds to
+// this exact node, so moving the node keeps the binding intact.
 function _lrEnsureAudioEl() {
   var el = document.getElementById('lr-audio-sink');
   if (!el) {
@@ -180,7 +241,8 @@ function _lrEnsureAudioEl() {
     el.id = 'lr-audio-sink';
     el.style.display = 'none';
     el.autoplay = true;
-    document.body.appendChild(el);
+    var shell = document.querySelector('#page-live-room .lr-shell');
+    (shell || document.body).appendChild(el);
   }
   return el;
 }
@@ -226,6 +288,12 @@ function _lrCurrentUserId() {
 // Mute / unmute the local microphone.
 function toggleLiveMic() {
   if (!_lrAV) return;
+  // Host moderation (Phase 7): if the host disabled this user's audio, they
+  // cannot unmute themselves until the host allows it again.
+  if (_lrMicLocked && _lrMuted) {
+    alert('⚠️ The host has muted you. You can speak once the host unmutes you.');
+    return;
+  }
   var micBtn = document.getElementById('lr-mic-btn');
   if (_lrMuted) {
     _lrAV.realtimeUnmuteLocalAudio();
@@ -236,6 +304,8 @@ function toggleLiveMic() {
     _lrMuted = true;
     if (micBtn) { micBtn.classList.add('muted'); micBtn.innerHTML = '<i class="fas fa-microphone-slash"></i>'; }
   }
+  // Keep the PiP mini-window's mic button in sync (Step 2). No-op if closed.
+  if (typeof lrPipSyncState === 'function') lrPipSyncState();
 }
 
 // Turn the local camera on/off. OFF by default (privacy-friendly); the user
@@ -243,6 +313,12 @@ function toggleLiveMic() {
 // participants then see via their own videoTileDidUpdate.
 async function toggleLiveCamera() {
   if (!_lrAV) return;
+  // Host moderation (Phase 7): if the host disabled this user's video, they
+  // cannot turn their camera on until the host allows it again.
+  if (_lrCamLocked && !_lrCamOn) {
+    alert('⚠️ The host has turned off your camera for this class.');
+    return;
+  }
   var camBtn = document.getElementById('lr-cam-btn');
 
   if (_lrCamOn) {
@@ -251,6 +327,7 @@ async function toggleLiveCamera() {
     try { await _lrAV.stopVideoInput(); } catch (e) {}
     _lrCamOn = false;
     if (camBtn) { camBtn.classList.remove('cam-on'); camBtn.classList.add('cam-off'); camBtn.innerHTML = '<i class="fas fa-video-slash"></i>'; }
+    if (typeof lrPipSyncState === 'function') lrPipSyncState();
     return;
   }
 
@@ -265,8 +342,55 @@ async function toggleLiveCamera() {
     _lrAV.startLocalVideoTile();
     _lrCamOn = true;
     if (camBtn) { camBtn.classList.remove('cam-off'); camBtn.classList.add('cam-on'); camBtn.innerHTML = '<i class="fas fa-video"></i>'; }
+    if (typeof lrPipSyncState === 'function') lrPipSyncState();
   } catch (e) {
     alert('⚠️ Could not start the camera. Please check permissions.');
+  }
+}
+
+// ── Host-moderation enforcement helpers (Phase 7) ────────────────────────────
+// Called by live-room-participants.js when the host disables/enables THIS
+// user's audio/video. Kept here because they touch the Chime A/V facade + the
+// local mic/cam buttons that this file owns.
+
+// Force the local mic to muted (used when the host mutes this user).
+function _lrForceMuteLocalAudio() {
+  if (!_lrAV) return;
+  try { _lrAV.realtimeMuteLocalAudio(); } catch (e) {}
+  _lrMuted = true;
+  var micBtn = document.getElementById('lr-mic-btn');
+  if (micBtn) { micBtn.classList.add('muted'); micBtn.innerHTML = '<i class="fas fa-microphone-slash"></i>'; }
+}
+
+// Lock/unlock the mic button (host-disabled audio can't be self-unmuted).
+function _lrSetMicLocked(locked) {
+  _lrMicLocked = !!locked;
+  var micBtn = document.getElementById('lr-mic-btn');
+  if (micBtn) {
+    if (locked) micBtn.classList.add('host-locked'); else micBtn.classList.remove('host-locked');
+    micBtn.title = locked ? 'Muted by host' : 'Mute / Unmute';
+  }
+}
+
+// Force the local camera off (used when the host disables this user's video).
+async function _lrForceStopLocalVideo() {
+  if (!_lrAV) return;
+  if (_lrCamOn) {
+    try { _lrAV.stopLocalVideoTile(); } catch (e) {}
+    try { await _lrAV.stopVideoInput(); } catch (e) {}
+    _lrCamOn = false;
+    var camBtn = document.getElementById('lr-cam-btn');
+    if (camBtn) { camBtn.classList.remove('cam-on'); camBtn.classList.add('cam-off'); camBtn.innerHTML = '<i class="fas fa-video-slash"></i>'; }
+  }
+}
+
+// Lock/unlock the camera button (host-disabled video can't be self-enabled).
+function _lrSetCamLocked(locked) {
+  _lrCamLocked = !!locked;
+  var camBtn = document.getElementById('lr-cam-btn');
+  if (camBtn) {
+    if (locked) camBtn.classList.add('host-locked'); else camBtn.classList.remove('host-locked');
+    camBtn.title = locked ? 'Camera disabled by host' : 'Turn camera on / off';
   }
 }
 
@@ -338,6 +462,13 @@ async function _lrPickSource(sourceId) {
     var shareBtn = document.getElementById('lr-share-btn');
     if (shareBtn) { shareBtn.classList.add('sharing'); shareBtn.innerHTML = '<i class="fas fa-stop"></i> Stop'; }
 
+    // Case 1 (Step 4): the host just started sharing → pop the class into the
+    // floating native mini-window so they can watch the room while presenting
+    // elsewhere (Teams-style). If PiP is already open, refresh so it switches to
+    // the shared screen. No-op if PiP isn't available.
+    if (typeof lrPipOpen === 'function') { try { lrPipOpen(); } catch (e) {} }
+    if (typeof lrPipRefreshVideo === 'function') { try { lrPipRefreshVideo(); } catch (e) {} }
+
     // If the user stops sharing via the OS indicator, clean up too.
     var track = stream.getVideoTracks()[0];
     if (track) track.addEventListener('ended', function () { _lrStopShare(); });
@@ -358,6 +489,9 @@ async function _lrStopShare() {
   _lrSharing = false;
   var shareBtn = document.getElementById('lr-share-btn');
   if (shareBtn) { shareBtn.classList.remove('sharing'); shareBtn.innerHTML = '<i class="fas fa-desktop"></i> Share'; }
+
+  // Host stopped sharing → re-pick the PiP primary video (no-op if PiP closed).
+  if (typeof lrPipRefreshVideo === 'function') lrPipRefreshVideo();
 }
 
 // ── Recording (teacher only) ────────────────────────────────────────────────
@@ -498,6 +632,11 @@ function _lrAddOrUpdateTile(tileState) {
   if (videoEl && _lrAV) {
     try { _lrAV.bindVideoElement(tileId, videoEl); } catch (e) {}
   }
+
+  // If the PiP mini-window is open, re-pick the primary video (a new/changed
+  // tile — e.g. screen-share started — may now be the one to mirror). No-op if
+  // PiP is closed. Guarded so it never affects the normal in-room grid.
+  if (typeof lrPipRefreshVideo === 'function') lrPipRefreshVideo();
 }
 
 // Remove a tile when its video stops.
@@ -512,6 +651,10 @@ function _lrRemoveTile(tileId) {
     var note = document.getElementById('lr-audio-note');
     if (note) note.style.display = '';
   }
+
+  // Re-pick the PiP primary video if the mini-window is open (the removed tile
+  // may have been the one being mirrored). No-op if PiP is closed.
+  if (typeof lrPipRefreshVideo === 'function') lrPipRefreshVideo();
 }
 
 // Leave the room: tears down Chime, tells the backend, returns to the list.
@@ -540,8 +683,15 @@ async function leaveLiveRoom() {
 
 // Stop + release the Chime session (safe to call multiple times).
 async function _lrTeardown() {
+  // Disarm blur auto-PiP + close the mini-window first so it never lingers
+  // after a class ends.
+  if (typeof lrPipSetArmed === 'function') { try { lrPipSetArmed(false); } catch (e) {} }
+  if (typeof lrPipClose === 'function') { try { lrPipClose(); } catch (e) {} }
+
   // Stop in-room chat first (unsubscribe data messages) while _lrAV still exists.
   if (typeof lrcStop === 'function') { try { lrcStop(); } catch (e) {} }
+  // Stop the participants panel (unsubscribe presence) while _lrAV still exists.
+  if (typeof lrpStop === 'function') { try { lrpStop(); } catch (e) {} }
 
   // If the host leaves while recording, stop it (best-effort) + notify others.
   if (_lrIsHost && _lrRecording && _lrClassId) {
@@ -575,6 +725,10 @@ async function _lrTeardown() {
   }
 
   // Clear the grid + close picker + reset control buttons to defaults.
+  // Also drop the "alive-but-off-screen" state so the live-room page never
+  // lingers hidden after a class ends (navigation can hide it normally again).
+  var _liveRoomPage = document.getElementById('page-live-room');
+  if (_liveRoomPage) _liveRoomPage.classList.remove('lr-page-alive');
   _lrResetGrid();
   _lrClosePicker();
   var camBtn = document.getElementById('lr-cam-btn');
@@ -596,4 +750,9 @@ async function _lrTeardown() {
   _lrLocalTileId = null;
   _lrHostUserId = null;
   _lrIsHost = false;
+  _lrMicLocked = false;
+  _lrCamLocked = false;
+  _lrConnected = false;
+  _lrStopTimer();
+  _lrStartedAtMs = 0;
 }

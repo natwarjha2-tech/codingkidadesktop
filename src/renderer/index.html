@@ -973,15 +973,40 @@
     <!-- LIVE CLASS ROOM (ISOLATED feature — driven by live-room.js) -->
     <div id="page-live-room" class="page">
       <div class="lr-shell">
-        <!-- Header: title + status -->
-        <div class="lr-header">
+        <!-- Top control bar (Teams-style, Phase 2): title + status on the left,
+             the meeting controls on the right. The control buttons keep their
+             exact ids/markup (mic/cam/share/record/leave) so the existing
+             wiring in live-room.js (_lrWireControls) is untouched — only their
+             position moved from the old bottom bar to this top bar. -->
+        <div class="lr-header lr-topbar">
           <div class="lr-title-wrap">
             <span class="live-dot"></span>
             <h3 id="lr-title">Live Class</h3>
-          </div>
-          <div style="display:flex;align-items:center;gap:10px;">
-            <span id="lr-rec-indicator" class="lr-rec-indicator" style="display:none;"><span class="lr-rec-dot"></span> Recording</span>
             <div id="lr-status" class="lr-status">Connecting…</div>
+            <!-- Elapsed time since the class started (host's start time, so it
+                 is the same for everyone). Hidden until the class is live. -->
+            <div id="lr-timer" class="lr-timer" style="display:none;"><i class="far fa-clock"></i> <span id="lr-timer-text">00:00</span></div>
+          </div>
+          <div class="lr-controls">
+            <span id="lr-rec-indicator" class="lr-rec-indicator" style="display:none;"><span class="lr-rec-dot"></span> Recording</span>
+            <button id="lr-people-btn" class="lr-ctrl-btn" title="Participants">
+              <i class="fas fa-users"></i> <span id="lr-people-count">0</span>
+            </button>
+            <button id="lr-mic-btn" class="lr-ctrl-btn" title="Mute / Unmute">
+              <i class="fas fa-microphone"></i>
+            </button>
+            <button id="lr-cam-btn" class="lr-ctrl-btn cam-off" title="Turn camera on / off">
+              <i class="fas fa-video-slash"></i>
+            </button>
+            <button id="lr-share-btn" class="lr-ctrl-btn" title="Share your screen" style="display:none;">
+              <i class="fas fa-desktop"></i> Share
+            </button>
+            <button id="lr-rec-btn" class="lr-ctrl-btn" title="Record this class" style="display:none;">
+              <i class="fas fa-circle"></i> Record
+            </button>
+            <button id="lr-leave-btn" class="lr-ctrl-btn lr-leave" title="Leave class">
+              <i class="fas fa-phone-slash"></i> Leave
+            </button>
           </div>
         </div>
 
@@ -997,36 +1022,66 @@
             </div>
           </div>
 
+          <!-- Participants panel (Phase 6) — Zoom-style roster. Hidden by
+               default; toggled from the "Participants" button in the top bar.
+               Populated by live-room-participants.js (Chime presence + REST
+               roster). Join/leave toasts float from #lr-people-toasts. -->
+          <div id="lr-people" class="lr-people" style="display:none;">
+            <div class="lr-people-head">
+              <span><i class="fas fa-users"></i> Participants (<span id="lr-people-head-count">0</span>)</span>
+              <button id="lr-people-close" class="lr-people-close" title="Close"><i class="fas fa-times"></i></button>
+            </div>
+            <!-- Bulk host moderation (Phase 7): mute/disable ALL participants in
+                 one click. Shown only to the host (toggled by JS). -->
+            <div id="lr-people-bulk" class="lr-people-bulk" style="display:none;">
+              <button id="lr-bulk-audio" class="lr-bulk-btn" type="button" title="Mute everyone"><i class="fas fa-microphone"></i> Mute all</button>
+              <button id="lr-bulk-video" class="lr-bulk-btn" type="button" title="Turn off everyone's camera"><i class="fas fa-video"></i> Stop video</button>
+              <button id="lr-bulk-chat" class="lr-bulk-btn" type="button" title="Turn off everyone's chat"><i class="fas fa-comment"></i> Mute chat</button>
+            </div>
+            <div id="lr-people-list" class="lr-people-list"></div>
+          </div>
+
           <!-- Chat panel (teacher + students) -->
           <div id="lr-chat" class="lr-chat">
             <div class="lr-chat-head"><i class="fas fa-comments"></i> Class Chat</div>
             <div id="lr-chat-messages" class="lr-chat-messages"></div>
-            <div class="lr-chat-reactions" id="lr-chat-reactions"></div>
+            <!-- Emoji picker popover (Phase 5) — hidden until the 😊 button is
+                 clicked. Populated by live-room-chat.js from the local
+                 window.CK_EMOJI_GROUPS dataset (native Unicode, no CDN). -->
+            <div id="lr-emoji-picker" class="lr-emoji-picker" style="display:none;">
+              <div id="lr-emoji-tabs" class="lr-emoji-tabs"></div>
+              <div id="lr-emoji-grid" class="lr-emoji-grid"></div>
+            </div>
             <div class="lr-chat-input">
+              <button id="lr-emoji-btn" class="lr-emoji-btn" type="button" title="Emoji"><i class="far fa-smile"></i></button>
               <input id="lr-chat-text" type="text" placeholder="Type a message…" maxlength="4000" autocomplete="off"/>
               <button id="lr-chat-send" class="lr-chat-send" title="Send"><i class="fas fa-paper-plane"></i></button>
             </div>
           </div>
         </div>
 
-        <!-- Control bar -->
-        <div class="lr-controls">
-          <button id="lr-mic-btn" class="lr-ctrl-btn" title="Mute / Unmute">
-            <i class="fas fa-microphone"></i>
-          </button>
-          <button id="lr-cam-btn" class="lr-ctrl-btn cam-off" title="Turn camera on / off">
-            <i class="fas fa-video-slash"></i>
-          </button>
-          <button id="lr-share-btn" class="lr-ctrl-btn" title="Share your screen" style="display:none;">
-            <i class="fas fa-desktop"></i> Share
-          </button>
-          <button id="lr-rec-btn" class="lr-ctrl-btn" title="Record this class" style="display:none;">
-            <i class="fas fa-circle"></i> Record
-          </button>
-          <button id="lr-leave-btn" class="lr-ctrl-btn lr-leave" title="Leave class">
-            <i class="fas fa-phone-slash"></i> Leave
-          </button>
+        <!-- Reaction strip (Phase 3): moved out of the chat panel to a floating
+             bottom-center bar (Teams/Meet-like). Same id #lr-chat-reactions so
+             the existing wiring in live-room-chat.js (_lrcRenderReactionBar)
+             keeps working unchanged — only its location + emoji set changed. -->
+        <div class="lr-reactions-dock">
+          <div class="lr-chat-reactions" id="lr-chat-reactions"></div>
         </div>
+
+        <!-- Host moderation dock (bottom-left) — always visible to the HOST so
+             they can mute/disable ALL participants' audio/video/chat at any
+             time without opening the participants panel. Reuses the SAME bulk
+             logic (_lrpToggleBulk) — no duplicated behaviour. Hidden for
+             non-hosts (toggled by JS). -->
+        <div id="lr-moddock" class="lr-moddock" style="display:none;">
+          <button id="lr-moddock-audio" class="lr-moddock-btn" type="button" title="Mute everyone's mic"><i class="fas fa-microphone"></i></button>
+          <button id="lr-moddock-video" class="lr-moddock-btn" type="button" title="Turn off everyone's camera"><i class="fas fa-video"></i></button>
+          <button id="lr-moddock-chat" class="lr-moddock-btn" type="button" title="Turn off everyone's chat"><i class="fas fa-comment"></i></button>
+        </div>
+
+        <!-- Join/leave toasts (Phase 6) — transient "X joined / X left"
+             notices, populated by live-room-participants.js. -->
+        <div id="lr-people-toasts" class="lr-people-toasts"></div>
       </div>
 
       <!-- Screen-share source picker (teacher) -->
@@ -2218,7 +2273,10 @@
 <script src="app/lesson-chat.js"></script>
 <script src="app/live.js"></script>
 <script src="app/live-room.js"></script>
+<script src="app/emoji-data.js"></script>
 <script src="app/live-room-chat.js"></script>
+<script src="app/live-room-participants.js"></script>
+<script src="app/live-room-pip.js"></script>
 <script src="app/downloads.js"></script>
 <script src="app/pdf-viewer.js"></script>
 <script src="app/pages.js"></script>

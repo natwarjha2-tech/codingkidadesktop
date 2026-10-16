@@ -50,6 +50,8 @@ if (!gotLock) {
 let mainWindow;
 let pendingAuth = null;
 let pendingEnroll = null;
+let livePipWindow = null; // Live Class PiP mini-window (always-on-top). ISOLATED.
+let livePipArmed = false; // is a live class active? (enables blur auto-PiP — Case 3)
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -63,7 +65,14 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      preload: path.join(__dirname, 'preload.js')
+      preload: path.join(__dirname, 'preload.js'),
+      // Live Class reliability: never throttle this renderer when the window is
+      // in the background/minimized. Without this, Chromium throttles timers +
+      // the WebRTC/media pipeline when the window loses focus, which freezes a
+      // teacher's screen-share video and makes audio buffer the moment they
+      // switch to another app/window. Keeping it alive is what Teams/Zoom-style
+      // Electron apps do for continuous A/V. No effect on security.
+      backgroundThrottling: false
     }
   });
 
@@ -97,6 +106,40 @@ function createWindow() {
       }).catch(() => callback());
     }, { useSystemPicker: false });
   } catch {}
+
+  // Case 3 (Step 4): when a live class is active and the main window loses focus
+  // or is minimized, auto-open the floating mini-window (Teams-style). Done in
+  // the main process so no renderer user-gesture is required.
+  //
+  // IMPORTANT (flap-proofing): opening the mini-window itself steals focus from
+  // the main window → fires another 'blur'. Without care this creates an
+  // open/close loop + multiple windows. So we:
+  //   - debounce blur by 300ms and only open if the main window is STILL not
+  //     focused AND the mini-window isn't already open,
+  //   - treat focus/show/restore (user returned to the app) as the single
+  //     "close" trigger.
+  let _pipBlurTimer = null;
+  const _pipMaybeOpenOnBlur = () => {
+    if (_pipBlurTimer) clearTimeout(_pipBlurTimer);
+    _pipBlurTimer = setTimeout(() => {
+      _pipBlurTimer = null;
+      if (!livePipArmed) return;
+      if (livePipWindow && !livePipWindow.isDestroyed()) return; // already open
+      // Only pop out if the main window is genuinely not focused/visible.
+      if (mainWindow.isFocused()) return;
+      createLivePipWindow({ width: 360, height: 240 });
+    }, 300);
+  };
+  const _pipCloseOnReturn = () => {
+    if (_pipBlurTimer) { clearTimeout(_pipBlurTimer); _pipBlurTimer = null; }
+    closeLivePipWindow();
+  };
+
+  mainWindow.on('blur', _pipMaybeOpenOnBlur);
+  mainWindow.on('minimize', _pipMaybeOpenOnBlur);
+  mainWindow.on('focus', _pipCloseOnReturn);
+  mainWindow.on('show', _pipCloseOnReturn);
+  mainWindow.on('restore', _pipCloseOnReturn);
 
   // Allow opening DevTools with F12 / Ctrl+Shift+I so console errors (e.g. live
   // class connection failures) can be diagnosed. Harmless in production too.
@@ -135,6 +178,157 @@ ipcMain.handle('live-screen-sources', async () => {
 ipcMain.handle('live-set-screen-source', (event, sourceId) => {
   global.__ckLiveShareSourceId = sourceId || null;
   return { success: true };
+});
+
+// ─── Live Class PiP mini-window (ISOLATED — Step 1: plumbing only) ──────────────
+// A small, frameless, always-on-top window that will host the floating live
+// class (video + controls arrive in later steps). The main window keeps the
+// Chime media session; this window is purely a secondary view, so opening or
+// closing it never affects the ongoing class.
+
+function createLivePipWindow(opts) {
+  // Reuse the existing window if it's already open (idempotent).
+  if (livePipWindow && !livePipWindow.isDestroyed()) {
+    livePipWindow.show();
+    livePipWindow.focus();
+    return livePipWindow;
+  }
+
+  const width = (opts && opts.width) || 360;
+  const height = (opts && opts.height) || 240;
+
+  livePipWindow = new BrowserWindow({
+    width,
+    height,
+    minWidth: 240,
+    minHeight: 160,
+    frame: false,              // custom chrome (draggable header added later)
+    resizable: true,
+    alwaysOnTop: true,         // float above every other app (OS-level) — Teams-like
+    skipTaskbar: true,
+    backgroundColor: '#0f0f1a',
+    title: 'CodingKida Live',
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js'),
+      backgroundThrottling: false, // keep the mini view smooth in the background
+    },
+  });
+
+  // Make sure it stays above full-screen apps too (best-effort).
+  try { livePipWindow.setAlwaysOnTop(true, 'screen-saver'); } catch {}
+
+  livePipWindow.loadFile(path.join(__dirname, 'src/renderer/live-pip.html'));
+
+  livePipWindow.on('closed', () => { livePipWindow = null; });
+  return livePipWindow;
+}
+
+function closeLivePipWindow(focusMain) {
+  if (livePipWindow && !livePipWindow.isDestroyed()) {
+    try { livePipWindow.close(); } catch {}
+  }
+  livePipWindow = null;
+  // Bring the main app window back to the foreground when the user explicitly
+  // returns from the mini-window (e.g. "expand" button). Not done on an
+  // automatic focus-close (the user is already looking at the main window).
+  if (focusMain && mainWindow && !mainWindow.isDestroyed()) {
+    try {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    } catch {}
+  }
+}
+
+// Open the PiP mini-window.
+ipcMain.handle('live-pip:open', (event, opts) => {
+  try {
+    createLivePipWindow(opts);
+    return { success: true };
+  } catch (err) {
+    return { success: false, message: err && err.message ? err.message : 'Could not open PiP.' };
+  }
+});
+
+// Close the PiP mini-window. `focusMain` brings the app window to front (used
+// by the mini-window's "return to app" button).
+ipcMain.handle('live-pip:close', (event, opts) => {
+  closeLivePipWindow(opts && opts.focusMain);
+  return { success: true };
+});
+
+// Arm/disarm blur auto-PiP (Case 3). When armed (a class is live), the main
+// window losing focus/minimizing auto-opens the mini-window — this is done in
+// the MAIN process so it needs no renderer user-gesture (unlike the browser
+// Document-PiP API). Disarming (class ended/left) stops that behaviour.
+ipcMain.handle('live-pip:armed', (event, armed) => {
+  livePipArmed = !!armed;
+  // If we disarm, make sure no stray mini-window remains.
+  if (!livePipArmed) closeLivePipWindow();
+  return { success: true };
+});
+
+// Relay a COMMAND from the mini-window → the main window (mic/cam/leave). The
+// main window owns the Chime session and performs the real action. Main process
+// is just the messenger (mini and main are separate renderers).
+ipcMain.on('live-pip:command', (event, payload) => {
+  if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
+    mainWindow.webContents.send('live-pip:command', payload || {});
+  }
+});
+
+// Handshake: mini-window finished loading → tell the main window to start the
+// video send + push state. This makes video work no matter HOW the mini-window
+// was opened (renderer call OR main-process blur auto-open — Case 3).
+ipcMain.on('live-pip:ready', () => {
+  if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
+    mainWindow.webContents.send('live-pip:ready');
+  }
+});
+
+// Relay STATE from the main window → the mini-window (title, count, mic/cam/rec
+// status) so the floating view stays in sync with the real class.
+ipcMain.on('live-pip:state', (event, payload) => {
+  if (livePipWindow && !livePipWindow.isDestroyed() && livePipWindow.webContents) {
+    livePipWindow.webContents.send('live-pip:state', payload || {});
+  }
+});
+
+// ─── WebRTC loopback signaling relay (Step 3) ───────────────────────────────────
+// The primary live video is streamed from the MAIN window to the MINI window via
+// a localhost RTCPeerConnection. The two windows are separate renderers, so the
+// main process relays the SDP offer/answer + ICE candidates between them. This
+// is a pure in-process loopback — no external network, no server, no STUN/TURN.
+
+// Main → mini: SDP OFFER from the sender (main window).
+ipcMain.on('live-pip:webrtc-offer', (event, sdp) => {
+  if (livePipWindow && !livePipWindow.isDestroyed() && livePipWindow.webContents) {
+    livePipWindow.webContents.send('live-pip:webrtc-offer', sdp);
+  }
+});
+
+// Mini → main: SDP ANSWER from the receiver (mini window).
+ipcMain.on('live-pip:webrtc-answer', (event, sdp) => {
+  if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
+    mainWindow.webContents.send('live-pip:webrtc-answer', sdp);
+  }
+});
+
+// ICE candidates both ways. `to` tells the relay which window to forward to.
+ipcMain.on('live-pip:webrtc-ice', (event, payload) => {
+  const to = payload && payload.to;
+  const candidate = payload && payload.candidate;
+  if (to === 'mini') {
+    if (livePipWindow && !livePipWindow.isDestroyed() && livePipWindow.webContents) {
+      livePipWindow.webContents.send('live-pip:webrtc-ice', candidate);
+    }
+  } else {
+    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
+      mainWindow.webContents.send('live-pip:webrtc-ice', candidate);
+    }
+  }
 });
 
 // Provide pending auth to renderer on load
@@ -254,6 +448,16 @@ ipcMain.handle('login', async (event, { email, password, remember }) => {
 
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
+// Live Class reliability (Phase 4): stop Chromium from backgrounding/throttling
+// the renderer when the window is not focused/visible. Paired with the window's
+// `backgroundThrottling: false`, this keeps the Chime WebRTC media pipeline
+// (screen-share video + audio) running smoothly when the host/student switches
+// to another app or minimizes — matching Teams/Zoom-style behaviour. These are
+// process-wide switches and must be set before app.whenReady(). No security impact.
+app.commandLine.appendSwitch('disable-background-timer-throttling');
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
+
 app.whenReady().then(() => {
   createWindow();
 
@@ -300,6 +504,11 @@ app.whenReady().then(() => {
       });
     });
   }
+});
+
+// Make sure the PiP mini-window never outlives the app (clean shutdown).
+app.on('before-quit', () => {
+  closeLivePipWindow();
 });
 
 app.on('window-all-closed', () => {

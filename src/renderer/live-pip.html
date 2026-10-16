@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <!-- Minimal CSP for the isolated PiP mini-window. Step 1 is plumbing only
+       (no network); media/video sources are added in later steps. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; font-src https://cdnjs.cloudflare.com; img-src 'self' data: https://*.amazonaws.com https://*.cloudfront.net; media-src blob: data:;"/>
+  <title>CodingKida Live</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+    body {
+      background: #0f0f1a; color: #fff;
+      font-family: 'Inter', system-ui, Arial, sans-serif;
+      display: flex; flex-direction: column; height: 100vh; overflow: hidden;
+    }
+    /* Draggable header (frameless window move region) */
+    .pip-header {
+      -webkit-app-region: drag;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 6px 10px; background: rgba(255,255,255,0.04);
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      font-size: 0.78rem; font-weight: 700;
+    }
+    .pip-title { display: flex; align-items: center; gap: 6px; min-width: 0; }
+    .pip-title .dot { width: 8px; height: 8px; border-radius: 50%; background: #f0316e; }
+    .pip-title span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    /* Buttons must NOT be part of the drag region, or clicks won't register */
+    .pip-btn { -webkit-app-region: no-drag; background: rgba(255,255,255,0.08); border: none;
+      color: #fff; width: 26px; height: 26px; border-radius: 7px; cursor: pointer; font-size: 0.8rem; }
+    .pip-btn:hover { background: rgba(255,255,255,0.16); }
+    .pip-body { flex: 1; display: flex; align-items: center; justify-content: center; color: rgba(255,255,255,0.5); font-size: 0.8rem; position: relative; background: #000; }
+    .pip-count { font-size: 0.7rem; color: rgba(255,255,255,0.7); display: inline-flex; align-items: center; gap: 4px; margin-right: 6px; }
+    /* Control bar (mic / cam / leave) */
+    .pip-controls { -webkit-app-region: no-drag; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 8px; background: rgba(255,255,255,0.03); border-top: 1px solid rgba(255,255,255,0.08); }
+    .pip-ctrl { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12); color: #fff; width: 36px; height: 32px; border-radius: 8px; cursor: pointer; font-size: 0.82rem; }
+    .pip-ctrl:hover { background: rgba(255,255,255,0.16); }
+    .pip-ctrl.muted { background: rgba(240,49,110,0.18); border-color: rgba(240,49,110,0.4); color: #ff6b9d; }
+    .pip-ctrl.cam-on { background: rgba(108,71,255,0.2); border-color: rgba(108,71,255,0.45); }
+    .pip-ctrl.leave { background: rgba(240,49,110,0.18); border-color: rgba(240,49,110,0.4); color: #ff6b9d; }
+    .pip-ctrl.leave:hover { background: rgba(240,49,110,0.3); }
+  </style>
+</head>
+<body>
+  <div class="pip-header">
+    <div class="pip-title">
+      <span class="dot"></span>
+      <span id="pip-title-text">Live Class</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:6px;">
+      <span class="pip-count"><i class="fas fa-users"></i> <span id="pip-count-text">0</span></span>
+      <button id="pip-close" class="pip-btn" title="Return to app"><i class="fas fa-expand"></i></button>
+    </div>
+  </div>
+
+  <div class="pip-body" id="pip-body">
+    <!-- Live video (mirrored from the main window over a loopback WebRTC). -->
+    <video id="pip-video" autoplay playsinline muted style="width:100%;height:100%;object-fit:contain;display:none;background:#000;"></video>
+    <span id="pip-status" class="pip-placeholder">Live · audio only</span>
+  </div>
+
+  <div class="pip-controls">
+    <button id="pip-mic" class="pip-ctrl" title="Mute / Unmute"><i class="fas fa-microphone"></i></button>
+    <button id="pip-cam" class="pip-ctrl" title="Camera on / off"><i class="fas fa-video-slash"></i></button>
+    <button id="pip-leave" class="pip-ctrl leave" title="Leave class"><i class="fas fa-phone-slash"></i></button>
+  </div>
+
+  <script>
+    var el = function (id) { return document.getElementById(id); };
+
+    // Close/expand → return to the app (main window brings the room back + closes
+    // this mini-window). Handled by the main window on the 'expand' command.
+    el('pip-close').addEventListener('click', function () {
+      if (window.electron && window.electron.livePipSendCommand) {
+        window.electron.livePipSendCommand({ action: 'expand' });
+      }
+    });
+
+    // Control buttons relay a command to the MAIN window, which owns the Chime
+    // session and performs the real mute/cam/leave. This window never touches
+    // the media session itself.
+    el('pip-mic').addEventListener('click', function () {
+      if (window.electron) window.electron.livePipSendCommand({ action: 'mic' });
+    });
+    el('pip-cam').addEventListener('click', function () {
+      if (window.electron) window.electron.livePipSendCommand({ action: 'cam' });
+    });
+    el('pip-leave').addEventListener('click', function () {
+      if (window.electron) window.electron.livePipSendCommand({ action: 'leave' });
+    });
+
+    // Receive state from the main window and reflect it in the mini UI.
+    if (window.electron && window.electron.onLivePipState) {
+      window.electron.onLivePipState(function (s) {
+        if (!s) return;
+        if (typeof s.title === 'string') el('pip-title-text').textContent = s.title;
+        if (typeof s.count === 'number') el('pip-count-text').textContent = String(s.count);
+
+        var mic = el('pip-mic');
+        if (s.micMuted) { mic.classList.add('muted'); mic.innerHTML = '<i class="fas fa-microphone-slash"></i>'; }
+        else { mic.classList.remove('muted'); mic.innerHTML = '<i class="fas fa-microphone"></i>'; }
+
+        var cam = el('pip-cam');
+        if (s.camOn) { cam.classList.add('cam-on'); cam.innerHTML = '<i class="fas fa-video"></i>'; }
+        else { cam.classList.remove('cam-on'); cam.innerHTML = '<i class="fas fa-video-slash"></i>'; }
+
+        if (typeof s.status === 'string' && !el('pip-video').srcObject) {
+          el('pip-status').textContent = s.status;
+        }
+        // Toggle video vs. placeholder based on whether a stream is coming.
+        if (typeof s.hasVideo === 'boolean' && !s.hasVideo) {
+          _pipShowPlaceholder('Live · audio only');
+        }
+      });
+    }
+
+    // ── WebRTC receiver (Step 3): accept the primary video from the main window
+    //    over a loopback peer connection. Signaling is relayed by the main
+    //    process. Audio stays in the main window; here we only show video.
+    var _pipPC = null;
+
+    function _pipShowVideo() {
+      el('pip-video').style.display = 'block';
+      el('pip-status').style.display = 'none';
+    }
+    function _pipShowPlaceholder(text) {
+      el('pip-video').style.display = 'none';
+      el('pip-status').style.display = 'inline';
+      if (text) el('pip-status').textContent = text;
+    }
+
+    if (window.electron && window.electron.onLivePipOffer) {
+      window.electron.onLivePipOffer(async function (offer) {
+        if (!offer) return;
+        try {
+          if (_pipPC) { try { _pipPC.close(); } catch (e) {} }
+          _pipPC = new RTCPeerConnection({ iceServers: [] });
+
+          _pipPC.ontrack = function (ev) {
+            var stream = (ev.streams && ev.streams[0]) ? ev.streams[0] : new MediaStream([ev.track]);
+            el('pip-video').srcObject = stream;
+            el('pip-video').play && el('pip-video').play().catch(function () {});
+            _pipShowVideo();
+          };
+          _pipPC.onicecandidate = function (ev) {
+            if (ev.candidate) {
+              // Send a plain object — RTCIceCandidate doesn't survive IPC intact.
+              window.electron.livePipSendIce({ to: 'main', candidate: {
+                candidate: ev.candidate.candidate,
+                sdpMid: ev.candidate.sdpMid,
+                sdpMLineIndex: ev.candidate.sdpMLineIndex,
+              }});
+            }
+          };
+          // `offer` is a plain { type, sdp } object relayed over IPC.
+          await _pipPC.setRemoteDescription(offer);
+          var answer = await _pipPC.createAnswer();
+          await _pipPC.setLocalDescription(answer);
+          var la = _pipPC.localDescription;
+          window.electron.livePipSendAnswer({ type: la.type, sdp: la.sdp });
+        } catch (e) {
+          _pipShowPlaceholder('Live · audio only');
+        }
+      });
+
+      window.electron.onLivePipIce(function (candidate) {
+        if (_pipPC && candidate) {
+          try { _pipPC.addIceCandidate(candidate); } catch (e) {}
+        }
+      });
+    }
+
+    // Announce readiness so the main window starts the video send + state push,
+    // regardless of how this window was opened (click or main-process blur).
+    if (window.electron && window.electron.livePipReady) {
+      window.electron.livePipReady();
+    }
+  </script>
+</body>
+</html>

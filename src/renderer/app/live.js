@@ -40,20 +40,34 @@ async function renderLiveClasses() {
   var loading = document.getElementById('live-loading');
   if (!list) return;
 
-  if (_liveLoading) return;
-  _liveLoading = true;
-
-  if (loading) loading.style.display = 'flex';
-  if (empty) empty.style.display = 'none';
-  list.innerHTML = '';
-
   var token = _liveToken();
   if (!token) {
-    _liveLoading = false;
     if (loading) loading.style.display = 'none';
     if (empty) { empty.style.display = 'block'; empty.textContent = 'Please log in to see your live classes.'; }
     return;
   }
+
+  // ── Instant paint from cache (stale-while-revalidate), like other pages ──
+  // Show cached classes immediately (no spinner) if we have them, then refresh
+  // silently in the background. Only show the spinner on a true cold start.
+  var cachedHosting = (typeof ckCacheGet === 'function') ? ckCacheGet('/api/live/classes/hosting') : null;
+  var cachedEnrolled = (typeof ckCacheGet === 'function') ? ckCacheGet('/api/live/classes/enrolled') : null;
+  var hasCache = !!(cachedHosting || cachedEnrolled);
+
+  if (hasCache) {
+    _liveRenderLists(
+      (cachedHosting && cachedHosting.success && Array.isArray(cachedHosting.classes)) ? cachedHosting.classes : [],
+      (cachedEnrolled && cachedEnrolled.success && Array.isArray(cachedEnrolled.classes)) ? cachedEnrolled.classes : []
+    );
+  } else {
+    if (loading) loading.style.display = 'flex';
+    if (empty) empty.style.display = 'none';
+    list.innerHTML = '';
+  }
+
+  // Guard against overlapping network refreshes (but cache paint above always runs).
+  if (_liveLoading) return;
+  _liveLoading = true;
 
   try {
     // Fetch hosting + enrolled in parallel. 503 from either = feature off.
@@ -70,33 +84,57 @@ async function renderLiveClasses() {
 
     var hostingData = await results[0].json().catch(function () { return {}; });
     var enrolledData = await results[1].json().catch(function () { return {}; });
+
+    // Cache the fresh responses for the next instant paint.
+    if (typeof ckCacheSet === 'function') {
+      if (hostingData && hostingData.success) ckCacheSet('/api/live/classes/hosting', hostingData);
+      if (enrolledData && enrolledData.success) ckCacheSet('/api/live/classes/enrolled', enrolledData);
+    }
+
     var hosting = (hostingData && hostingData.success && Array.isArray(hostingData.classes)) ? hostingData.classes : [];
     var enrolled = (enrolledData && enrolledData.success && Array.isArray(enrolledData.classes)) ? enrolledData.classes : [];
 
     _liveLoaded = true;
-    if (loading) loading.style.display = 'none';
-
-    if (hosting.length === 0 && enrolled.length === 0) {
-      if (empty) { empty.style.display = 'block'; empty.textContent = 'No live classes scheduled right now. Check back soon!'; }
-      return;
-    }
-
-    // Teacher section (only when hosting something).
-    if (hosting.length > 0) {
-      list.appendChild(_liveSectionHeader('Your Classes (Host)'));
-      hosting.forEach(function (c) { list.appendChild(_renderLiveCard(c, true)); });
-    }
-
-    // Student / joinable section.
-    if (enrolled.length > 0) {
-      if (hosting.length > 0) list.appendChild(_liveSectionHeader('Classes You Can Join'));
-      enrolled.forEach(function (c) { list.appendChild(_renderLiveCard(c, false)); });
-    }
+    _liveRenderLists(hosting, enrolled);
   } catch (e) {
-    if (loading) loading.style.display = 'none';
-    if (empty) { empty.style.display = 'block'; empty.textContent = 'Could not load live classes. Please try again.'; }
+    // On a network error, keep any cached list already painted; only show the
+    // error message if we had nothing to show.
+    if (!hasCache) {
+      if (loading) loading.style.display = 'none';
+      if (empty) { empty.style.display = 'block'; empty.textContent = 'Could not load live classes. Please try again.'; }
+    }
   } finally {
     _liveLoading = false;
+  }
+}
+
+// Render the hosting + enrolled lists into the page (shared by the instant
+// cache paint and the fresh network response — single source of render truth).
+function _liveRenderLists(hosting, enrolled) {
+  var list = document.getElementById('live-list');
+  var empty = document.getElementById('live-empty');
+  var loading = document.getElementById('live-loading');
+  if (!list) return;
+
+  if (loading) loading.style.display = 'none';
+  list.innerHTML = '';
+
+  if ((!hosting || hosting.length === 0) && (!enrolled || enrolled.length === 0)) {
+    if (empty) { empty.style.display = 'block'; empty.textContent = 'No live classes scheduled right now. Check back soon!'; }
+    return;
+  }
+  if (empty) empty.style.display = 'none';
+
+  // Teacher section (only when hosting something).
+  if (hosting && hosting.length > 0) {
+    list.appendChild(_liveSectionHeader('Your Classes (Host)'));
+    hosting.forEach(function (c) { list.appendChild(_renderLiveCard(c, true)); });
+  }
+
+  // Student / joinable section.
+  if (enrolled && enrolled.length > 0) {
+    if (hosting && hosting.length > 0) list.appendChild(_liveSectionHeader('Classes You Can Join'));
+    enrolled.forEach(function (c) { list.appendChild(_renderLiveCard(c, false)); });
   }
 }
 
@@ -275,6 +313,12 @@ async function endLiveClass(classId, btnEl) {
     if (!data || !data.success) {
       alert('⚠️ ' + ((data && data.message) || 'Could not end the class.'));
       return;
+    }
+    // The class just ended — invalidate the cached lists so the refresh shows
+    // the up-to-date state immediately (not a stale "live" entry).
+    if (typeof ckCacheRemove === 'function') {
+      ckCacheRemove('/api/live/classes/hosting');
+      ckCacheRemove('/api/live/classes/enrolled');
     }
     // Refresh the list so the ended class drops off.
     renderLiveClasses();
