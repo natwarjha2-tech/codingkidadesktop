@@ -665,18 +665,29 @@ function _renderParentReport(dashData, achievements, totalCoins, coinTransaction
       if (rec && rec.date) _mergeDay(rec.date, rec.mins);
     });
 
-    // Determine the first month to show: the student's JOIN month (from the
-    // server) if known; else fall back to 1 month back (so we still show the
-    // current month cleanly even before any server data exists).
-    var startYear = curYear, startMonth = curMonth;
+    // Determine how far BACK the user may navigate: the student's JOIN month
+    // (from the server) if known, otherwise 12 months back. This bounds the
+    // "‹ prev" arrow so they can page through the last year (Teams/Google
+    // Calendar style) one month at a time.
+    var minYear = curYear, minMonth = curMonth;
+    // Default: allow 12 months back even with no server data.
+    (function () {
+      var mY = curYear, mM = curMonth - 11;
+      while (mM < 0) { mM += 12; mY--; }
+      minYear = mY; minMonth = mM;
+    })();
     var joinedAt = _prServerHistory && _prServerHistory.joinedAt ? _prServerHistory.joinedAt : null;
     if (joinedAt) {
       var jp = String(joinedAt).split('-');
       if (jp.length === 3) {
         var jy = Number(jp[0]), jm = Number(jp[1]) - 1;
-        // Guard against bad data: only use if it's in the past (and within ~5 years).
+        // Only use the join month if it's in the past and more RECENT than the
+        // default 12-months-back floor (so a brand-new student can't page into
+        // empty months before they joined), and within ~5 years.
         if (jy >= curYear - 5 && (jy < curYear || (jy === curYear && jm <= curMonth))) {
-          startYear = jy; startMonth = jm;
+          var joinAbs = jy * 12 + jm;
+          var floorAbs = minYear * 12 + minMonth;
+          if (joinAbs > floorAbs) { minYear = jy; minMonth = jm; }
         }
       }
     }
@@ -692,17 +703,8 @@ function _renderParentReport(dashData, achievements, totalCoins, coinTransaction
       '<span style="display:flex;align-items:center;gap:4px;"><span style="width:9px;height:9px;border-radius:3px;background:linear-gradient(135deg,#A855F7,#EC4899);box-shadow:0 0 6px rgba(236,72,153,0.4);"></span> On Fire</span>' +
       '</div>';
 
-    // Build the list of months to render (newest → oldest).
-    var monthsList = [];
-    var yy = curYear, mm = curMonth;
-    while (yy > startYear || (yy === startYear && mm >= startMonth)) {
-      monthsList.push({ y: yy, m: mm });
-      mm--;
-      if (mm < 0) { mm = 11; yy--; }
-      if (monthsList.length > 120) break; // hard safety cap (10 years)
-    }
-
-    // Render one grid per month.
+    // Render the day grid for ONE month (no month label — the nav header shows
+    // the month name). Returns the inner HTML for a month card body.
     function _renderMonthGrid(y, m) {
       var isCurMonth = (y === curYear && m === curMonth);
       var todayDate = today.getDate();
@@ -747,21 +749,66 @@ function _renderParentReport(dashData, achievements, totalCoins, coinTransaction
         cellsHtml += '<div title="' + titleTxt + '" onclick="showDayDetail(\'' + _dayKey + '\')" style="cursor:pointer;width:44px;height:44px;border-radius:8px;background:' + bg + ';border:1px solid ' + borderColor + ';display:flex;align-items:center;justify-content:center;font-size:0.68rem;color:' + textColor + ';font-weight:' + (isToday || active ? '700' : '500') + ';box-shadow:' + shadow + ';transition:all 0.18s ease;margin:0 auto;" onmouseover="this.style.transform=\'scale(1.1)\'" onmouseout="this.style.transform=\'scale(1)\'">' + dnum + '</div>';
       }
 
-      var monthLabel = '<div style="font-size:0.78rem;font-weight:700;color:#C4B5FD;letter-spacing:0.5px;margin-bottom:10px;text-align:center;">' + monthNames[m] + ' ' + y +
-        ' <span style="font-size:0.62rem;font-weight:500;color:#64748b;">\u00b7 ' + monthActiveDays + ' active day' + (monthActiveDays === 1 ? '' : 's') + '</span></div>';
-
-      return '<div style="background:rgba(19,21,40,0.5);padding:16px 18px;border-radius:14px;border:1px solid rgba(255,255,255,0.04);margin-bottom:16px;">' +
-        monthLabel + weekdayHtml +
-        '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:8px;place-items:center;">' + cellsHtml + '</div>' +
-        '</div>';
+      return { html: '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:8px;place-items:center;">' + cellsHtml + '</div>', activeDays: monthActiveDays };
     }
 
-    var allMonthsHtml = '';
-    for (var mi = 0; mi < monthsList.length; mi++) {
-      allMonthsHtml += _renderMonthGrid(monthsList[mi].y, monthsList[mi].m);
+    // ── Single-month navigable view (Teams / Google Calendar style) ──────────
+    // The user sees ONE month and pages back/forward with ‹ › arrows. "Prev" is
+    // blocked once they reach their SIGNUP month (minYear/minMonth); "Next" is
+    // blocked at the current month (no future months). The viewed month is kept
+    // on a global so the arrow handlers can re-render without rebuilding the
+    // whole report. Default view = current month.
+    var curAbs = curYear * 12 + curMonth;    // absolute month index for "now"
+    var minAbs = minYear * 12 + minMonth;     // earliest navigable month (signup)
+    if (minAbs > curAbs) minAbs = curAbs;     // safety: never above current
+
+    // Preserve the viewed month across re-renders within this report session,
+    // but clamp it to the valid [minAbs, curAbs] range.
+    if (typeof window._prCalAbs !== 'number') window._prCalAbs = curAbs;
+    if (window._prCalAbs > curAbs) window._prCalAbs = curAbs;
+    if (window._prCalAbs < minAbs) window._prCalAbs = minAbs;
+
+    function _drawCalMonth() {
+      var abs = window._prCalAbs;
+      var vy = Math.floor(abs / 12);
+      var vm = abs - vy * 12;
+      var grid = _renderMonthGrid(vy, vm);
+
+      var atOldest = abs <= minAbs;
+      var atNewest = abs >= curAbs;
+      var prevStyle = 'width:30px;height:30px;border-radius:8px;border:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:center;font-size:1rem;transition:all 0.15s;';
+      var prevBtn = '<button ' + (atOldest ? 'disabled' : 'onclick="prAttCalNav(-1)"') +
+        ' style="' + prevStyle + 'background:' + (atOldest ? 'rgba(255,255,255,0.02)' : 'rgba(124,58,237,0.15)') +
+        ';color:' + (atOldest ? 'rgba(100,116,139,0.35)' : '#C4B5FD') + ';cursor:' + (atOldest ? 'default' : 'pointer') + ';">\u2039</button>';
+      var nextBtn = '<button ' + (atNewest ? 'disabled' : 'onclick="prAttCalNav(1)"') +
+        ' style="' + prevStyle + 'background:' + (atNewest ? 'rgba(255,255,255,0.02)' : 'rgba(124,58,237,0.15)') +
+        ';color:' + (atNewest ? 'rgba(100,116,139,0.35)' : '#C4B5FD') + ';cursor:' + (atNewest ? 'default' : 'pointer') + ';">\u203a</button>';
+
+      var header = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">' +
+        prevBtn +
+        '<div style="text-align:center;">' +
+          '<div style="font-size:0.9rem;font-weight:700;color:#E9D5FF;letter-spacing:0.3px;">' + monthNames[vm] + ' ' + vy + '</div>' +
+          '<div style="font-size:0.62rem;font-weight:500;color:#64748b;margin-top:2px;">' + grid.activeDays + ' active day' + (grid.activeDays === 1 ? '' : 's') + '</div>' +
+        '</div>' +
+        nextBtn +
+      '</div>';
+
+      attCal.innerHTML =
+        '<div style="background:rgba(19,21,40,0.5);padding:16px 18px;border-radius:14px;border:1px solid rgba(255,255,255,0.04);">' +
+          header + weekdayHtml + grid.html +
+        '</div>' + legendHtml;
     }
 
-    attCal.innerHTML = allMonthsHtml + legendHtml;
+    // Global nav handler used by the ‹ › buttons. Clamps to [minAbs, curAbs].
+    window.prAttCalNav = function (delta) {
+      var next = (window._prCalAbs || curAbs) + delta;
+      if (next < minAbs) next = minAbs;
+      if (next > curAbs) next = curAbs;
+      window._prCalAbs = next;
+      _drawCalMonth();
+    };
+
+    _drawCalMonth();
   }
 
   // Motivational message + Next Mission
