@@ -27,6 +27,9 @@ var _lrpPresenceCb = null;    // the presence callback (to unsubscribe cleanly)
 var _lrpMyId = null;          // current user id
 var _lrpFetchTimer = null;    // debounce roster refetch
 var _lrpBulk = { audio: false, video: false, chat: false }; // host "all blocked" state
+var _lrpKebabOutsideWired = false; // outside-click close for ⋮ menus wired?
+var _lrpRejoinPollTimer = null;    // host poll for rejoin requests
+var _lrpRejoinPrompting = {};      // userIds currently being prompted (avoid dup popups)
 
 // Chime content-share attendees use a "<userId>#content" externalUserId — they
 // are not real people, so we strip the suffix / skip them in the roster.
@@ -69,6 +72,11 @@ function lrpStart() {
 
   // Initial roster (names + avatars for anyone already here).
   _lrpFetchRoster();
+
+  // Host only: poll for rejoin requests from removed users (Phase 4). A removed
+  // user is OUTSIDE the meeting, so they can't signal via Chime data messages —
+  // the host polls a small REST endpoint and shows an Accept/Reject prompt.
+  if (_lrpIAmHost()) _lrpStartRejoinPoll();
 }
 
 // Called by live-room.js teardown — unsubscribe + reset.
@@ -86,6 +94,7 @@ function lrpStop() {
   _lrpMyId = null;
   _lrpBulk = { audio: false, video: false, chat: false };
   if (_lrpFetchTimer) { clearTimeout(_lrpFetchTimer); _lrpFetchTimer = null; }
+  _lrpStopRejoinPoll();
 
   var panel = document.getElementById('lr-people');
   if (panel) panel.style.display = 'none';
@@ -125,6 +134,14 @@ function _lrpWireControls() {
   if (da) da.onclick = function () { _lrpToggleBulk('audio'); };
   if (dv) dv.onclick = function () { _lrpToggleBulk('video'); };
   if (dc) dc.onclick = function () { _lrpToggleBulk('chat'); };
+
+  // Close any open three-dot menu when clicking elsewhere (wired once).
+  if (!_lrpKebabOutsideWired) {
+    _lrpKebabOutsideWired = true;
+    document.addEventListener('click', function (ev) {
+      if (!ev.target.closest || !ev.target.closest('.lr-kebab')) _lrpCloseAllKebabs();
+    });
+  }
 
   _lrpSyncBulkButtons();
 }
@@ -286,10 +303,12 @@ function _lrpRenderList() {
       row.appendChild(badge);
     }
 
-    // NOTE: per-participant moderation buttons were intentionally removed in
-    // favour of BULK "all participants" controls in the panel header (see
-    // _lrpWireBulkControls). The per-participant backend + enforcement engine is
-    // kept intact so individual controls can be re-added later without rework.
+    // Per-participant three-dot (⋮) menu — HOST only, for OTHER participants.
+    // Contains per-user audio/video/chat toggles + force-remove. Bulk controls
+    // stay in the header/dock; this is the individual control (Phase 4).
+    if (_lrpIAmHost() && !mine && !isHost) {
+      row.appendChild(_lrpBuildKebab(userId, info));
+    }
 
     list.appendChild(row);
   });
@@ -342,7 +361,22 @@ function _lrpIAmHost() {
 function _lrpOnModData(dataMessage) {
   var p;
   try { p = JSON.parse(dataMessage.text()); } catch (e) { return; }
-  if (!p || !p.type) return;
+  if (!p) return;
+
+  // Force-remove (Phase 4): host removed someone. Everyone drops them from the
+  // roster; the TARGET additionally leaves the class immediately.
+  if (p.action === 'removed' && p.targetUserId) {
+    delete _lrpPresent[p.targetUserId];
+    _lrpRenderList();
+    _lrpUpdateCount();
+    if (_lrpMyId && p.targetUserId === _lrpMyId) {
+      try { alert('The host has removed you from this class.'); } catch (e) {}
+      if (typeof leaveLiveRoom === 'function') { try { leaveLiveRoom(); } catch (e) {} }
+    }
+    return;
+  }
+
+  if (!p.type) return;
 
   if (p.scope === 'all') {
     // Update every known participant's flag + enforce on self.
@@ -448,6 +482,176 @@ async function _lrpToggleBulk(type) {
     alert('⚠️ Something went wrong updating participants.');
   } finally {
     if (btn) btn.disabled = false;
+  }
+}
+
+// ── Per-participant three-dot (⋮) menu (Phase 4) ───────────────────────────────
+
+// Build the ⋮ button + its dropdown for one participant row (host only).
+function _lrpBuildKebab(userId, info) {
+  var wrap = document.createElement('div');
+  wrap.className = 'lr-kebab';
+
+  var btn = document.createElement('button');
+  btn.className = 'lr-kebab-btn';
+  btn.type = 'button';
+  btn.title = 'Participant options';
+  btn.innerHTML = '<i class="fas fa-ellipsis-v"></i>';
+
+  var menu = document.createElement('div');
+  menu.className = 'lr-kebab-menu';
+  menu.style.display = 'none';
+
+  function item(label, icon, onClick, danger) {
+    var el = document.createElement('button');
+    el.className = 'lr-kebab-item' + (danger ? ' danger' : '');
+    el.type = 'button';
+    el.innerHTML = '<i class="fas ' + icon + '"></i> ' + label;
+    el.onclick = function (e) {
+      e.stopPropagation();
+      menu.style.display = 'none';
+      onClick();
+    };
+    return el;
+  }
+
+  menu.appendChild(item(
+    info.audioBlocked ? 'Unmute audio' : 'Mute audio',
+    info.audioBlocked ? 'fa-microphone-slash' : 'fa-microphone',
+    function () { _lrpModerateOne(userId, 'audio', !info.audioBlocked); }
+  ));
+  menu.appendChild(item(
+    info.videoBlocked ? 'Allow video' : 'Disable video',
+    info.videoBlocked ? 'fa-video-slash' : 'fa-video',
+    function () { _lrpModerateOne(userId, 'video', !info.videoBlocked); }
+  ));
+  menu.appendChild(item(
+    info.chatBlocked ? 'Allow chat' : 'Disable chat',
+    info.chatBlocked ? 'fa-comment-slash' : 'fa-comment',
+    function () { _lrpModerateOne(userId, 'chat', !info.chatBlocked); }
+  ));
+  menu.appendChild(item('Remove from class', 'fa-user-slash',
+    function () { _lrpRemoveOne(userId); }, true));
+
+  btn.onclick = function (e) {
+    e.stopPropagation();
+    // Close any other open menu first, then toggle this one.
+    var open = menu.style.display !== 'none';
+    _lrpCloseAllKebabs();
+    menu.style.display = open ? 'none' : 'block';
+  };
+
+  wrap.appendChild(btn);
+  wrap.appendChild(menu);
+  return wrap;
+}
+
+function _lrpCloseAllKebabs() {
+  var menus = document.querySelectorAll('.lr-kebab-menu');
+  menus.forEach(function (m) { m.style.display = 'none'; });
+}
+
+// Per-participant moderate: POST + broadcast (reuses the same mod topic/handler
+// as bulk — a per-user payload, not scope:'all').
+async function _lrpModerateOne(targetUserId, type, blocked) {
+  if (!_lrpIAmHost() || !_lrClassId) return;
+  try {
+    var res = await fetch(BASE_URL + '/api/live/classes/' + encodeURIComponent(_lrClassId) + '/moderate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + _lrToken() },
+      body: JSON.stringify({ targetUserId: targetUserId, type: type, blocked: blocked }),
+    });
+    var data = await res.json().catch(function () { return {}; });
+    if (!data || !data.success) { alert('⚠️ ' + ((data && data.message) || 'Could not update participant.')); return; }
+
+    if (_lrpInfo[targetUserId]) {
+      if (type === 'audio') _lrpInfo[targetUserId].audioBlocked = blocked;
+      if (type === 'video') _lrpInfo[targetUserId].videoBlocked = blocked;
+      if (type === 'chat') _lrpInfo[targetUserId].chatBlocked = blocked;
+    }
+    _lrpRenderList();
+    try {
+      if (_lrAV) _lrAV.realtimeSendDataMessage(_LRP_MOD_TOPIC, JSON.stringify({ targetUserId: targetUserId, type: type, blocked: blocked }));
+    } catch (e) {}
+  } catch (e) {
+    alert('⚠️ Something went wrong updating the participant.');
+  }
+}
+
+// ── Rejoin approval (host side, Phase 4) ───────────────────────────────────────
+
+function _lrpStartRejoinPoll() {
+  if (_lrpRejoinPollTimer) return;
+  _lrpRejoinPrompting = {};
+  var poll = function () {
+    if (!_lrpStarted || !_lrpIAmHost() || !_lrClassId) return;
+    fetch(BASE_URL + '/api/live/classes/' + encodeURIComponent(_lrClassId) + '/rejoin-requests', {
+      headers: { Authorization: 'Bearer ' + _lrToken() },
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data || !data.success || !Array.isArray(data.requests)) return;
+        data.requests.forEach(function (req) { _lrpPromptRejoin(req); });
+      })
+      .catch(function () {});
+  };
+  poll();
+  _lrpRejoinPollTimer = setInterval(poll, 5000);
+}
+
+function _lrpStopRejoinPoll() {
+  if (_lrpRejoinPollTimer) { clearInterval(_lrpRejoinPollTimer); _lrpRejoinPollTimer = null; }
+  _lrpRejoinPrompting = {};
+}
+
+// Show a single Accept/Reject prompt per pending request (no duplicates).
+function _lrpPromptRejoin(req) {
+  if (!req || !req.userId || _lrpRejoinPrompting[req.userId]) return;
+  _lrpRejoinPrompting[req.userId] = true;
+
+  var name = req.name || 'A participant';
+  // confirm() is modal + blocking which is fine here (one request at a time).
+  var accept = confirm('"' + name + '" wants to rejoin the class.\n\nOK = Accept    Cancel = Reject');
+  fetch(BASE_URL + '/api/live/classes/' + encodeURIComponent(_lrClassId) + '/rejoin-respond', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + _lrToken() },
+    body: JSON.stringify({ targetUserId: req.userId, accept: accept }),
+  })
+    .then(function (r) { return r.json(); })
+    .then(function () {
+      _lrpToast(name + (accept ? ' can rejoin' : ' was not allowed back'), accept ? 'join' : 'leave');
+    })
+    .catch(function () {})
+    .finally(function () {
+      // Clear the prompt guard after a moment so a fresh request can re-prompt.
+      setTimeout(function () { delete _lrpRejoinPrompting[req.userId]; }, 3000);
+    });
+}
+
+// Force-remove a participant: POST + broadcast a 'removed' signal so the target
+// leaves immediately.
+async function _lrpRemoveOne(targetUserId) {
+  if (!_lrpIAmHost() || !_lrClassId) return;
+  var who = (_lrpInfo[targetUserId] && _lrpInfo[targetUserId].name) || 'this participant';
+  if (!confirm('Remove ' + who + ' from the class?')) return;
+  try {
+    var res = await fetch(BASE_URL + '/api/live/classes/' + encodeURIComponent(_lrClassId) + '/remove', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + _lrToken() },
+      body: JSON.stringify({ targetUserId: targetUserId }),
+    });
+    var data = await res.json().catch(function () { return {}; });
+    if (!data || !data.success) { alert('⚠️ ' + ((data && data.message) || 'Could not remove participant.')); return; }
+
+    // Local: drop them + broadcast so their client leaves immediately.
+    delete _lrpPresent[targetUserId];
+    _lrpRenderList();
+    _lrpUpdateCount();
+    try {
+      if (_lrAV) _lrAV.realtimeSendDataMessage(_LRP_MOD_TOPIC, JSON.stringify({ action: 'removed', targetUserId: targetUserId }));
+    } catch (e) {}
+  } catch (e) {
+    alert('⚠️ Something went wrong removing the participant.');
   }
 }
 

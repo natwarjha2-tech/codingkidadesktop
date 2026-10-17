@@ -103,6 +103,13 @@ function _lrcWireInput() {
     };
   }
 
+  // Chat show/hide toggle (top bar). Default open; preference saved so it
+  // persists across classes. Host + participant both can toggle. When closed,
+  // the video/shared-screen area expands to full width (Teams-style).
+  var chatToggleBtn = document.getElementById('lr-chat-toggle');
+  if (chatToggleBtn) chatToggleBtn.onclick = lrcToggleChat;
+  _lrcApplyChatVisibility(_lrcChatIsOpen());
+
   // Emoji picker (Phase 5): 😊 button toggles a native-Unicode picker populated
   // from the local window.CK_EMOJI_GROUPS dataset. Idempotent — safe to call on
   // every room open.
@@ -123,6 +130,37 @@ function _lrcWireInput() {
       picker.style.display = 'none';
     });
   }
+}
+
+// ── Chat show/hide (Teams-style reflow) ────────────────────────────────────────
+
+var _LRC_CHAT_PREF_KEY = 'ck_live_chat_open'; // '1' open (default) / '0' closed
+
+// Read the saved chat-open preference (default: open).
+function _lrcChatIsOpen() {
+  try {
+    var v = localStorage.getItem(_LRC_CHAT_PREF_KEY);
+    return v === null ? true : v === '1';
+  } catch (e) { return true; }
+}
+
+// Apply chat visibility: toggle the panel + mark the body so the video/shared
+// area can reflow to full width (CSS handles the layout). Also keep the toggle
+// button's active state in sync.
+function _lrcApplyChatVisibility(open) {
+  var chat = document.getElementById('lr-chat');
+  var body = document.querySelector('#page-live-room .lr-body');
+  var btn = document.getElementById('lr-chat-toggle');
+  if (chat) chat.style.display = open ? '' : 'none';
+  if (body) { if (open) body.classList.remove('chat-closed'); else body.classList.add('chat-closed'); }
+  if (btn) { if (open) btn.classList.add('active'); else btn.classList.remove('active'); }
+}
+
+// Toggle chat open/closed + persist the preference.
+function lrcToggleChat() {
+  var open = !_lrcChatIsOpen();
+  try { localStorage.setItem(_LRC_CHAT_PREF_KEY, open ? '1' : '0'); } catch (e) {}
+  _lrcApplyChatVisibility(open);
 }
 
 // ── Emoji picker ──────────────────────────────────────────────────────────────

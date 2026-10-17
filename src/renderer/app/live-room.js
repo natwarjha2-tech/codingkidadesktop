@@ -132,6 +132,8 @@ async function openLiveRoom(classId, joinData) {
     // Wire the native PiP mini-window command bridge (Phase 8 / Step 2). Safe
     // no-op when the bridge isn't present. Opening the window is a later step.
     if (typeof lrPipWireCommands === 'function') lrPipWireCommands();
+    // Wire the virtual-background picker (Phase 3).
+    if (typeof lrBgWire === 'function') lrBgWire();
   } catch (e) {
     // Surface the REAL reason in the devtools console so connection failures
     // are diagnosable instead of being swallowed.
@@ -338,7 +340,12 @@ async function toggleLiveCamera() {
       alert('⚠️ No camera found on this device.');
       return;
     }
-    await _lrAV.startVideoInput(cams[0].deviceId);
+    // Virtual background: if one is selected, this returns a transform device
+    // that replaces the background; otherwise it returns the plain deviceId.
+    var _camInput = (typeof lrBgMakeVideoInput === 'function')
+      ? await lrBgMakeVideoInput(cams[0].deviceId)
+      : cams[0].deviceId;
+    await _lrAV.startVideoInput(_camInput);
     _lrAV.startLocalVideoTile();
     _lrCamOn = true;
     if (camBtn) { camBtn.classList.remove('cam-off'); camBtn.classList.add('cam-on'); camBtn.innerHTML = '<i class="fas fa-video"></i>'; }
@@ -391,6 +398,26 @@ function _lrSetCamLocked(locked) {
   if (camBtn) {
     if (locked) camBtn.classList.add('host-locked'); else camBtn.classList.remove('host-locked');
     camBtn.title = locked ? 'Camera disabled by host' : 'Turn camera on / off';
+  }
+}
+
+// Virtual background (Phase 3): re-apply the camera input when the user changes
+// the background while the camera is already on. Rebuilds the video input
+// through the (possibly new) transform device so the change is live. Called by
+// live-room-bg.js. No-op if the camera is off.
+async function lrBgReapplyCamera() {
+  if (!_lrAV || !_lrCamOn) return;
+  try {
+    var cams = await _lrAV.listVideoInputDevices();
+    if (!cams || cams.length === 0 || !cams[0].deviceId) return;
+    var input = (typeof lrBgMakeVideoInput === 'function')
+      ? await lrBgMakeVideoInput(cams[0].deviceId)
+      : cams[0].deviceId;
+    // Restarting the input swaps the processed track; the local tile keeps
+    // rendering, so remote participants see the new background seamlessly.
+    await _lrAV.startVideoInput(input);
+  } catch (e) {
+    console.warn('[live-room] background re-apply failed:', e);
   }
 }
 
@@ -568,25 +595,35 @@ function _lrBroadcastRec(on) {
 
 // ── Video tile grid management ──────────────────────────────────────────────
 
-// Reset the grid to just the audio note (used on each room open).
+// Reset the stage + grid to just the audio note (used on each room open).
+// Tiles now live in two places: camera tiles in #lr-grid (right column) and the
+// screen-share tile in #lr-stage (left). Clear both; keep the audio note shown.
 function _lrResetGrid() {
   var grid = document.getElementById('lr-grid');
-  if (!grid) return;
-  // Remove every tile element but keep the audio note.
-  var tiles = grid.querySelectorAll('.lr-tile');
-  tiles.forEach(function (t) { t.remove(); });
+  var stage = document.getElementById('lr-stage');
+  [grid, stage].forEach(function (container) {
+    if (!container) return;
+    var tiles = container.querySelectorAll('.lr-tile');
+    tiles.forEach(function (t) { t.remove(); });
+  });
   var note = document.getElementById('lr-audio-note');
   if (note) note.style.display = '';
 }
 
 // Add or update a tile for a given Chime tileState.
 function _lrAddOrUpdateTile(tileState) {
-  var grid = document.getElementById('lr-grid');
+  var grid = document.getElementById('lr-grid');       // RIGHT column (camera tiles)
+  var stage = document.getElementById('lr-stage');     // LEFT stage (screen-share)
   if (!grid) return;
 
   var tileId = tileState.tileId;
   var isLocal = !!tileState.localTile;
+  var isContent = !!tileState.isContent;
   if (isLocal) _lrLocalTileId = tileId;
+
+  // Teams layout: the screen-share (content) tile goes to the big LEFT stage;
+  // every camera tile goes into the RIGHT column grid.
+  var container = (isContent && stage) ? stage : grid;
 
   // Hide the audio-only note once any video appears.
   var note = document.getElementById('lr-audio-note');
@@ -610,7 +647,10 @@ function _lrAddOrUpdateTile(tileState) {
 
     tileEl.appendChild(video);
     tileEl.appendChild(label);
-    grid.appendChild(tileEl);
+    container.appendChild(tileEl);
+  } else if (tileEl.parentNode !== container) {
+    // A tile can switch sides (e.g. becomes/stops being content) — move it.
+    container.appendChild(tileEl);
   }
 
   // Tag + label the tile. Content (screen-share) tiles get a prominent,
@@ -645,9 +685,12 @@ function _lrRemoveTile(tileId) {
   var tileEl = document.getElementById('lr-tile-' + tileId);
   if (tileEl) tileEl.remove();
 
-  // If no tiles remain, show the audio note again.
+  // If no tiles remain anywhere (grid + stage), show the audio note again.
   var grid = document.getElementById('lr-grid');
-  if (grid && grid.querySelectorAll('.lr-tile').length === 0) {
+  var stage = document.getElementById('lr-stage');
+  var remaining = (grid ? grid.querySelectorAll('.lr-tile').length : 0) +
+    (stage ? stage.querySelectorAll('.lr-tile').length : 0);
+  if (remaining === 0) {
     var note = document.getElementById('lr-audio-note');
     if (note) note.style.display = '';
   }
@@ -687,6 +730,8 @@ async function _lrTeardown() {
   // after a class ends.
   if (typeof lrPipSetArmed === 'function') { try { lrPipSetArmed(false); } catch (e) {} }
   if (typeof lrPipClose === 'function') { try { lrPipClose(); } catch (e) {} }
+  // Dispose the virtual-background processor (frees the model/worker).
+  if (typeof lrBgStop === 'function') { try { lrBgStop(); } catch (e) {} }
 
   // Stop in-room chat first (unsubscribe data messages) while _lrAV still exists.
   if (typeof lrcStop === 'function') { try { lrcStop(); } catch (e) {} }

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com https://cdn.jsdelivr.net; font-src https://cdnjs.cloudflare.com https://fonts.gstatic.com https://cdn.jsdelivr.net; connect-src http://localhost:3000 http://127.0.0.1:* https://www.codingkida.com https://generativelanguage.googleapis.com https://*.amazonaws.com https://*.s3.amazonaws.com https://*.cloudfront.net https://cdn.jsdelivr.net https://*.chime.aws wss://*.chime.aws wss://*.amazonaws.com; frame-src https://www.youtube.com http://127.0.0.1:*; media-src https://*.amazonaws.com https://*.s3.amazonaws.com https://*.cloudfront.net blob: data: http://127.0.0.1:*; img-src 'self' data: https://*.amazonaws.com https://*.cloudfront.net; worker-src 'self' blob:;"/>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob: https://cdn.jsdelivr.net https://*.sdkassets.chime.aws; script-src-elem 'self' 'unsafe-inline' blob: https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://*.sdkassets.chime.aws; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com https://cdn.jsdelivr.net; font-src https://cdnjs.cloudflare.com https://fonts.gstatic.com https://cdn.jsdelivr.net; connect-src http://localhost:3000 http://127.0.0.1:* https://www.codingkida.com https://generativelanguage.googleapis.com https://*.amazonaws.com https://*.s3.amazonaws.com https://*.cloudfront.net https://cdn.jsdelivr.net https://*.chime.aws wss://*.chime.aws wss://*.amazonaws.com https://*.sdkassets.chime.aws; frame-src https://www.youtube.com http://127.0.0.1:*; media-src https://*.amazonaws.com https://*.s3.amazonaws.com https://*.cloudfront.net blob: data: http://127.0.0.1:*; img-src 'self' data: blob: https://*.amazonaws.com https://*.cloudfront.net https://*.sdkassets.chime.aws; worker-src 'self' blob: https://*.sdkassets.chime.aws; child-src 'self' blob:;"/>
   <title>CodingKida</title>
   <link rel="stylesheet" href="styles/global.css"/>
   <link rel="stylesheet" href="styles/coding-editor.css"/>
@@ -992,11 +992,17 @@
             <button id="lr-people-btn" class="lr-ctrl-btn" title="Participants">
               <i class="fas fa-users"></i> <span id="lr-people-count">0</span>
             </button>
+            <button id="lr-chat-toggle" class="lr-ctrl-btn" title="Show / hide chat">
+              <i class="fas fa-comments"></i>
+            </button>
             <button id="lr-mic-btn" class="lr-ctrl-btn" title="Mute / Unmute">
               <i class="fas fa-microphone"></i>
             </button>
             <button id="lr-cam-btn" class="lr-ctrl-btn cam-off" title="Turn camera on / off">
               <i class="fas fa-video-slash"></i>
+            </button>
+            <button id="lr-bg-btn" class="lr-ctrl-btn" title="Change background">
+              <i class="fas fa-image"></i>
             </button>
             <button id="lr-share-btn" class="lr-ctrl-btn" title="Share your screen" style="display:none;">
               <i class="fas fa-desktop"></i> Share
@@ -1010,17 +1016,25 @@
           </div>
         </div>
 
-        <!-- Video tile grid (remote + local tiles are added by live-room.js in B2b) -->
-        <!-- Body: video grid (left) + chat panel (right) -->
+        <!-- Body (Teams layout): a big LEFT "stage" (screen-share / main video)
+             + a RIGHT column that stacks the camera-video tiles on top and the
+             chat below. When chat is hidden the tiles take the whole right
+             column and the stage grows. live-room.js routes the screen-share
+             (content) tile into #lr-stage and camera tiles into #lr-grid. -->
         <div class="lr-body">
-          <div id="lr-grid" class="lr-grid">
-            <!-- Audio-only placeholder shown until video tiles arrive -->
+          <!-- LEFT: shared-screen / main stage -->
+          <div id="lr-stage" class="lr-stage">
+            <!-- Audio-only placeholder shown until any video arrives -->
             <div id="lr-audio-note" class="lr-audio-note">
               <i class="fas fa-headphones"></i>
               <p>You're connected. Audio is live.</p>
               <span>Turn on your camera or share your screen to show video.</span>
             </div>
           </div>
+
+          <!-- RIGHT column: camera tiles (top) + chat (bottom) -->
+          <div id="lr-sidecol" class="lr-sidecol">
+          <div id="lr-grid" class="lr-grid"></div>
 
           <!-- Participants panel (Phase 6) — Zoom-style roster. Hidden by
                default; toggled from the "Participants" button in the top bar.
@@ -1058,6 +1072,7 @@
               <button id="lr-chat-send" class="lr-chat-send" title="Send"><i class="fas fa-paper-plane"></i></button>
             </div>
           </div>
+          </div><!-- /#lr-sidecol -->
         </div>
 
         <!-- Reaction strip (Phase 3): moved out of the chat panel to a floating
@@ -1082,6 +1097,14 @@
         <!-- Join/leave toasts (Phase 6) — transient "X joined / X left"
              notices, populated by live-room-participants.js. -->
         <div id="lr-people-toasts" class="lr-people-toasts"></div>
+
+        <!-- Virtual background picker (Phase 3) — opened from the top-bar image
+             button. "None" + the bundled assets/live-bg images. Applies to the
+             user's own camera (replacement shows to everyone). -->
+        <div id="lr-bg-picker" class="lr-bg-picker" style="display:none;">
+          <div class="lr-bg-head">Background</div>
+          <div id="lr-bg-grid" class="lr-bg-grid"></div>
+        </div>
       </div>
 
       <!-- Screen-share source picker (teacher) -->
@@ -2273,6 +2296,7 @@
 <script src="app/lesson-chat.js"></script>
 <script src="app/live.js"></script>
 <script src="app/live-room.js"></script>
+<script src="app/live-room-bg.js"></script>
 <script src="app/emoji-data.js"></script>
 <script src="app/live-room-chat.js"></script>
 <script src="app/live-room-participants.js"></script>

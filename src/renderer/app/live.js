@@ -227,6 +227,20 @@ async function joinLiveClass(classId, btnEl) {
     var data = await res.json().catch(function () { return {}; });
 
     if (!data || !data.success) {
+      // Phase 4: a host-removed user gets 403. Offer to request a rejoin — the
+      // host then sees an Accept/Reject prompt.
+      if (res.status === 403) {
+        if (confirm('The host removed you from this class. Ask the host to let you back in?')) {
+          try {
+            await fetch(BASE_URL + '/api/live/classes/' + encodeURIComponent(classId) + '/rejoin-request', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+            });
+            alert('⏳ Request sent. Please wait for the host to approve, then Join again.');
+          } catch (e) {}
+        }
+        return;
+      }
       alert('⚠️ ' + ((data && data.message) || 'Could not join the class.'));
       return;
     }
