@@ -42,6 +42,37 @@ function _lrpIsContent(externalUserId) {
   return !!externalUserId && externalUserId.indexOf('#content') !== -1;
 }
 
+// ── Bridge for live-room.js (Phase 5) ────────────────────────────────────────
+// Thin accessors so the tiles layer can reuse the roster's identity + presence
+// (single source — no duplicate name/avatar lookups) and feed live media-state
+// back into the roster. All are no-ops/safe if the panel hasn't started yet.
+
+// Server-resolved display name for a user (or '' if not known yet).
+function lrpNameFor(userId) {
+  var info = _lrpInfo[userId];
+  return (info && info.name) ? info.name : '';
+}
+
+// Full roster info { name, avatarUrl, role, ... } for a user (or null).
+function lrpInfoFor(userId) {
+  return _lrpInfo[userId] || null;
+}
+
+// The userIds currently present (drives Option-A "everyone has a tile").
+function lrpPresentUserIds() {
+  return Object.keys(_lrpPresent);
+}
+
+// Live media-state (speaking/muted/cameraOn) pushed from live-room.js. Stored so
+// _lrpRenderList can show per-person mic/cam/speaking indicators, and re-render
+// the affected row cheaply.
+var _lrpMediaState = {};
+function lrpOnMediaState(userId, state) {
+  if (!userId || !state) return;
+  _lrpMediaState[userId] = state;
+  _lrpUpdatePersonMedia(userId, state);
+}
+
 // Called by live-room.js once the Chime session is live.
 function lrpStart() {
   if (!_lrAV || _lrpStarted) return;
@@ -110,8 +141,9 @@ function _lrpWireControls() {
   var closeBtn = document.getElementById('lr-people-close');
   if (btn) btn.onclick = _lrpTogglePanel;
   if (closeBtn) closeBtn.onclick = function () {
-    var panel = document.getElementById('lr-people');
-    if (panel) panel.style.display = 'none';
+    // Close via the shared controller so .lr-body state + button highlights
+    // stay consistent (participants ⟷ chat are mutually exclusive).
+    if (typeof _lrSetRightPanel === 'function') _lrSetRightPanel('none');
   };
 
   // Bulk host-moderation controls — host only.
@@ -146,16 +178,20 @@ function _lrpWireControls() {
   _lrpSyncBulkButtons();
 }
 
+// Toggle the participants panel via the shared right-panel controller (so chat
+// and participants can never be open together). The controller handles the
+// show/hide + body state; when it opens this panel it calls lrpOnPanelOpened()
+// below to refresh the roster.
 function _lrpTogglePanel() {
-  var panel = document.getElementById('lr-people');
-  if (!panel) return;
-  if (panel.style.display === 'none' || !panel.style.display) {
-    panel.style.display = 'flex';
-    _lrpRenderList();
-    _lrpFetchRoster(); // refresh identities when opened
-  } else {
-    panel.style.display = 'none';
-  }
+  if (typeof _lrSetRightPanel === 'function') _lrSetRightPanel('people');
+}
+
+// Called by the right-panel controller right after the participants panel is
+// made visible — (re)render the roster + refresh identities. Reuses the same
+// helpers the panel always used, so there is no duplicated show/open logic.
+function lrpOnPanelOpened() {
+  _lrpRenderList();
+  _lrpFetchRoster();
 }
 
 // ── Presence (real-time join/leave) ────────────────────────────────────────────
@@ -191,6 +227,9 @@ function _lrpOnPresence(externalUserId, present, attendeeId) {
 
   _lrpRenderList();
   _lrpUpdateCount();
+  // Presence changed → (re)sync the camera-off avatar tiles so every present
+  // participant has a tile and departed ones are removed (Phase 5 / Option A).
+  if (typeof _lrSyncAvatarTiles === 'function') { try { _lrSyncAvatarTiles(); } catch (e) {} }
 }
 
 function _lrpLabel(userId) {
@@ -244,6 +283,9 @@ async function _lrpFetchRoster() {
 
     _lrpRenderList();
     _lrpUpdateCount();
+    // Names just filled in → relabel camera tiles + (re)sync avatar tiles so the
+    // grid shows real names and every present participant has a tile (Phase 5).
+    if (typeof _lrRelabelTiles === 'function') { try { _lrRelabelTiles(); } catch (e) {} }
   } catch (e) {}
 }
 
@@ -273,6 +315,7 @@ function _lrpRenderList() {
 
     var row = document.createElement('div');
     row.className = 'lr-person';
+    row.setAttribute('data-userid', userId);
 
     var avatar = document.createElement('div');
     avatar.className = 'lr-person-avatar';
@@ -295,6 +338,16 @@ function _lrpRenderList() {
 
     row.appendChild(avatar);
     row.appendChild(nameEl);
+
+    // Live mic/cam status (Phase 5 / G6+G7+G8). Built once here; kept fresh by
+    // _lrpUpdatePersonMedia from the shared media-state.
+    var media = document.createElement('span');
+    media.className = 'lr-person-media';
+    media.innerHTML =
+      '<i class="lr-pm-mic fas fa-microphone"></i>' +
+      '<i class="lr-pm-cam fas fa-video"></i>';
+    row.appendChild(media);
+    _lrpPaintPersonMedia(row, _lrpMediaState[userId]);
 
     if (isHost) {
       var badge = document.createElement('span');
@@ -320,6 +373,32 @@ function _lrpRenderList() {
 
 function _lrpIsHostId(userId) {
   return !!(typeof _lrHostUserId !== 'undefined' && _lrHostUserId && userId === _lrHostUserId);
+}
+
+// Paint a row's mic/cam/speaking icons from a media-state (Phase 5). Kept
+// separate so both the initial render and live updates reuse it (no dup).
+function _lrpPaintPersonMedia(row, state) {
+  if (!row) return;
+  var s = state || { speaking: false, muted: true, cameraOn: false };
+  var micIcon = row.querySelector('.lr-pm-mic');
+  var camIcon = row.querySelector('.lr-pm-cam');
+  if (micIcon) {
+    micIcon.className = 'lr-pm-mic fas ' + (s.muted ? 'fa-microphone-slash muted' : 'fa-microphone');
+  }
+  if (camIcon) {
+    camIcon.className = 'lr-pm-cam fas ' + (s.cameraOn ? 'fa-video' : 'fa-video-slash off');
+  }
+  if (s.speaking && !s.muted) row.classList.add('speaking'); else row.classList.remove('speaking');
+}
+
+// Update a single present participant's media icons without re-rendering the
+// whole list (cheap + flicker-free).
+function _lrpUpdatePersonMedia(userId, state) {
+  var list = document.getElementById('lr-people-list');
+  if (!list) return;
+  var sel = (window.CSS && CSS.escape) ? CSS.escape(userId) : userId;
+  var row = list.querySelector('.lr-person[data-userid="' + sel + '"]');
+  if (row) _lrpPaintPersonMedia(row, state);
 }
 
 function _lrpUpdateCount() {

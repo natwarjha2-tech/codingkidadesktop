@@ -383,6 +383,10 @@ function _notifShowDetailPopup(notif) {
   var showChatBtn = !!(_chatMeta && _chatMeta.lessonId && _chatMeta.courseId &&
     typeof openLessonDoubts === 'function');
 
+  // Live-class scheduled notification → offer a "View Live Class" button that
+  // opens the Live Classes page (where the student sees the countdown + join).
+  var showLiveBtn = (notif.type === 'live_class_scheduled' && typeof navigate === 'function');
+
   var html = '';
   html += '<div id="notif-detail-card" style="width:100%;max-width:420px;background:#15151f;' +
     'border:1px solid rgba(255,255,255,0.08);border-radius:16px;overflow:hidden;' +
@@ -410,6 +414,9 @@ function _notifShowDetailPopup(notif) {
     var _cid = JSON.stringify(String(_chatMeta.courseId));
     var _lid = JSON.stringify(String(_chatMeta.lessonId));
     html += '    <button onclick="_notifCloseDetailPopup();openLessonDoubts(' + _notifSanitize(_cid) + ',' + _notifSanitize(_lid) + ');" style="padding:8px 16px;border-radius:9px;background:#7c3aed;border:none;color:#fff;font-size:0.8rem;font-weight:600;cursor:pointer;">Open Chat</button>';
+  }
+  if (showLiveBtn) {
+    html += '    <button onclick="_notifCloseDetailPopup();_notifOpenLiveClasses();" style="padding:8px 16px;border-radius:9px;background:#7c3aed;border:none;color:#fff;font-size:0.8rem;font-weight:600;cursor:pointer;">View Live Class</button>';
   }
   html += '    <button onclick="_notifCloseDetailPopup()" style="padding:8px 16px;border-radius:9px;background:rgba(255,255,255,0.08);border:none;color:#fff;font-size:0.8rem;font-weight:600;cursor:pointer;">Close</button>';
   html += '  </div>';
@@ -446,6 +453,16 @@ function _notifCloseDetailPopup() {
   var overlay = document.getElementById('notif-detail-overlay');
   if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
   document.removeEventListener('keydown', _notifDetailEscHandler);
+}
+
+// Open the Live Classes page (from a "live_class_scheduled" notification's
+// "View Live Class" button). Navigates + refreshes the list so the newly
+// scheduled class (with its countdown) shows immediately.
+function _notifOpenLiveClasses() {
+  try {
+    if (typeof navigate === 'function') navigate('live');
+    if (typeof renderLiveClasses === 'function') renderLiveClasses();
+  } catch (e) {}
 }
 
 // ═══════════════════════════════════════════════════════
@@ -553,6 +570,7 @@ function _notifGetIcon(type) {
     case 'new_homework':       return { emoji: '📝', bg: 'rgba(34,197,94,0.15)' };
     case 'lesson_question':    return { emoji: '💬', bg: 'rgba(245,158,11,0.15)' };
     case 'lesson_answer':      return { emoji: '💬', bg: 'rgba(139,92,246,0.15)' };
+    case 'live_class_scheduled': return { emoji: '📹', bg: 'rgba(139,92,246,0.15)' };
     case 'coupon_redeemed':    return { emoji: '🎁', bg: 'rgba(168,85,247,0.15)' };
     case 'welcome':            return { emoji: '🚀', bg: 'rgba(139,92,246,0.15)' };
     case 'download_expiring':  return { emoji: '⏳', bg: 'rgba(251,146,60,0.15)' };

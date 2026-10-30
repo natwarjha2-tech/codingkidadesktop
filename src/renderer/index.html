@@ -995,12 +995,24 @@
             <button id="lr-chat-toggle" class="lr-ctrl-btn" title="Show / hide chat">
               <i class="fas fa-comments"></i>
             </button>
-            <button id="lr-mic-btn" class="lr-ctrl-btn" title="Mute / Unmute">
-              <i class="fas fa-microphone"></i>
-            </button>
-            <button id="lr-cam-btn" class="lr-ctrl-btn cam-off" title="Turn camera on / off">
-              <i class="fas fa-video-slash"></i>
-            </button>
+            <!-- Mic control + device picker (Phase 4). The main button keeps its
+                 exact id/behaviour; the ▾ caret opens a dropdown to choose the
+                 microphone. -->
+            <div class="lr-dev-wrap">
+              <button id="lr-mic-btn" class="lr-ctrl-btn" title="Mute / Unmute">
+                <i class="fas fa-microphone"></i>
+              </button>
+              <button id="lr-mic-caret" class="lr-dev-caret" title="Choose microphone"><i class="fas fa-chevron-down"></i></button>
+              <div id="lr-mic-menu" class="lr-dev-menu" style="display:none;"></div>
+            </div>
+            <!-- Camera control + device picker (Phase 4). -->
+            <div class="lr-dev-wrap">
+              <button id="lr-cam-btn" class="lr-ctrl-btn cam-off" title="Turn camera on / off">
+                <i class="fas fa-video-slash"></i>
+              </button>
+              <button id="lr-cam-caret" class="lr-dev-caret" title="Choose camera"><i class="fas fa-chevron-down"></i></button>
+              <div id="lr-cam-menu" class="lr-dev-menu" style="display:none;"></div>
+            </div>
             <button id="lr-bg-btn" class="lr-ctrl-btn" title="Change background">
               <i class="fas fa-image"></i>
             </button>
@@ -1016,6 +1028,19 @@
           </div>
         </div>
 
+        <!-- Non-blocking notice banners (connection errors, device/permission
+             warnings, class-ended, etc.). Populated by _lrNotice() in
+             live-room.js; top-center overlay so it never blocks the room like
+             alert() did. Reused across later live-room phases. -->
+        <div id="lr-notice" class="lr-notice" aria-live="polite"></div>
+
+        <!-- Terminal-state overlay (class ended / connection failed / removed).
+             A full-stage card shown OVER the frozen tiles with a clear action
+             (Back to Live Classes / Rejoin / Leave). Populated by
+             _lrShowOverlay() in live-room.js; buttons reuse the existing
+             leave/join flows. Hidden by default. -->
+        <div id="lr-overlay" class="lr-overlay" style="display:none;" role="alertdialog" aria-live="assertive"></div>
+
         <!-- Body (Teams layout): a big LEFT "stage" (screen-share / main video)
              + a RIGHT column that stacks the camera-video tiles on top and the
              chat below. When chat is hidden the tiles take the whole right
@@ -1023,18 +1048,29 @@
              (content) tile into #lr-stage and camera tiles into #lr-grid. -->
         <div class="lr-body">
           <!-- LEFT: shared-screen / main stage -->
-          <div id="lr-stage" class="lr-stage">
-            <!-- Audio-only placeholder shown until any video arrives -->
-            <div id="lr-audio-note" class="lr-audio-note">
-              <i class="fas fa-headphones"></i>
-              <p>You're connected. Audio is live.</p>
-              <span>Turn on your camera or share your screen to show video.</span>
+          <!-- LEFT/CENTER main area: the big screen-share stage + the camera
+               tiles grid live together here. In NO-share mode the grid is a
+               Google-Meet-style tile grid filling this area; in SHARE mode the
+               stage shows the shared screen and the camera tiles collapse into
+               a slim strip of circular avatars (CSS-driven via .lr-body.sharing).
+               The RIGHT panel (chat XOR participants) sits beside this area. -->
+          <div class="lr-main">
+            <div id="lr-stage" class="lr-stage">
+              <!-- Audio-only placeholder shown until any video arrives -->
+              <div id="lr-audio-note" class="lr-audio-note">
+                <i class="fas fa-headphones"></i>
+                <p>You're connected. Audio is live.</p>
+                <span>Turn on your camera or share your screen to show video.</span>
+              </div>
             </div>
+            <div id="lr-grid" class="lr-grid"></div>
           </div>
 
-          <!-- RIGHT column: camera tiles (top) + chat (bottom) -->
+          <!-- RIGHT panel slot: holds the participants panel AND the chat panel,
+               but only ONE is visible at a time (mutually exclusive, controlled
+               by _lrSetRightPanel in live-room.js). When neither is open the
+               whole slot is hidden and the main area takes full width. -->
           <div id="lr-sidecol" class="lr-sidecol">
-          <div id="lr-grid" class="lr-grid"></div>
 
           <!-- Participants panel (Phase 6) — Zoom-style roster. Hidden by
                default; toggled from the "Participants" button in the top bar.

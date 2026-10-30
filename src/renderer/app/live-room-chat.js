@@ -27,8 +27,23 @@ var LRC_REACTIONS = ['👍', '👎', '✋', '👏', '🎉'];
 
 // Called by live-room.js once the Chime session is live. Subscribes to data
 // messages, loads history, and wires the input + reaction bar.
+//
+// Fully RE-ENTRANT across join → leave → rejoin: it binds to whatever the
+// CURRENT `_lrAV` session is, and is self-healing even if a prior teardown was
+// skipped (e.g. force-remove / PiP-leave paths that null `_lrAV` before
+// lrcStop could run). Instead of bailing out when a stale `_lrcStarted` flag is
+// left behind, we always re-subscribe fresh on the new session — the standard
+// "unsubscribe-then-subscribe" pattern guarantees exactly one live
+// subscription (never zero, never doubled).
 function lrcStart() {
-  if (!_lrAV || _lrcStarted) return;
+  if (!_lrAV) return;
+
+  // Defensive: drop any lingering subscriptions on the CURRENT session before
+  // (re)subscribing, so a previously-skipped teardown can't leave us either
+  // unsubscribed or double-subscribed. Safe no-op if we weren't subscribed.
+  try { _lrAV.realtimeUnsubscribeFromReceiveDataMessage(_lrcTopic); } catch (e) {}
+  try { _lrAV.realtimeUnsubscribeFromReceiveDataMessage(_lrcReactTopic); } catch (e) {}
+
   _lrcStarted = true;
   _lrcSeen = {};
   _lrcMyId = (typeof _lrCurrentUserId === 'function') ? _lrCurrentUserId() : null;
@@ -48,6 +63,13 @@ function lrcStart() {
 }
 
 // Called by live-room.js teardown — unsubscribe + reset UI state.
+//
+// Idempotent + leaves NO stale wiring behind: input/send handlers are cleared
+// so no closure keeps a reference to the old (now-stopped) session. The emoji
+// picker DOM is intentionally NOT torn down — it is static markup reused across
+// rooms (rebuilt only once via the `_lrcEmojiBuilt` guard), so re-tearing it
+// would be wasted work; we only hide it. `lrcStart` re-wires everything cleanly
+// on the next join.
 function lrcStop() {
   if (_lrAV) {
     try { _lrAV.realtimeUnsubscribeFromReceiveDataMessage(_lrcTopic); } catch (e) {}
@@ -56,6 +78,14 @@ function lrcStop() {
   _lrcStarted = false;
   _lrcSeen = {};
   _lrcMyId = null;
+
+  // Clear input/send handlers so a stale closure can't linger across rejoins.
+  // (lrcStart → _lrcWireInput re-attaches fresh handlers on the next join.)
+  var input = document.getElementById('lr-chat-text');
+  if (input) { input.onkeydown = null; input.value = ''; }
+  var sendBtn = document.getElementById('lr-chat-send');
+  if (sendBtn) sendBtn.onclick = null;
+
   _lrcClearMessages();
   _lrcCloseEmojiPicker();
 }
@@ -103,12 +133,11 @@ function _lrcWireInput() {
     };
   }
 
-  // Chat show/hide toggle (top bar). Default open; preference saved so it
-  // persists across classes. Host + participant both can toggle. When closed,
-  // the video/shared-screen area expands to full width (Teams-style).
+  // Chat show/hide toggle (top bar). Delegates to the single right-panel
+  // controller in live-room.js so chat and participants stay mutually
+  // exclusive (one panel open at a time). No local visibility state here.
   var chatToggleBtn = document.getElementById('lr-chat-toggle');
   if (chatToggleBtn) chatToggleBtn.onclick = lrcToggleChat;
-  _lrcApplyChatVisibility(_lrcChatIsOpen());
 
   // Emoji picker (Phase 5): 😊 button toggles a native-Unicode picker populated
   // from the local window.CK_EMOJI_GROUPS dataset. Idempotent — safe to call on
@@ -132,35 +161,14 @@ function _lrcWireInput() {
   }
 }
 
-// ── Chat show/hide (Teams-style reflow) ────────────────────────────────────────
+// ── Chat show/hide ──────────────────────────────────────────────────────────
 
-var _LRC_CHAT_PREF_KEY = 'ck_live_chat_open'; // '1' open (default) / '0' closed
-
-// Read the saved chat-open preference (default: open).
-function _lrcChatIsOpen() {
-  try {
-    var v = localStorage.getItem(_LRC_CHAT_PREF_KEY);
-    return v === null ? true : v === '1';
-  } catch (e) { return true; }
-}
-
-// Apply chat visibility: toggle the panel + mark the body so the video/shared
-// area can reflow to full width (CSS handles the layout). Also keep the toggle
-// button's active state in sync.
-function _lrcApplyChatVisibility(open) {
-  var chat = document.getElementById('lr-chat');
-  var body = document.querySelector('#page-live-room .lr-body');
-  var btn = document.getElementById('lr-chat-toggle');
-  if (chat) chat.style.display = open ? '' : 'none';
-  if (body) { if (open) body.classList.remove('chat-closed'); else body.classList.add('chat-closed'); }
-  if (btn) { if (open) btn.classList.add('active'); else btn.classList.remove('active'); }
-}
-
-// Toggle chat open/closed + persist the preference.
+// Open the chat in the shared right-panel slot (or toggle it closed). Delegates
+// to live-room.js's single controller so chat and participants can never be
+// open at the same time. No local visibility/preference state — the controller
+// is the single source of truth.
 function lrcToggleChat() {
-  var open = !_lrcChatIsOpen();
-  try { localStorage.setItem(_LRC_CHAT_PREF_KEY, open ? '1' : '0'); } catch (e) {}
-  _lrcApplyChatVisibility(open);
+  if (typeof _lrSetRightPanel === 'function') _lrSetRightPanel('chat');
 }
 
 // ── Emoji picker ──────────────────────────────────────────────────────────────
@@ -272,8 +280,15 @@ async function lrcSendMessage() {
   } catch (e) {}
 
   if (!saved) {
-    // Save failed — restore the text so the user can retry (nothing lost).
+    // Save failed — restore the text so the user can retry (nothing lost) +
+    // clearly signal the failure (F17): a non-blocking notice (Phase 1 reuse)
+    // plus a shake + red border on the input so it's obvious the message did
+    // NOT send. The visual cue auto-clears so it never lingers.
     input.value = text;
+    if (typeof _lrNotice === 'function') {
+      _lrNotice('Message not sent — check your connection and try again.', 'error');
+    }
+    _lrcFlagSendError();
     return;
   }
 
@@ -332,6 +347,31 @@ function _lrcFloatReaction(emoji) {
 
 // ── Rendering ────────────────────────────────────────────────────────────────
 
+// Format a message's ISO timestamp as a compact local time (e.g. "4:32 PM").
+// Native, locale-aware, no date library. Returns '' for a missing/invalid time
+// so render never breaks on an older row without createdAt.
+function _lrcFormatTime(iso) {
+  if (!iso) return '';
+  try {
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  } catch (e) { return ''; }
+}
+
+// Visual send-failure cue (F17): shake the chat input + flash a red border,
+// then auto-clear so it never sticks. Idempotent — restarting the animation if
+// a second failure happens quickly.
+function _lrcFlagSendError() {
+  var input = document.getElementById('lr-chat-text');
+  if (!input) return;
+  input.classList.remove('send-error');
+  // Force a reflow so re-adding the class restarts the CSS animation.
+  void input.offsetWidth;
+  input.classList.add('send-error');
+  setTimeout(function () { input.classList.remove('send-error'); }, 1200);
+}
+
 function _lrcClearMessages() {
   var box = document.getElementById('lr-chat-messages');
   if (box) box.innerHTML = '<div class="lr-chat-empty" id="lr-chat-empty">No messages yet. Say hello! 👋</div>';
@@ -355,9 +395,15 @@ function _lrcRenderMessage(m) {
   var who = (typeof sanitize === 'function' ? sanitize(m.senderName || 'User') : (m.senderName || 'User'))
     + (isTeacher ? ' · Teacher' : '');
   var text = (typeof sanitize === 'function' ? sanitize(m.message || '') : (m.message || ''));
+  // Timestamp (F9) — compact local time next to the sender name. sanitize() so
+  // the locale string can never inject markup (defensive; it won't contain any).
+  var time = _lrcFormatTime(m.createdAt);
+  var timeHtml = time
+    ? '<span class="lr-msg-time">' + (typeof sanitize === 'function' ? sanitize(time) : time) + '</span>'
+    : '';
 
   wrap.innerHTML =
-    '<div class="lr-msg-who">' + who + '</div>' +
+    '<div class="lr-msg-who">' + who + timeHtml + '</div>' +
     '<div class="lr-msg-bubble">' + text + '</div>';
 
   box.appendChild(wrap);

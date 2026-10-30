@@ -20,6 +20,7 @@
 var _liveLoaded = false;      // list fetched at least once this session?
 var _liveLoading = false;     // in-flight guard
 var _liveJoiningId = null;    // class id currently being joined
+var _liveStartCountdownTicker = null; // single shared 1s ticker for all countdowns
 
 function _liveToken() {
   return localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
@@ -136,6 +137,10 @@ function _liveRenderLists(hosting, enrolled) {
     if (hosting && hosting.length > 0) list.appendChild(_liveSectionHeader('Classes You Can Join'));
     enrolled.forEach(function (c) { list.appendChild(_renderLiveCard(c, false)); });
   }
+
+  // (Re)start the shared countdown ticker for any upcoming-class countdowns
+  // just rendered. Idempotent + self-stops when no countdowns remain.
+  _liveStartCountdownTicker();
 }
 
 // Small section heading between the host + joinable groups.
@@ -177,6 +182,15 @@ function _renderLiveCard(c, isHost) {
 
   if (c.agenda) {
     meta += '<br><span style="opacity:0.75;">' + sanitize(c.agenda) + '</span>';
+  }
+
+  // Countdown for UPCOMING (scheduled, not-yet-live) classes with a known time.
+  // A single shared ticker (_liveStartCountdownTicker) updates all such spans
+  // every second, so there's no per-card timer. The span carries the target
+  // time in data-countdown; the ticker reads it.
+  if (!isLive && c.scheduledAt) {
+    meta += '<br><span class="live-countdown" data-countdown="' + sanitize(c.scheduledAt) + '">' +
+      _liveCountdownText(c.scheduledAt) + '</span>';
   }
 
   var btn;
@@ -353,4 +367,59 @@ function _liveFormatWhen(iso) {
   } catch (e) {
     return 'Not scheduled';
   }
+}
+
+// ── Countdown for upcoming (scheduled) classes ──────────────────────────────
+
+// "Starts in 2d 5h" / "Starts in 4h 12m" / "Starts in 12m 08s" / "Starting now".
+function _liveCountdownText(iso) {
+  var target = Date.parse(iso);
+  if (isNaN(target)) return '';
+  var ms = target - Date.now();
+  if (ms <= 0) return '⏰ Starting now';
+
+  var totalSec = Math.floor(ms / 1000);
+  var d = Math.floor(totalSec / 86400);
+  var h = Math.floor((totalSec % 86400) / 3600);
+  var m = Math.floor((totalSec % 3600) / 60);
+  var s = totalSec % 60;
+  var pad = function (n) { return (n < 10 ? '0' : '') + n; };
+
+  var txt;
+  if (d > 0) txt = d + 'd ' + h + 'h ' + m + 'm';
+  else if (h > 0) txt = h + 'h ' + pad(m) + 'm ' + pad(s) + 's';
+  else txt = pad(m) + 'm ' + pad(s) + 's';
+  return '⏳ Starts in ' + txt;
+}
+
+// Update every visible countdown span. One shared ticker updates all of them.
+function _liveTickCountdowns() {
+  var spans = document.querySelectorAll('.live-countdown[data-countdown]');
+  if (!spans.length) { _liveStopCountdownTicker(); return; }
+  var anyStartingNow = false;
+  spans.forEach(function (el) {
+    var iso = el.getAttribute('data-countdown');
+    var txt = _liveCountdownText(iso);
+    el.textContent = txt;
+    if (txt.indexOf('Starting now') !== -1) anyStartingNow = true;
+  });
+  // When a class reaches its start time, refresh the list once so its status
+  // (and host "Start Now" / live state) can update from the server.
+  if (anyStartingNow && typeof renderLiveClasses === 'function') {
+    _liveStopCountdownTicker();
+    setTimeout(function () { try { renderLiveClasses(); } catch (e) {} }, 1200);
+  }
+}
+
+// Start the shared 1s ticker (idempotent). Called after rendering the list.
+function _liveStartCountdownTicker() {
+  if (_liveStartCountdownTicker) return;
+  if (!document.querySelector('.live-countdown[data-countdown]')) return;
+  _liveTickCountdowns();
+  _liveStartCountdownTicker = setInterval(_liveTickCountdowns, 1000);
+}
+
+// Stop the shared ticker (no spans left, or leaving the page).
+function _liveStopCountdownTicker() {
+  if (_liveStartCountdownTicker) { clearInterval(_liveStartCountdownTicker); _liveStartCountdownTicker = null; }
 }

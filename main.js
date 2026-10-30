@@ -219,6 +219,13 @@ function createLivePipWindow(opts) {
   // Make sure it stays above full-screen apps too (best-effort).
   try { livePipWindow.setAlwaysOnTop(true, 'screen-saver'); } catch {}
 
+  // Exclude the PiP mini-window from screen capture / screen-share (OS-level).
+  // The host still SEES this floating window to monitor the share, but when the
+  // host shares their ENTIRE screen, this window is NOT captured — so
+  // participants never see a duplicate of the shared content inside the PiP.
+  // On Windows this uses SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE).
+  try { livePipWindow.setContentProtection(true); } catch {}
+
   livePipWindow.loadFile(path.join(__dirname, 'src/renderer/live-pip.html'));
 
   livePipWindow.on('closed', () => { livePipWindow = null; });
