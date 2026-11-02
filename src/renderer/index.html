@@ -956,7 +956,13 @@
 
     <!-- LIVE CLASS PAGE (ISOLATED feature — rendered by live.js) -->
     <div id="page-live" class="page">
-      <div class="page-header"><h1>Live Classes</h1><p>Join live sessions from your enrolled courses</p></div>
+      <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;">
+        <div><h1>Live Classes</h1><p>Join live sessions from your enrolled courses</p></div>
+        <!-- P11: open the recorded-classes library (host + enrolled, play-only). -->
+        <button id="live-recordings-btn" class="btn btn-outline" style="flex:0 0 auto;white-space:nowrap;" onclick="lrecToggle()">
+          <i class="fas fa-film"></i> Recordings
+        </button>
+      </div>
 
       <!-- Loading spinner -->
       <div id="live-loading" style="display:none;align-items:center;justify-content:center;padding:48px 0;">
@@ -968,6 +974,10 @@
 
       <!-- Class list (populated by live.js) -->
       <div id="live-list" style="display:flex;flex-direction:column;gap:16px"></div>
+
+      <!-- P11: Recordings library (populated by live-recordings.js). Hidden until
+           the Recordings button is toggled; overlays the class list. -->
+      <div id="live-recordings-panel" style="display:none;"></div>
     </div>
 
     <!-- LIVE CLASS ROOM (ISOLATED feature — driven by live-room.js) -->
@@ -980,6 +990,10 @@
              position moved from the old bottom bar to this top bar. -->
         <div class="lr-header lr-topbar">
           <div class="lr-title-wrap">
+            <!-- Compact live-room back button (icon only). Replaces the big
+                 universal back bar on this page to free vertical space. Wired
+                 in live-room.js (_lrWireControls) to goBack(). -->
+            <button id="lr-back-btn" class="lr-back-btn" title="Back"><i class="fas fa-arrow-left"></i></button>
             <span class="live-dot"></span>
             <h3 id="lr-title">Live Class</h3>
             <div id="lr-status" class="lr-status">Connecting…</div>
@@ -987,8 +1001,22 @@
                  is the same for everyone). Hidden until the class is live. -->
             <div id="lr-timer" class="lr-timer" style="display:none;"><i class="far fa-clock"></i> <span id="lr-timer-text">00:00</span></div>
           </div>
+
+          <!-- Reaction strip (moved here from the bottom dock — Phase 3/P7).
+               Same id #lr-chat-reactions so the existing wiring in
+               live-room-chat.js (_lrcRenderReactionBar) keeps working unchanged
+               — only its location changed, into the top bar's middle. -->
+          <div class="lr-chat-reactions" id="lr-chat-reactions"></div>
+
           <div class="lr-controls">
-            <span id="lr-rec-indicator" class="lr-rec-indicator" style="display:none;"><span class="lr-rec-dot"></span> Recording</span>
+            <span id="lr-rec-indicator" class="lr-rec-indicator" style="display:none;"><span class="lr-rec-dot"></span> Recording <span id="lr-rec-timer" class="lr-rec-timer">00:00</span></span>
+            <!-- Camera-tiles toggle (P5): while the host is sharing their screen,
+                 the participant/host camera tiles collapse into a circular strip.
+                 This toggle shows/hides that strip. Visible only during a share;
+                 default ON. Placed BEFORE the participants button. -->
+            <button id="lr-tiles-toggle" class="lr-ctrl-btn" title="Show / hide camera tiles" style="display:none;">
+              <i class="fas fa-user-group"></i>
+            </button>
             <button id="lr-people-btn" class="lr-ctrl-btn" title="Participants">
               <i class="fas fa-users"></i> <span id="lr-people-count">0</span>
             </button>
@@ -1111,24 +1139,9 @@
           </div><!-- /#lr-sidecol -->
         </div>
 
-        <!-- Reaction strip (Phase 3): moved out of the chat panel to a floating
-             bottom-center bar (Teams/Meet-like). Same id #lr-chat-reactions so
-             the existing wiring in live-room-chat.js (_lrcRenderReactionBar)
-             keeps working unchanged — only its location + emoji set changed. -->
-        <div class="lr-reactions-dock">
-          <div class="lr-chat-reactions" id="lr-chat-reactions"></div>
-        </div>
-
-        <!-- Host moderation dock (bottom-left) — always visible to the HOST so
-             they can mute/disable ALL participants' audio/video/chat at any
-             time without opening the participants panel. Reuses the SAME bulk
-             logic (_lrpToggleBulk) — no duplicated behaviour. Hidden for
-             non-hosts (toggled by JS). -->
-        <div id="lr-moddock" class="lr-moddock" style="display:none;">
-          <button id="lr-moddock-audio" class="lr-moddock-btn" type="button" title="Mute everyone's mic"><i class="fas fa-microphone"></i></button>
-          <button id="lr-moddock-video" class="lr-moddock-btn" type="button" title="Turn off everyone's camera"><i class="fas fa-video"></i></button>
-          <button id="lr-moddock-chat" class="lr-moddock-btn" type="button" title="Turn off everyone's chat"><i class="fas fa-comment"></i></button>
-        </div>
+        <!-- (Reaction strip moved into the top control bar; bottom moderation
+             dock removed — those bulk controls live in the participants panel.
+             This frees the bottom space for the class screen.) -->
 
         <!-- Join/leave toasts (Phase 6) — transient "X joined / X left"
              notices, populated by live-room-participants.js. -->
@@ -2331,6 +2344,7 @@
 <script src="app/ai-chat.js"></script>
 <script src="app/lesson-chat.js"></script>
 <script src="app/live.js"></script>
+<script src="app/live-recordings.js"></script>
 <script src="app/live-room.js"></script>
 <script src="app/live-room-bg.js"></script>
 <script src="app/emoji-data.js"></script>

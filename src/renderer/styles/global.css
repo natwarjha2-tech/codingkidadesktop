@@ -1072,16 +1072,21 @@ body {
   pointer-events: none;
   z-index: -1;
 }
-#page-live-room .lr-shell { flex: 1; min-height: 0; padding: 8px 12px 12px; box-sizing: border-box; gap: 10px; }
-/* Problem 2: tighten the gap between the injected "Back" button and the top
-   control bar so the class gets more vertical space. Scoped to the live room
-   only (via #page-live-room) so the Back button on every OTHER page is
-   unaffected. The Back button is injected with inline styles by navigation.js,
-   hence the !important overrides here. */
-#page-live-room .universal-back-btn {
-  margin-bottom: 6px !important;
-  padding: 5px 12px !important;
+/* Live room uses its OWN compact back icon (in the top bar) instead of the
+   universal full-width back button — so push the shell right to the top (no
+   extra gap above the control bar) to give the class maximum space. */
+#page-live-room .lr-shell { flex: 1; min-height: 0; padding: 4px 12px 12px; box-sizing: border-box; gap: 10px; }
+
+/* Compact back icon in the live-room top bar (replaces the universal back bar
+   on this page). Small, icon-only, sits before the live dot/title. */
+.lr-back-btn {
+  flex-shrink: 0; width: 30px; height: 30px; border-radius: 8px;
+  background: rgba(255,255,255,0.06); border: 1px solid var(--border);
+  color: var(--muted); cursor: pointer; display: inline-flex;
+  align-items: center; justify-content: center; font-size: 0.82rem;
+  margin-right: 4px; transition: all 0.2s ease;
 }
+.lr-back-btn:hover { color: #fff; background: rgba(108,71,255,0.18); border-color: rgba(108,71,255,0.4); }
 
 .lr-shell { display: flex; flex-direction: column; gap: 16px; height: 100%; position: relative; }
 .lr-header { display: flex; align-items: center; justify-content: space-between; }
@@ -1253,6 +1258,8 @@ body {
 /* Recording indicator (shown to everyone while the host records) */
 .lr-rec-indicator { display: inline-flex; align-items: center; gap: 6px; font-size: 0.75rem; font-weight: 700; color: #ff6b9d; padding: 4px 12px; border: 1px solid rgba(240,49,110,0.4); border-radius: 20px; background: rgba(240,49,110,0.1); }
 .lr-rec-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); animation: pulse 1.5s infinite; }
+/* Recording elapsed timer (P13) — monospaced digits so it doesn't jitter. */
+.lr-rec-timer { font-variant-numeric: tabular-nums; opacity: 0.95; }
 
 /* Content (screen-share) tile spans the full grid width + stands out. */
 .lr-tile.content { grid-column: 1 / -1; aspect-ratio: 16/9; border-color: rgba(34,197,94,0.5); background: #000; }
@@ -1321,6 +1328,11 @@ body {
 .lr-body.sharing .lr-grid .lr-tile video { object-fit: cover; }
 .lr-body.sharing .lr-grid .lr-tile-name { display: none; }
 
+/* P5: when the camera-tiles toggle is OFF during a share, hide the circular
+   strip entirely (only applies in share mode, where the strip exists). The
+   shared screen then uses the full width. */
+.lr-body.sharing.tiles-hidden .lr-grid { display: none; }
+
 /* Chat panel */
 .lr-chat { display: flex; flex-direction: column; background: #0a0a14; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
 .lr-chat-head { padding: 12px 14px; font-size: 0.85rem; font-weight: 700; color: #fff; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; }
@@ -1338,11 +1350,52 @@ body {
 .lr-msg.mine .lr-msg-bubble { background: rgba(108,71,255,0.16); border-color: rgba(108,71,255,0.3); border-radius: 10px 0 10px 10px; }
 .lr-msg.teacher .lr-msg-bubble { background: rgba(245,158,11,0.12); border-color: rgba(245,158,11,0.3); }
 
+/* ── Per-message reactions (P6, WhatsApp-style) ──────────────────────────────
+   A hover-revealed react trigger sits beside each bubble; tapping it opens a
+   5-emoji mini-picker (positioned via JS). Reaction badges render under the
+   bubble as small pills with counts; your own reactions are highlighted. */
+.lr-msg-row { display: flex; align-items: center; gap: 6px; }
+.lr-msg.mine .lr-msg-row { flex-direction: row-reverse; }
+.lr-msg-react-trigger {
+  flex: 0 0 auto; width: 24px; height: 24px; border-radius: 50%;
+  background: rgba(255,255,255,0.06); border: 1px solid var(--border);
+  color: var(--text); font-size: 0.78rem; line-height: 1; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  opacity: 0; transition: opacity 0.15s ease, background 0.15s ease, transform 0.15s ease;
+}
+.lr-msg:hover .lr-msg-react-trigger { opacity: 0.85; }
+.lr-msg-react-trigger:hover { opacity: 1; background: rgba(108,71,255,0.2); transform: scale(1.12); }
+
+/* Badge row under the bubble. */
+.lr-msg-reactions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.lr-msg.mine .lr-msg-reactions { justify-content: flex-end; }
+.lr-msg-react-badge {
+  display: inline-flex; align-items: center; gap: 3px;
+  background: rgba(255,255,255,0.06); border: 1px solid var(--border);
+  border-radius: 10px; padding: 1px 7px; font-size: 0.7rem; color: var(--text);
+  cursor: pointer; transition: all 0.15s ease; line-height: 1.6;
+}
+.lr-msg-react-badge:hover { background: rgba(108,71,255,0.14); }
+.lr-msg-react-badge.mine { background: rgba(108,71,255,0.22); border-color: rgba(108,71,255,0.45); }
+
+/* Shared mini-picker (one per app, repositioned next to the clicked trigger). */
+.lr-msg-react-picker {
+  position: fixed; z-index: 1600; display: flex; gap: 2px;
+  background: #15152a; border: 1px solid var(--border); border-radius: 22px;
+  padding: 4px 6px; box-shadow: 0 6px 24px rgba(0,0,0,0.45);
+}
+.lr-msg-react-opt {
+  width: 30px; height: 30px; border: none; background: transparent;
+  font-size: 1.05rem; line-height: 1; cursor: pointer; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: transform 0.12s ease, background 0.12s ease;
+}
+.lr-msg-react-opt:hover { background: rgba(108,71,255,0.2); transform: scale(1.25); }
+
 /* Reaction dock (Phase 3): a centered, floating strip pinned to the bottom
    of the live room — out of the chat panel. */
-.lr-reactions-dock { flex-shrink: 0; display: flex; justify-content: center; padding: 6px 0 2px; }
-.lr-chat-reactions { display: inline-flex; gap: 8px; padding: 6px 10px; background: rgba(10,10,20,0.85); border: 1px solid var(--border); border-radius: 999px; box-shadow: 0 6px 20px rgba(0,0,0,0.35); }
-.lr-react-btn { background: rgba(255,255,255,0.06); border: 1px solid var(--border); border-radius: 50%; width: 38px; height: 38px; display: inline-flex; align-items: center; justify-content: center; font-size: 1.05rem; cursor: pointer; transition: all 0.15s ease; }
+.lr-chat-reactions { flex: 1; display: inline-flex; justify-content: center; gap: 6px; }
+.lr-react-btn { background: rgba(255,255,255,0.06); border: 1px solid var(--border); border-radius: 50%; width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; font-size: 0.95rem; cursor: pointer; transition: all 0.15s ease; }
 .lr-react-btn:hover { background: rgba(108,71,255,0.18); transform: scale(1.15); }
 /* Floating reaction animation — rises from the bottom-center of the viewport. */
 .lr-react-float { position: fixed; bottom: 90px; left: 50%; font-size: 1.8rem; pointer-events: none; z-index: 1500; animation: lrFloat 2s ease-out forwards; }
@@ -1405,12 +1458,8 @@ body {
    so drop the inter-column gap too. */
 .lr-body.panel-none { gap: 0; }
 
-/* Host moderation dock (bottom-left) — always-visible bulk audio/video/chat
-   restrict toggles for the host. Reuses the bulk moderation logic. */
-.lr-moddock { position: fixed; left: 20px; bottom: 20px; z-index: 1300; display: flex; gap: 8px; padding: 8px 10px; background: rgba(10,10,20,0.9); border: 1px solid var(--border); border-radius: 999px; box-shadow: 0 6px 20px rgba(0,0,0,0.4); }
-.lr-moddock-btn { width: 40px; height: 40px; border-radius: 50%; background: rgba(255,255,255,0.08); border: 1px solid var(--border); color: #fff; cursor: pointer; font-size: 0.95rem; display: inline-flex; align-items: center; justify-content: center; transition: all 0.15s ease; }
-.lr-moddock-btn:hover { background: rgba(255,255,255,0.16); }
-.lr-moddock-btn.active { color: #ff6b9d; background: rgba(240,49,110,0.18); border-color: rgba(240,49,110,0.45); }
+/* (Bottom-left host moderation dock removed — P7. Those bulk controls live in
+   the participants panel header. No fixed bottom dock anymore.) */
 
 /* Join/leave toasts — stacked bottom-left, auto-fading. */
 .lr-people-toasts { position: fixed; left: 20px; bottom: 90px; z-index: 1400; display: flex; flex-direction: column; gap: 6px; pointer-events: none; }
@@ -3352,3 +3401,35 @@ body {
   .about-desc.about-typing::after { display: none; animation: none; }
   .about-version { transition: none; }
 }
+
+/* ═══ Live Class Recordings library (P11) ═══════════════════════════════════
+   Course → Class → Recording hierarchy on the Live page + a play-only overlay
+   player. Isolated from the course video player; uses the shared design tokens. */
+.lrec-course { border: 1px solid var(--border); border-radius: var(--radius); background: rgba(255,255,255,0.02); margin-bottom: 12px; overflow: hidden; }
+.lrec-course-head { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; background: transparent; border: none; cursor: pointer; color: var(--text); text-align: left; }
+.lrec-course-head:hover { background: rgba(255,255,255,0.03); }
+.lrec-course-title { font-size: 0.92rem; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 9px; }
+.lrec-course-title i { color: var(--primary); }
+.lrec-course-meta { font-size: 0.75rem; color: var(--muted); display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+.lrec-caret { transition: transform 0.18s ease; }
+.lrec-course-body { padding: 0 12px 10px; }
+
+.lrec-class { padding: 8px 4px 4px; }
+.lrec-class-title { font-size: 0.8rem; font-weight: 600; color: var(--text); margin: 6px 4px 8px; display: flex; align-items: center; gap: 8px; }
+.lrec-class-title i { color: var(--muted); }
+.lrec-class-date { font-weight: 400; color: var(--muted); font-size: 0.72rem; }
+
+.lrec-item { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; margin: 5px 0; border-radius: 10px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text); cursor: pointer; transition: all 0.15s ease; font-size: 0.82rem; }
+.lrec-item:hover { background: rgba(108,71,255,0.14); border-color: rgba(108,71,255,0.35); }
+.lrec-item-left { display: flex; align-items: center; gap: 9px; }
+.lrec-item-left i { color: var(--primary); font-size: 0.95rem; }
+.lrec-item-dur { font-size: 0.72rem; color: var(--muted); }
+
+/* Play-only overlay player. */
+.lrec-player-overlay { position: fixed; inset: 0; z-index: 2000; display: flex; align-items: center; justify-content: center; padding: 24px; background: rgba(0,0,0,0.85); backdrop-filter: blur(8px); }
+.lrec-player-box { width: 100%; max-width: 960px; background: #0a0a14; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; box-shadow: 0 24px 80px rgba(0,0,0,0.6); }
+.lrec-player-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+.lrec-player-title { font-size: 0.9rem; font-weight: 700; color: #fff; }
+.lrec-player-close { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--border); background: rgba(255,255,255,0.05); color: var(--muted); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; transition: all 0.15s ease; }
+.lrec-player-close:hover { background: rgba(255,255,255,0.12); color: #fff; }
+.lrec-player-video { width: 100%; max-height: 72vh; background: #000; display: block; }

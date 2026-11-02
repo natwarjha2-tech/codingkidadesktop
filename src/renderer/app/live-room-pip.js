@@ -37,6 +37,17 @@ function lrPipSetArmed(armed) {
   }
 }
 
+// Suppress/allow the main-process blur auto-PiP (P3). Set true while the user is
+// ON the live-room page so a function's dialog/picker blurring the window there
+// never pops the mini-window; set false on every other page so the normal
+// in-app/out-of-app auto-PiP keeps working. Mirrors lrPipSetArmed.
+function lrPipSetSuppressed(suppressed) {
+  var br = _lrPipBridge();
+  if (br && typeof br.setLivePipSuppressed === 'function') {
+    try { br.setLivePipSuppressed(!!suppressed); } catch (e) {}
+  }
+}
+
 // Wire the mini-window → main-window command listener exactly once. Called when
 // the live room opens (safe to call repeatedly).
 function lrPipWireCommands() {

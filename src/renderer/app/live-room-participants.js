@@ -156,16 +156,8 @@ function _lrpWireControls() {
   if (bv) bv.onclick = function () { _lrpToggleBulk('video'); };
   if (bc) bc.onclick = function () { _lrpToggleBulk('chat'); };
 
-  // Bottom-left host moderation dock — same bulk actions, always visible to the
-  // host (no panel needed). Reuses _lrpToggleBulk, so zero duplicated logic.
-  var dock = document.getElementById('lr-moddock');
-  if (dock) dock.style.display = _lrpIAmHost() ? 'flex' : 'none';
-  var da = document.getElementById('lr-moddock-audio');
-  var dv = document.getElementById('lr-moddock-video');
-  var dc = document.getElementById('lr-moddock-chat');
-  if (da) da.onclick = function () { _lrpToggleBulk('audio'); };
-  if (dv) dv.onclick = function () { _lrpToggleBulk('video'); };
-  if (dc) dc.onclick = function () { _lrpToggleBulk('chat'); };
+  // (The old bottom-left moderation dock was removed — those bulk mute/disable
+  // controls live in the participants panel header above. No duplicate dock.)
 
   // Close any open three-dot menu when clicking elsewhere (wired once).
   if (!_lrpKebabOutsideWired) {
@@ -741,28 +733,15 @@ function _lrpSyncBulkButtons() {
     video: { on: '<i class="fas fa-video"></i> Allow video', off: '<i class="fas fa-video-slash"></i> Stop video' },
     chat: { on: '<i class="fas fa-comment"></i> Allow chat', off: '<i class="fas fa-comment-slash"></i> Mute chat' },
   };
-  // Icons for the compact bottom-left dock (icon-only; blocked = slashed + red).
-  var dockIcons = {
-    audio: { on: 'fa-microphone-slash', off: 'fa-microphone' },
-    video: { on: 'fa-video-slash', off: 'fa-video' },
-    chat: { on: 'fa-comment-slash', off: 'fa-comment' },
-  };
 
   ['audio', 'video', 'chat'].forEach(function (type) {
     var blocked = !!_lrpBulk[type];
 
-    // Panel header bulk buttons (labelled).
+    // Panel header bulk buttons (labelled) — the single place these live now.
     var btn = document.getElementById('lr-bulk-' + type);
     if (btn) {
       btn.innerHTML = blocked ? map[type].on : map[type].off;
       if (blocked) btn.classList.add('active'); else btn.classList.remove('active');
-    }
-
-    // Bottom-left dock buttons (icon-only).
-    var dockBtn = document.getElementById('lr-moddock-' + type);
-    if (dockBtn) {
-      dockBtn.innerHTML = '<i class="fas ' + (blocked ? dockIcons[type].on : dockIcons[type].off) + '"></i>';
-      if (blocked) dockBtn.classList.add('active'); else dockBtn.classList.remove('active');
     }
   });
 }

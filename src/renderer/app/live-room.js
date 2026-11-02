@@ -30,6 +30,8 @@ var _lrCamLocked = false;     // host has disabled this user's video (Phase 7)
 var _lrConnected = false;     // Chime session fully connected? (gates PiP — Phase 8)
 var _lrStartedAtMs = 0;       // class start time (ms epoch) for the elapsed timer
 var _lrTimerInterval = null;  // setInterval handle for the elapsed timer
+var _lrRecStartedAtMs = 0;    // recording start time (ms epoch) for the rec timer (P13)
+var _lrRecTimerInterval = null; // setInterval handle for the recording timer (P13)
 var _lrRightPanel = 'none';   // which right panel is open: 'none' | 'chat' | 'people'
 var _lrConnState = 'idle';    // connection state machine (see _lrSetConnState)
 var _lrFailTimer = null;      // grace timer: show the "failed" overlay only if a drop doesn't recover
@@ -49,6 +51,7 @@ var _lrSpeakOffTimers = {};   // userId -> timeout handle (debounce "stopped spe
 var _lrCamBusy = false;       // guard: camera toggle in flight (O15 — no double-trigger)
 var _lrShareBusy = false;     // guard: screen-share toggle in flight (O15)
 var _lrOpening = false;       // guard: a room open is in progress (B15 — rapid open safety)
+var _lrTilesHidden = false;   // P5: hide the share-mode circular camera strip? (default: shown)
 
 function _lrToken() {
   return localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
@@ -265,11 +268,51 @@ function _lrStartHeartbeat() {
   _lrStopHeartbeat();
   _lrSendHeartbeat();
   _lrHeartbeatTimer = setInterval(_lrSendHeartbeat, _LR_HEARTBEAT_MS);
+  _lrWireHeartbeatWindowEvents(); // P8: throttle-proof the host liveness ping
 }
 
 // Stop the host heartbeat (teardown / leave).
 function _lrStopHeartbeat() {
   if (_lrHeartbeatTimer) { clearInterval(_lrHeartbeatTimer); _lrHeartbeatTimer = null; }
+  _lrUnwireHeartbeatWindowEvents();
+}
+
+// ── P8: throttle-proof host heartbeat ────────────────────────────────────────
+// The periodic interval above can slip if the OS/Chromium ever slows a
+// background/minimized renderer (e.g. a host who minimizes while screen-sharing
+// a single window). To guarantee the server always sees the host as alive
+// within the grace window, we also fire an IMMEDIATE heartbeat on the exact
+// moments the renderer is most likely to be throttled or resumed: window blur /
+// minimize (about to go background) and focus / visibility change (coming back).
+// This never ends/leaves the class — it only refreshes hostLastSeenAt, so a
+// host who minimizes keeps the class alive (the PiP takes over the view).
+// Listeners are host-only, wired on heartbeat start and torn down on stop, so
+// there is no leak and no duplication across rooms.
+var _lrHbWindowWired = false;
+
+function _lrHeartbeatOnWindowEvent() {
+  // Guard to host + a live class only (the ping itself also no-ops otherwise).
+  if (_lrIsHost && _lrClassId) _lrSendHeartbeat();
+}
+
+function _lrWireHeartbeatWindowEvents() {
+  if (_lrHbWindowWired) return;
+  _lrHbWindowWired = true;
+  try {
+    window.addEventListener('blur', _lrHeartbeatOnWindowEvent);
+    window.addEventListener('focus', _lrHeartbeatOnWindowEvent);
+    document.addEventListener('visibilitychange', _lrHeartbeatOnWindowEvent);
+  } catch (e) {}
+}
+
+function _lrUnwireHeartbeatWindowEvents() {
+  if (!_lrHbWindowWired) return;
+  _lrHbWindowWired = false;
+  try {
+    window.removeEventListener('blur', _lrHeartbeatOnWindowEvent);
+    window.removeEventListener('focus', _lrHeartbeatOnWindowEvent);
+    document.removeEventListener('visibilitychange', _lrHeartbeatOnWindowEvent);
+  } catch (e) {}
 }
 
 // ── Device management: mic + camera pickers + hot-plug handling (Phase 4) ─────
@@ -744,6 +787,36 @@ function _lrStopTimer() {
   if (box) box.style.display = 'none';
 }
 
+// ── Recording timer (P13) ────────────────────────────────────────────────────
+// A live counter beside the "● Recording" indicator showing how long the
+// recording has been running. Reuses _lrFormatElapsed (same mm:ss / h:mm:ss
+// format as the class timer — no duplicated formatting). It is anchored to the
+// recording's start time, which the host broadcasts so EVERY participant's
+// counter stays in sync (not a per-client local clock).
+
+function _lrRecTimerTick() {
+  var txt = document.getElementById('lr-rec-timer');
+  if (txt && _lrRecStartedAtMs) txt.textContent = _lrFormatElapsed(Date.now() - _lrRecStartedAtMs);
+}
+
+// Start (or restart) the recording timer anchored to `startedAtMs` (epoch ms).
+// Falls back to "now" if a start time wasn't provided (e.g. an older broadcast
+// payload without it). Idempotent.
+function _lrStartRecTimer(startedAtMs) {
+  _lrRecStartedAtMs = (typeof startedAtMs === 'number' && startedAtMs > 0) ? startedAtMs : Date.now();
+  _lrRecTimerTick();
+  if (_lrRecTimerInterval) clearInterval(_lrRecTimerInterval);
+  _lrRecTimerInterval = setInterval(_lrRecTimerTick, 1000);
+}
+
+// Stop + reset the recording timer.
+function _lrStopRecTimer() {
+  if (_lrRecTimerInterval) { clearInterval(_lrRecTimerInterval); _lrRecTimerInterval = null; }
+  _lrRecStartedAtMs = 0;
+  var txt = document.getElementById('lr-rec-timer');
+  if (txt) txt.textContent = '00:00';
+}
+
 // ── Right-panel + layout controller (single source of truth) ─────────────────
 //
 // The live room has exactly ONE right-side panel slot that shows Chat XOR
@@ -794,6 +867,33 @@ function _lrSetRightPanel(which) {
 function _lrApplyLayout() {
   var body = document.querySelector('#page-live-room .lr-body');
   if (body) body.classList.toggle('sharing', !!_lrSharing);
+
+  // Camera-tiles toggle (P5) is only meaningful while sharing (that's when the
+  // tiles collapse into the circular strip). Show the toggle button only during
+  // a share; when sharing stops, reset to "shown" so the next share starts ON.
+  var tilesBtn = document.getElementById('lr-tiles-toggle');
+  if (tilesBtn) tilesBtn.style.display = _lrSharing ? '' : 'none';
+  if (!_lrSharing) {
+    _lrTilesHidden = false;
+  }
+  _lrApplyTilesVisibility();
+}
+
+// Apply the camera-tiles show/hide state to the layout + the toggle button's
+// active look. The CSS keys off `.lr-body.tiles-hidden` (only has an effect in
+// share mode, where the circular strip exists).
+function _lrApplyTilesVisibility() {
+  var body = document.querySelector('#page-live-room .lr-body');
+  if (body) body.classList.toggle('tiles-hidden', !!_lrTilesHidden);
+  var tilesBtn = document.getElementById('lr-tiles-toggle');
+  if (tilesBtn) tilesBtn.classList.toggle('active', !_lrTilesHidden); // active = tiles shown
+}
+
+// Toggle the share-mode camera strip on/off (host + participant both). Wired to
+// the top-bar button. No-op visually when not sharing (strip doesn't exist then).
+function _lrToggleTiles() {
+  _lrTilesHidden = !_lrTilesHidden;
+  _lrApplyTilesVisibility();
 }
 
 /**
@@ -814,6 +914,11 @@ async function openLiveRoom(classId, joinData) {
   // a double-click / fast rejoin. Cleared once connect settles (below).
   if (_lrOpening || _lrAV) return;
   _lrOpening = true;
+
+  // P9: remember (client-side) that this user has entered this class's room this
+  // session, so the Live list shows "Rejoin" (not "Join Now") after they leave.
+  // No-op if the list module isn't loaded. Single source of truth lives there.
+  if (typeof liveMarkJoined === 'function') { try { liveMarkJoined(classId); } catch (e) {} }
 
   _lrClassId = classId;
   _lrMuted = true; // join muted by default; actual Chime mute happens on connect
@@ -1018,7 +1123,10 @@ async function _lrConnect(meeting, attendee) {
     _lrAV.realtimeSubscribeToReceiveDataMessage(_LR_REC_TOPIC, function (dm) {
       try {
         var p = JSON.parse(dm.text());
-        _lrShowRecIndicator(!!p.recording);
+        // Sync the recording timer to the host's broadcast start time (P13) so
+        // every participant's counter matches. Missing/old payload → fallback
+        // handled inside _lrStartRecTimer.
+        _lrShowRecIndicator(!!p.recording, p.startedAt || 0);
       } catch (e) {}
     });
   } catch (e) {}
@@ -1094,6 +1202,15 @@ function _lrWireControls() {
   // Picker close button.
   var pickerClose = document.getElementById('lr-picker-close');
   if (pickerClose) pickerClose.onclick = _lrClosePicker;
+
+  // Compact back button (live-room's own, replacing the universal back bar).
+  // Uses the app's existing goBack() so history behaviour is identical.
+  var backBtn = document.getElementById('lr-back-btn');
+  if (backBtn) backBtn.onclick = function () { if (typeof goBack === 'function') goBack(); };
+
+  // Camera-tiles toggle (P5) — show/hide the share-mode circular camera strip.
+  var tilesBtn = document.getElementById('lr-tiles-toggle');
+  if (tilesBtn) tilesBtn.onclick = _lrToggleTiles;
 
   // Device-picker carets (Phase 4): the ▾ next to mic/cam opens a dropdown to
   // choose the input device. The main mic/cam buttons keep their exact
@@ -1448,8 +1565,11 @@ async function toggleRecording() {
 
     _lrRecording = (action === 'start');
     _lrSetRecButton(_lrRecording);
-    _lrShowRecIndicator(_lrRecording);
-    _lrBroadcastRec(_lrRecording);
+    // Anchor the recording timer to a single start instant and broadcast it so
+    // every participant's counter stays in sync (P13).
+    var recStartedAt = _lrRecording ? Date.now() : 0;
+    _lrShowRecIndicator(_lrRecording, recStartedAt);
+    _lrBroadcastRec(_lrRecording, recStartedAt);
   } catch (e) {
     alert('⚠️ Something went wrong with recording. Please try again.');
   } finally {
@@ -1475,16 +1595,32 @@ function _lrSetRecButton(on) {
   }
 }
 
-// Show/hide the "● Recording" indicator (shown to EVERYONE in the room).
-function _lrShowRecIndicator(on) {
+// Show/hide the "● Recording" indicator (shown to EVERYONE in the room) and
+// drive its live recording timer (P13). `startedAtMs` (epoch ms) anchors the
+// timer so it stays in sync across participants; omitted → the timer uses
+// "now" (host's own toggle) or is simply stopped when turning off.
+function _lrShowRecIndicator(on, startedAtMs) {
   var ind = document.getElementById('lr-rec-indicator');
   if (ind) ind.style.display = on ? 'inline-flex' : 'none';
+  if (on) {
+    _lrStartRecTimer(startedAtMs);
+  } else {
+    _lrStopRecTimer();
+  }
 }
 
 // Broadcast recording status to all participants (real-time, via Chime data).
-function _lrBroadcastRec(on) {
+// `startedAt` (epoch ms) lets every participant anchor the recording timer to
+// the SAME instant (P13) — additive field, older clients that ignore it still
+// work (they just fall back to their own clock).
+function _lrBroadcastRec(on, startedAt) {
   try {
-    if (_lrAV) _lrAV.realtimeSendDataMessage(_LR_REC_TOPIC, JSON.stringify({ recording: !!on }));
+    if (_lrAV) {
+      _lrAV.realtimeSendDataMessage(
+        _LR_REC_TOPIC,
+        JSON.stringify({ recording: !!on, startedAt: startedAt || 0 })
+      );
+    }
   } catch (e) {}
 }
 
@@ -1779,4 +1915,8 @@ async function _lrTeardown() {
   _lrOpening = false;
   _lrCamBusy = false;
   _lrShareBusy = false;
+
+  // Reset the camera-tiles toggle (P5) so the next room starts with tiles shown.
+  _lrTilesHidden = false;
+  if (_body) _body.classList.remove('tiles-hidden');
 }

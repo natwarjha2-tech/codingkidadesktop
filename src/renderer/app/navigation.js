@@ -118,6 +118,13 @@ function updateBackButtonVisibility() {
     const pageEl = document.getElementById('page-' + currentPage);
     if (!pageEl) return;
     
+    // Live-room page has its OWN compact back icon inside its top control bar
+    // (wired in live-room.js). So we DON'T add the universal full-width back
+    // button here — that frees the top space for the class (esp. when sharing).
+    if (currentPage === 'live-room') {
+      return;
+    }
+
     // Special handling for video page - add to existing topbar
     if (currentPage === 'video') {
       const topbarLeft = pageEl.querySelector('.vp-topbar-left');
@@ -260,15 +267,28 @@ function _navigateInternal(page, addToHistory) {
   var _liveRoomEl = document.getElementById('page-live-room');
   var _classIsLive = (typeof _lrConnected !== 'undefined' && _lrConnected);
 
-  if (_navLeavingPage === 'live-room' && page !== 'live-room') {
-    if (_classIsLive && _liveRoomEl) {
-      _liveRoomEl.classList.add('lr-page-alive'); // keep session + video alive
-    }
-    if (typeof lrPipOpen === 'function') { try { lrPipOpen(); } catch (e) {} }
-  }
   if (page === 'live-room') {
+    // Back INSIDE the room → show it inline, close the PiP (room is on screen).
+    // Also SUPPRESS the blur auto-PiP (P3): while the user is on the room page,
+    // a function's dialog/picker briefly blurs the window — we must not pop the
+    // mini-window then (the room is already on screen).
     if (_liveRoomEl) _liveRoomEl.classList.remove('lr-page-alive');
+    if (typeof lrPipSetSuppressed === 'function') { try { lrPipSetSuppressed(true); } catch (e) {} }
     if (typeof lrPipClose === 'function') { try { lrPipClose(); } catch (e) {} }
+  } else if (_classIsLive) {
+    // On ANY other in-app page while a class is live, keep the room alive
+    // off-screen AND keep the PiP open — decided by the DESTINATION page (not
+    // just "leaving the room"), so the PiP persists as the user moves page →
+    // page, and they can jump back to the class from anywhere (P2). lrPipOpen
+    // is idempotent, so calling it on every page is safe (no second window).
+    // Also CLEAR the suppress flag so the normal blur auto-PiP works again (P3).
+    if (_liveRoomEl) _liveRoomEl.classList.add('lr-page-alive'); // keep session + video alive
+    if (typeof lrPipSetSuppressed === 'function') { try { lrPipSetSuppressed(false); } catch (e) {} }
+    if (typeof lrPipOpen === 'function') { try { lrPipOpen(); } catch (e) {} }
+  } else {
+    // Not the room, and no class live → ensure suppress is cleared (so a future
+    // non-room context never gets stuck suppressed). Harmless no-op otherwise.
+    if (typeof lrPipSetSuppressed === 'function') { try { lrPipSetSuppressed(false); } catch (e) {} }
   }
 
   // Reset the shared scroll container to the top on every page switch so pages

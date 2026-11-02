@@ -22,6 +22,35 @@ var _liveLoading = false;     // in-flight guard
 var _liveJoiningId = null;    // class id currently being joined
 var _liveStartCountdownTicker = null; // single shared 1s ticker for all countdowns
 
+// P9 (Option B — client-side session memory): the set of class ids this user
+// has opened the room for during this app session. Used purely for the button
+// LABEL so a returning user sees "Rejoin" instead of "Join Now". Safe because a
+// user can only have ONE active session per class (backend enforces a unique
+// (liveClassId, userId) participant row — a rejoin updates the same row, never
+// duplicates). Session-scoped on purpose: a fresh app launch starts clean.
+var _liveJoinedIds = {};
+
+// Mark a class as "joined this session" + refresh the list so its button label
+// updates immediately (Join Now → Ongoing/Rejoin). Called from live-room.js
+// when the room opens. Idempotent.
+function liveMarkJoined(classId) {
+  if (!classId) return;
+  _liveJoinedIds[classId] = true;
+}
+
+// Is the user CURRENTLY inside this class's room (connected)? Reads the
+// live-room.js globals (single source of truth — no duplicated state here).
+function _liveIsCurrentlyInRoom(classId) {
+  return !!(typeof _lrClassId !== 'undefined' && _lrClassId === classId &&
+            typeof _lrConnected !== 'undefined' && _lrConnected);
+}
+
+// Has the user joined this class earlier this session (and is not currently in
+// the room)? Drives the "Rejoin" label.
+function _liveHasJoinedBefore(classId) {
+  return !!_liveJoinedIds[classId] && !_liveIsCurrentlyInRoom(classId);
+}
+
 function _liveToken() {
   return localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
 }
@@ -29,6 +58,60 @@ function _liveToken() {
 // Lazy entry — called by navigation.js when the Live page opens.
 function initLivePage() {
   renderLiveClasses();
+  _liveStartPolling(); // P12: keep the list fresh automatically (no manual refresh)
+}
+
+// ── P12: automatic live-list freshness (no manual refresh, ever) ─────────────
+//
+// True server push (WebSocket/SSE) isn't available for the class LIST, so we
+// keep it fresh with smart, lightweight polling that FEELS instant:
+//   • while the Live page is on screen, silently refresh every 15s,
+//   • refresh immediately when the window regains focus / becomes visible
+//     (so returning to the app shows new classes at once).
+// Refreshes reuse renderLiveClasses(), which is cache-backed + stale-while-
+// revalidate, so a poll never flickers or shows a spinner — it just swaps in
+// fresh data when it arrives. The poll self-stops the moment the user leaves
+// the Live page (checked each tick), so it never runs in the background and
+// adds no load elsewhere.
+var _livePollTimer = null;        // interval handle
+var _LIVE_POLL_MS = 15000;        // 15s — instant-feel without hammering the API
+var _liveFocusWired = false;      // focus/visibility listeners wired once?
+
+// Is the Live page currently the active page? (poll only then.)
+function _livePageActive() {
+  var pg = document.getElementById('page-live');
+  return !!(pg && pg.classList.contains('active'));
+}
+
+function _liveStartPolling() {
+  // Wire focus/visibility immediate-refresh exactly once (app-lifetime).
+  if (!_liveFocusWired) {
+    _liveFocusWired = true;
+    var onWake = function () {
+      if (_livePageActive() && typeof renderLiveClasses === 'function') {
+        try { renderLiveClasses(); } catch (e) {}
+      }
+    };
+    try {
+      window.addEventListener('focus', onWake);
+      document.addEventListener('visibilitychange', function () {
+        if (!document.hidden) onWake();
+      });
+    } catch (e) {}
+  }
+
+  if (_livePollTimer) return; // already polling
+  _livePollTimer = setInterval(function () {
+    // Self-stop once the user navigates away from the Live page.
+    if (!_livePageActive()) { _liveStopPolling(); return; }
+    if (typeof renderLiveClasses === 'function') {
+      try { renderLiveClasses(); } catch (e) {}
+    }
+  }, _LIVE_POLL_MS);
+}
+
+function _liveStopPolling() {
+  if (_livePollTimer) { clearInterval(_livePollTimer); _livePollTimer = null; }
 }
 
 // Fetch + render both the teacher's hosted classes AND the student's joinable
@@ -40,6 +123,10 @@ async function renderLiveClasses() {
   var empty = document.getElementById('live-empty');
   var loading = document.getElementById('live-loading');
   if (!list) return;
+
+  // P11: landing on / refreshing the Live page always shows the class list, not
+  // a stale-open recordings panel. No-op if the recordings module isn't loaded.
+  if (typeof lrecEnsureClosed === 'function') { try { lrecEnsureClosed(); } catch (e) {} }
 
   var token = _liveToken();
   if (!token) {
@@ -193,13 +280,25 @@ function _renderLiveCard(c, isHost) {
       _liveCountdownText(c.scheduledAt) + '</span>';
   }
 
+  // P9: the primary button's LABEL reflects the real, current instance for BOTH
+  // host and student — all driven by the text (no extra badges):
+  //   • currently inside the room  → "Ongoing"
+  //   • joined earlier this session, now outside → "Rejoin"
+  //   • live, never joined this session → "Join Now" (student) / host already in
+  //   • not live yet → "Start Now" (host) / "Scheduled" (student, disabled)
+  var inRoom = _liveIsCurrentlyInRoom(c.id);
+  var joinedBefore = _liveHasJoinedBefore(c.id);
+
   var btn;
   if (isHost) {
     // Teacher controls.
     if (isLive) {
+      var hostLabel = inRoom
+        ? 'Ongoing <i class="fas fa-circle" style="font-size:0.5rem;vertical-align:middle;"></i>'
+        : (joinedBefore ? 'Rejoin <i class="fas fa-arrow-right"></i>' : 'Join <i class="fas fa-arrow-right"></i>');
       btn =
         '<div style="display:flex;gap:8px;">' +
-          '<button class="btn btn-danger" onclick="joinLiveClass(\'' + c.id + '\', this)">Rejoin <i class="fas fa-arrow-right"></i></button>' +
+          '<button class="btn btn-danger" onclick="joinLiveClass(\'' + c.id + '\', this)">' + hostLabel + '</button>' +
           '<button class="btn btn-outline" onclick="endLiveClass(\'' + c.id + '\', this)">End</button>' +
         '</div>';
     } else {
@@ -207,9 +306,14 @@ function _renderLiveCard(c, isHost) {
     }
   } else {
     // Student controls.
-    btn = isLive
-      ? '<button class="btn btn-danger" onclick="joinLiveClass(\'' + c.id + '\', this)">Join Now <i class="fas fa-arrow-right"></i></button>'
-      : '<button class="btn btn-outline" disabled title="Starts at the scheduled time"><i class="fas fa-clock"></i> Scheduled</button>';
+    if (isLive) {
+      var stuLabel = inRoom
+        ? 'Ongoing <i class="fas fa-circle" style="font-size:0.5rem;vertical-align:middle;"></i>'
+        : (joinedBefore ? 'Rejoin <i class="fas fa-arrow-right"></i>' : 'Join Now <i class="fas fa-arrow-right"></i>');
+      btn = '<button class="btn btn-danger" onclick="joinLiveClass(\'' + c.id + '\', this)">' + stuLabel + '</button>';
+    } else {
+      btn = '<button class="btn btn-outline" disabled title="Starts at the scheduled time"><i class="fas fa-clock"></i> Scheduled</button>';
+    }
   }
 
   card.innerHTML =

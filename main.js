@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, dialog, desktopCapturer, session } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, dialog, desktopCapturer, session, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -52,6 +52,10 @@ let pendingAuth = null;
 let pendingEnroll = null;
 let livePipWindow = null; // Live Class PiP mini-window (always-on-top). ISOLATED.
 let livePipArmed = false; // is a live class active? (enables blur auto-PiP — Case 3)
+let livePipSuppressed = false; // true while the user is ON the live-room page →
+                               // don't auto-open the PiP on blur (P3: a dialog
+                               // opening on the room page briefly blurs the
+                               // window; we must NOT pop the PiP then).
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -119,11 +123,21 @@ function createWindow() {
   //   - treat focus/show/restore (user returned to the app) as the single
   //     "close" trigger.
   let _pipBlurTimer = null;
-  const _pipMaybeOpenOnBlur = () => {
+  // `fromMinimize` = the trigger was an actual window minimize (not a plain
+  // focus-loss/blur). On a minimize we ALWAYS want the mini-window — even on the
+  // live-room page (P8): a host who minimizes while screen-sharing a single
+  // window must get the PiP (so they never "lose" the class), which the
+  // `livePipSuppressed` guard (meant only for in-page dialogs/pickers that blur
+  // the window) would otherwise block. A plain blur still honours suppress.
+  const _pipMaybeOpenOnBlur = (fromMinimize) => {
     if (_pipBlurTimer) clearTimeout(_pipBlurTimer);
     _pipBlurTimer = setTimeout(() => {
       _pipBlurTimer = null;
       if (!livePipArmed) return;
+      // P3: on the live-room page itself, a function's dialog/picker blurs the
+      // window — do NOT auto-open the PiP there (the room is already on screen).
+      // EXCEPTION (P8): a real minimize always pops the PiP, even on that page.
+      if (livePipSuppressed && !fromMinimize) return;
       if (livePipWindow && !livePipWindow.isDestroyed()) return; // already open
       // Only pop out if the main window is genuinely not focused/visible.
       if (mainWindow.isFocused()) return;
@@ -135,8 +149,8 @@ function createWindow() {
     closeLivePipWindow();
   };
 
-  mainWindow.on('blur', _pipMaybeOpenOnBlur);
-  mainWindow.on('minimize', _pipMaybeOpenOnBlur);
+  mainWindow.on('blur', () => _pipMaybeOpenOnBlur(false));
+  mainWindow.on('minimize', () => _pipMaybeOpenOnBlur(true));
   mainWindow.on('focus', _pipCloseOnReturn);
   mainWindow.on('show', _pipCloseOnReturn);
   mainWindow.on('restore', _pipCloseOnReturn);
@@ -197,9 +211,23 @@ function createLivePipWindow(opts) {
   const width = (opts && opts.width) || 360;
   const height = (opts && opts.height) || 240;
 
+  // Position the mini-window in the BOTTOM-RIGHT corner of the primary display
+  // (Teams/Meet-style), not the screen center. Uses the work area so it sits
+  // above the taskbar, with a small margin. Guarded so any display-API hiccup
+  // just falls back to Electron's default centering.
+  let pipX, pipY;
+  try {
+    const wa = screen.getPrimaryDisplay().workArea; // { x, y, width, height }
+    const margin = 20;
+    pipX = wa.x + wa.width - width - margin;
+    pipY = wa.y + wa.height - height - margin;
+  } catch { pipX = undefined; pipY = undefined; }
+
   livePipWindow = new BrowserWindow({
     width,
     height,
+    x: pipX,
+    y: pipY,
     minWidth: 240,
     minHeight: 160,
     frame: false,              // custom chrome (draggable header added later)
@@ -274,6 +302,15 @@ ipcMain.handle('live-pip:armed', (event, armed) => {
   livePipArmed = !!armed;
   // If we disarm, make sure no stray mini-window remains.
   if (!livePipArmed) closeLivePipWindow();
+  return { success: true };
+});
+
+// Suppress/allow blur auto-PiP (P3). The renderer sets this true while the user
+// is ON the live-room page, so a dialog/picker blurring the window there never
+// pops the PiP; false on every other page so the normal in-app/out-of-app PiP
+// behaviour continues.
+ipcMain.handle('live-pip:suppress', (event, suppressed) => {
+  livePipSuppressed = !!suppressed;
   return { success: true };
 });
 
