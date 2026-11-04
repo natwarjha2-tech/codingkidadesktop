@@ -1298,6 +1298,32 @@ body {
 }
 .lr-stage .lr-tile { width: 100%; height: 100%; aspect-ratio: auto; }
 .lr-stage .lr-tile video { object-fit: contain; }
+/* Screen-share fit guarantee: inside the stage the shared screen is ALWAYS
+   bounded by the stage box (never by its own 16:9 intrinsic height), and the
+   video letterboxes within it — so the presenter's FULL screen is visible on any
+   display size, never cropped (Meet/Zoom/Teams behaviour). Overrides the generic
+   `.lr-tile.content` 16:9 aspect-ratio only within the stage. */
+.lr-stage .lr-tile.content { aspect-ratio: auto; max-width: 100%; max-height: 100%; }
+.lr-stage .lr-tile.content video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+
+/* Share full-screen layer: ONLY the shared screen, edge to edge, letterboxed
+   (never cropped). The exit button shows on mouse move and fades out with the
+   cursor when idle (.idle). */
+.lr-fs { position: fixed; inset: 0; z-index: 3000; background: #000; align-items: center; justify-content: center; }
+.lr-fs:fullscreen { width: 100vw; height: 100vh; }
+.lr-fs-video { width: 100%; height: 100%; object-fit: contain; background: #000; display: block; }
+.lr-fs-exit {
+  position: absolute; top: 18px; left: 50%; transform: translateX(-50%);
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 9px 16px; border-radius: 22px; border: 1px solid rgba(255,255,255,0.18);
+  background: rgba(15,15,26,0.78); color: #fff; font-size: 0.82rem; font-weight: 600;
+  cursor: pointer; backdrop-filter: blur(6px);
+  transition: opacity 0.25s ease, background 0.15s ease;
+}
+.lr-fs-exit:hover { background: rgba(108,71,255,0.55); }
+.lr-fs-exit:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.lr-fs.idle { cursor: none; }
+.lr-fs.idle .lr-fs-exit { opacity: 0; pointer-events: none; }
 
 /* NO-share: the stage only shows the audio-note placeholder, so let the camera
    grid own the space (Meet-style). When a screen-share tile is actually present

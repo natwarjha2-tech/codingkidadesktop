@@ -1017,6 +1017,12 @@
             <button id="lr-tiles-toggle" class="lr-ctrl-btn" title="Show / hide camera tiles" style="display:none;">
               <i class="fas fa-user-group"></i>
             </button>
+            <!-- Share full screen: shows ONLY the shared screen across the whole
+                 monitor (host = local preview, viewers = remote share). Visible
+                 only during a share (toggled by _lrApplyLayout). -->
+            <button id="lr-fs-btn" class="lr-ctrl-btn" title="Full screen (shared screen)" aria-label="View shared screen full screen" style="display:none;">
+              <i class="fas fa-expand"></i>
+            </button>
             <button id="lr-people-btn" class="lr-ctrl-btn" title="Participants">
               <i class="fas fa-users"></i> <span id="lr-people-count">0</span>
             </button>
@@ -1068,6 +1074,17 @@
              _lrShowOverlay() in live-room.js; buttons reuse the existing
              leave/join flows. Hidden by default. -->
         <div id="lr-overlay" class="lr-overlay" style="display:none;" role="alertdialog" aria-live="assertive"></div>
+
+        <!-- Share full-screen layer. Only this element goes full screen, so the
+             monitor shows the shared screen and nothing else. The exit button
+             appears on mouse move and auto-hides when idle (Esc also exits).
+             Driven by _lrFs* in live-room.js. Hidden by default. -->
+        <div id="lr-fs" class="lr-fs" style="display:none;">
+          <video id="lr-fs-video" class="lr-fs-video" autoplay playsinline muted></video>
+          <button id="lr-fs-exit" class="lr-fs-exit" type="button" title="Exit full screen (Esc)" aria-label="Exit full screen">
+            <i class="fas fa-compress"></i> Exit full screen
+          </button>
+        </div>
 
         <!-- Body (Teams layout): a big LEFT "stage" (screen-share / main video)
              + a RIGHT column that stacks the camera-video tiles on top and the

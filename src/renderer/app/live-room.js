@@ -871,6 +871,149 @@ function _lrIsShareActive() {
   return !!(stage && stage.querySelector('.lr-tile.content'));
 }
 
+// The MediaStream of the active screen-share, from this client's view — the
+// single source of truth used by BOTH the share full-screen mode and the PiP:
+//   • host who is sharing → their own captured stream (local preview; the
+//     sharer receives no content tile of their own),
+//   • viewer → the remote content tile in the stage.
+// Returns null when no share video is available.
+function _lrGetShareStream() {
+  try {
+    if (_lrSharing && _lrShareStream && _lrShareStream.getVideoTracks &&
+        _lrShareStream.getVideoTracks().length) {
+      return _lrShareStream;
+    }
+  } catch (e) {}
+  var stage = document.getElementById('lr-stage');
+  var v = stage && stage.querySelector('.lr-tile.content video');
+  return (v && v.srcObject) ? v.srcObject : null;
+}
+
+// ── Share full-screen mode ───────────────────────────────────────────────────
+// Puts ONLY the shared screen on the whole monitor (Fullscreen API on a
+// dedicated layer — nothing else of the room is inside it). Host sees a local
+// preview of their own share, viewers see the remote share. The layer's video is
+// MUTED: class audio already plays through the meeting audio sink, so this never
+// doubles audio. Exit via Esc (native), the hover exit button, or automatically
+// when the share stops / the class is left. While the HOST is in this mode the
+// app window is excluded from screen capture so viewers never get a recursive
+// "mirror tunnel" when the host shares the same monitor.
+var _lrFsActive = false;     // full-screen layer currently shown?
+var _lrFsProtected = false;  // did WE turn on capture protection (host)?
+var _lrFsIdleTimer = null;   // auto-hide timer for the exit button + cursor
+var _LR_FS_IDLE_MS = 2500;   // idle time before hiding the exit button
+var _lrFsWired = false;      // layer listeners wired once?
+
+// Toggle main-window capture protection via the preload bridge (no-op if the
+// bridge is absent). Only ever enabled for a host in full screen.
+function _lrFsSetProtect(on) {
+  var br = window.electron;
+  if (!br || typeof br.setLiveShareFsProtect !== 'function') return;
+  try { br.setLiveShareFsProtect(!!on); } catch (e) {}
+  _lrFsProtected = !!on;
+}
+
+// Show the exit button + cursor, then hide both again after a short idle.
+function _lrFsWake() {
+  var layer = document.getElementById('lr-fs');
+  if (!layer || !_lrFsActive) return;
+  layer.classList.remove('idle');
+  if (_lrFsIdleTimer) clearTimeout(_lrFsIdleTimer);
+  _lrFsIdleTimer = setTimeout(function () {
+    _lrFsIdleTimer = null;
+    if (_lrFsActive) layer.classList.add('idle');
+  }, _LR_FS_IDLE_MS);
+}
+
+// Wire the layer's listeners exactly once (app-lifetime, idempotent).
+function _lrFsWireOnce() {
+  if (_lrFsWired) return;
+  var layer = document.getElementById('lr-fs');
+  var exitBtn = document.getElementById('lr-fs-exit');
+  if (!layer) return;
+  _lrFsWired = true;
+  layer.addEventListener('mousemove', _lrFsWake);
+  if (exitBtn) exitBtn.onclick = function (e) { e.stopPropagation(); _lrFsExit(); };
+  // Esc (or any native exit) leaves full screen → clean up our layer. Only acts
+  // when OUR layer was the full-screen element (the course video player has its
+  // own full-screen handling, which this never touches).
+  document.addEventListener('fullscreenchange', function () {
+    if (_lrFsActive && document.fullscreenElement !== layer) _lrFsCleanup();
+  });
+}
+
+// Enter share full screen. Must run inside the click (user gesture), so the
+// requestFullscreen call happens before any await.
+function _lrFsEnter() {
+  if (_lrFsActive) return;
+  var layer = document.getElementById('lr-fs');
+  var video = document.getElementById('lr-fs-video');
+  var stream = _lrGetShareStream();
+  if (!layer || !video) return;
+  if (!stream) {
+    _lrNotice('The shared screen isn’t available yet. Please try again in a moment.', 'info');
+    return;
+  }
+  _lrFsWireOnce();
+
+  video.srcObject = stream;
+  layer.style.display = 'flex';
+  _lrFsActive = true;
+
+  // Host viewing their own share → keep the app window out of the capture.
+  if (_lrSharing) _lrFsSetProtect(true);
+
+  var req = layer.requestFullscreen ? layer.requestFullscreen() : null;
+  if (req && typeof req.catch === 'function') {
+    req.catch(function () {
+      _lrFsCleanup();
+      _lrNotice('Full screen isn’t available right now.', 'error');
+    });
+  }
+  try { var p = video.play(); if (p && p.catch) p.catch(function () {}); } catch (e) {}
+  _lrFsWake();
+}
+
+// Re-point the full-screen video at the current share stream (Chime may rebind
+// the content tile). If the share is gone, exit.
+function _lrFsRefreshSource() {
+  if (!_lrFsActive) return;
+  var video = document.getElementById('lr-fs-video');
+  var stream = _lrGetShareStream();
+  if (!stream) { _lrFsExit(); return; }
+  if (video && video.srcObject !== stream) {
+    video.srcObject = stream;
+    try { var p = video.play(); if (p && p.catch) p.catch(function () {}); } catch (e) {}
+  }
+}
+
+// Leave full screen (if our layer holds it) and clean up. Idempotent — safe to
+// call from layout changes, teardown, the exit button, etc.
+function _lrFsExit() {
+  var layer = document.getElementById('lr-fs');
+  if (layer && document.fullscreenElement === layer) {
+    try {
+      var p = document.exitFullscreen();
+      if (p && p.catch) p.catch(function () {});
+    } catch (e) {}
+  }
+  _lrFsCleanup();
+}
+
+// Hide the layer, release the stream reference, restore capture. Idempotent.
+function _lrFsCleanup() {
+  if (_lrFsIdleTimer) { clearTimeout(_lrFsIdleTimer); _lrFsIdleTimer = null; }
+  if (_lrFsProtected) _lrFsSetProtect(false);
+  if (!_lrFsActive) return;
+  _lrFsActive = false;
+  var layer = document.getElementById('lr-fs');
+  var video = document.getElementById('lr-fs-video');
+  // Only detach the reference — never stop the tracks (the share/tile still
+  // owns them and keeps running in the room).
+  if (video) { try { video.pause(); } catch (e) {} video.srcObject = null; }
+  if (layer) { layer.style.display = 'none'; layer.classList.remove('idle'); }
+}
+
 // Apply the stage/grid layout based on whether a screen-share is active.
 // NO-share  → camera tiles form a Google-Meet-style grid (big tiles).
 // SHARE-on  → the shared screen fills the stage; camera tiles collapse into a
@@ -888,8 +1031,13 @@ function _lrApplyLayout() {
   // a share; when sharing stops, reset to "shown" so the next share starts ON.
   var tilesBtn = document.getElementById('lr-tiles-toggle');
   if (tilesBtn) tilesBtn.style.display = shareActive ? '' : 'none';
+  // Share full screen button: same visibility rule (only during a share).
+  var fsBtn = document.getElementById('lr-fs-btn');
+  if (fsBtn) fsBtn.style.display = shareActive ? '' : 'none';
   if (!shareActive) {
     _lrTilesHidden = false;
+    // The share ended → never leave anyone on a black full-screen layer.
+    _lrFsExit();
   }
   _lrApplyTilesVisibility();
 }
@@ -1226,6 +1374,10 @@ function _lrWireControls() {
   // Camera-tiles toggle (P5) — show/hide the share-mode circular camera strip.
   var tilesBtn = document.getElementById('lr-tiles-toggle');
   if (tilesBtn) tilesBtn.onclick = _lrToggleTiles;
+
+  // Share full screen — shows ONLY the shared screen across the monitor.
+  var fsBtn = document.getElementById('lr-fs-btn');
+  if (fsBtn) fsBtn.onclick = _lrFsEnter;
 
   // Device-picker carets (Phase 4): the ▾ next to mic/cam opens a dropdown to
   // choose the input device. The main mic/cam buttons keep their exact
@@ -1732,6 +1884,10 @@ function _lrAddOrUpdateTile(tileState) {
     try { _lrAV.bindVideoElement(tileId, videoEl); } catch (e) {}
   }
 
+  // If the viewer is in share full screen and Chime (re)bound the share tile to
+  // a new stream, follow it so the full-screen view never freezes.
+  if (isContent && _lrFsActive) _lrFsRefreshSource();
+
   // Media-state (Phase 5): a live camera tile means that user's camera is ON —
   // remove their avatar (camera-off) tile. Also start watching their volume for
   // speaking/muted. Content tiles are not people, so they're skipped.
@@ -1942,4 +2098,10 @@ async function _lrTeardown() {
   // Reset the camera-tiles toggle (P5) so the next room starts with tiles shown.
   _lrTilesHidden = false;
   if (_body) _body.classList.remove('tiles-hidden');
+
+  // Leave share full screen (and drop capture protection) so nothing lingers
+  // after the class ends/leaves; hide its button until the next share.
+  _lrFsExit();
+  var _fsBtn = document.getElementById('lr-fs-btn');
+  if (_fsBtn) _fsBtn.style.display = 'none';
 }

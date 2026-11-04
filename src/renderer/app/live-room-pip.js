@@ -121,28 +121,24 @@ var _lrPipSenderWired = false; // answer/ice listeners wired?
 var _lrPipVideoRetries = 0;   // short self-retries while waiting for a tile
 
 // Pick the PRIMARY video MediaStream to mirror into the PiP, by priority:
-//   1) the host's OWN screen-share (_lrShareStream) — a sharing host has no
-//      content tile in their own grid, so we must take the captured stream
-//      directly; this is what makes "host shares → PiP shows the shared screen"
-//      work on the host's machine.
-//   2) a remote screen-share content tile  3) teacher camera tile
-//   4) any live tile.
+//   1+2) the active screen-share — the host's OWN captured stream when they are
+//        sharing (a sharer has no content tile of their own), otherwise the
+//        remote content tile in the stage. Resolved by live-room.js's
+//        _lrGetShareStream (single source of truth, shared with the share
+//        full-screen mode — no duplicated lookup).
+//   3) teacher camera tile   4) any live tile.
 // Returns a MediaStream or null (audio-only → placeholder stays).
 function _lrPipPickPrimaryStream() {
-  // 1) Host is sharing their own screen → use the captured share stream.
-  try {
-    if (typeof _lrSharing !== 'undefined' && _lrSharing &&
-        typeof _lrShareStream !== 'undefined' && _lrShareStream &&
-        _lrShareStream.getVideoTracks && _lrShareStream.getVideoTracks().length) {
-      return _lrShareStream;
-    }
-  } catch (e) {}
+  // 1+2) Active screen-share (host's own or remote).
+  if (typeof _lrGetShareStream === 'function') {
+    try {
+      var share = _lrGetShareStream();
+      if (share) return share;
+    } catch (e) {}
+  }
 
   var grid = document.getElementById('lr-grid');
   if (!grid) return null;
-  // 2) Remote content (screen-share) tile.
-  var content = grid.querySelector('.lr-tile.content video');
-  if (content && content.srcObject) return content.srcObject;
   // 3) Teacher camera tile.
   var teacher = grid.querySelector('.lr-tile.teacher video');
   if (teacher && teacher.srcObject) return teacher.srcObject;

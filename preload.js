@@ -34,6 +34,10 @@ contextBridge.exposeInMainWorld('electron', {
   // Suppress blur auto-PiP while the user is ON the live-room page (P3), so a
   // dialog/picker there never pops the mini-window. Cleared on other pages.
   setLivePipSuppressed: (suppressed) => ipcRenderer.invoke('live-pip:suppress', !!suppressed),
+  // Share full-screen mode: keep the main window out of screen capture while the
+  // host views their own share full screen (prevents a "mirror tunnel" for
+  // viewers when sharing the same monitor). Cleared on exit.
+  setLiveShareFsProtect: (on) => ipcRenderer.invoke('live-share-fs:protect', !!on),
   // Handshake: the mini-window announces it has loaded + is ready to receive
   // video/state; the main window listens and starts the WebRTC send + state push.
   livePipReady: () => ipcRenderer.send('live-pip:ready'),

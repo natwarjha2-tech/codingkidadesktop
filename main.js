@@ -314,6 +314,22 @@ ipcMain.handle('live-pip:suppress', (event, suppressed) => {
   return { success: true };
 });
 
+// Exclude/include the MAIN window from screen capture (share full-screen mode).
+// While the HOST views their own share in full screen, the app window covers
+// the monitor; if they are sharing that monitor, capture would record the
+// full-screen preview itself → an infinite "mirror tunnel" for viewers. Content
+// protection (Windows: SetWindowDisplayAffinity WDA_EXCLUDEFROMCAPTURE — the
+// same mechanism the PiP window uses) keeps the app window out of the capture so
+// viewers keep seeing the real shared content. Turned off again on exit. The
+// main window has no other content protection, so toggling it is side-effect
+// free.
+ipcMain.handle('live-share-fs:protect', (event, on) => {
+  try {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setContentProtection(!!on);
+  } catch {}
+  return { success: true };
+});
+
 // Relay a COMMAND from the mini-window → the main window (mic/cam/leave). The
 // main window owns the Chime session and performs the real action. Main process
 // is just the messenger (mini and main are separate renderers).
