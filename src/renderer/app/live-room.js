@@ -859,21 +859,36 @@ function _lrSetRightPanel(which) {
   }
 }
 
+// Is a screen-share active in this room RIGHT NOW, from this client's view?
+// True when THIS user is sharing (host's own share — the host has no content
+// tile in their own stage) OR a remote screen-share (content) tile is present in
+// the stage (every viewer). Previously only `_lrSharing` was checked, which is
+// true on the host's machine alone — so viewers never got the share layout and
+// a tall shared screen overflowed (bottom cut) on smaller displays.
+function _lrIsShareActive() {
+  if (_lrSharing) return true;
+  var stage = document.getElementById('lr-stage');
+  return !!(stage && stage.querySelector('.lr-tile.content'));
+}
+
 // Apply the stage/grid layout based on whether a screen-share is active.
 // NO-share  → camera tiles form a Google-Meet-style grid (big tiles).
 // SHARE-on  → the shared screen fills the stage; camera tiles collapse into a
 //             slim strip of small circular avatars. All visual; CSS keys off
 //             the .sharing class, so this helper is just the single toggle.
+// Same layout for host AND viewers (driven by _lrIsShareActive). Idempotent —
+// safe to call on every tile add/remove.
 function _lrApplyLayout() {
+  var shareActive = _lrIsShareActive();
   var body = document.querySelector('#page-live-room .lr-body');
-  if (body) body.classList.toggle('sharing', !!_lrSharing);
+  if (body) body.classList.toggle('sharing', shareActive);
 
   // Camera-tiles toggle (P5) is only meaningful while sharing (that's when the
   // tiles collapse into the circular strip). Show the toggle button only during
   // a share; when sharing stops, reset to "shown" so the next share starts ON.
   var tilesBtn = document.getElementById('lr-tiles-toggle');
-  if (tilesBtn) tilesBtn.style.display = _lrSharing ? '' : 'none';
-  if (!_lrSharing) {
+  if (tilesBtn) tilesBtn.style.display = shareActive ? '' : 'none';
+  if (!shareActive) {
     _lrTilesHidden = false;
   }
   _lrApplyTilesVisibility();
@@ -1703,6 +1718,9 @@ function _lrAddOrUpdateTile(tileState) {
   if (isContent) {
     tileEl.classList.add('content');
     if (labelEl) labelEl.textContent = (isHost ? 'Teacher' : 'Presenter') + "'s screen";
+    // A screen-share tile is now in the stage → switch THIS client (viewer
+    // included) into the share layout so the shared screen fits the window.
+    _lrApplyLayout();
   } else {
     if (isHost) tileEl.classList.add('teacher');
     if (labelEl) labelEl.textContent = _lrTileName(tileUserId, isLocal, isHost);
@@ -1734,7 +1752,12 @@ function _lrRemoveTile(tileId) {
   if (tileId === _lrLocalTileId) _lrLocalTileId = null;
   var tileEl = document.getElementById('lr-tile-' + tileId);
   var tileUserId = tileEl ? tileEl.getAttribute('data-userid') : null;
+  var wasContent = !!(tileEl && tileEl.classList.contains('content'));
   if (tileEl) tileEl.remove();
+
+  // The screen-share tile left the stage → drop back to the normal grid layout
+  // on this client (viewer included).
+  if (wasContent) _lrApplyLayout();
 
   // That user's camera is now off — update media-state so an avatar (camera-off)
   // tile takes the video tile's place if they're still present (Phase 5 / D5).
