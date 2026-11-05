@@ -20,7 +20,7 @@
 var _liveLoaded = false;      // list fetched at least once this session?
 var _liveLoading = false;     // in-flight guard
 var _liveJoiningId = null;    // class id currently being joined
-var _liveStartCountdownTicker = null; // single shared 1s ticker for all countdowns
+var _liveCountdownInterval = null; // setInterval handle for the shared 1s countdown ticker
 
 // P9 (Option B — client-side session memory): the set of class ids this user
 // has opened the room for during this app session. Used purely for the button
@@ -516,14 +516,17 @@ function _liveTickCountdowns() {
 }
 
 // Start the shared 1s ticker (idempotent). Called after rendering the list.
+// NOTE: the interval HANDLE lives in _liveCountdownInterval (a separate var) —
+// it must NOT share this function's name, or the second render reassigns the
+// function identifier to a number and the next call throws "not a function".
 function _liveStartCountdownTicker() {
-  if (_liveStartCountdownTicker) return;
+  if (_liveCountdownInterval) return;
   if (!document.querySelector('.live-countdown[data-countdown]')) return;
   _liveTickCountdowns();
-  _liveStartCountdownTicker = setInterval(_liveTickCountdowns, 1000);
+  _liveCountdownInterval = setInterval(_liveTickCountdowns, 1000);
 }
 
 // Stop the shared ticker (no spans left, or leaving the page).
 function _liveStopCountdownTicker() {
-  if (_liveStartCountdownTicker) { clearInterval(_liveStartCountdownTicker); _liveStartCountdownTicker = null; }
+  if (_liveCountdownInterval) { clearInterval(_liveCountdownInterval); _liveCountdownInterval = null; }
 }
