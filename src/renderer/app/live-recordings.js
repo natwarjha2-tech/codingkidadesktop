@@ -257,17 +257,8 @@ function _lrecFmtDuration(seconds) {
   return m + ':' + pad(sec);
 }
 
-// Ensure the recordings panel is closed + the class list restored. Called when
-// the Live page (re)opens so navigating away and back always lands on the class
-// list, never a stale-open recordings panel. Idempotent + safe if markup absent.
-function lrecEnsureClosed() {
-  _lrecClosePlayer();
-  if (!_lrecOpen) return;
-  _lrecOpen = false;
-  var panel = document.getElementById('live-recordings-panel');
-  var list = document.getElementById('live-list');
-  var btn = document.getElementById('live-recordings-btn');
-  if (panel) panel.style.display = 'none';
-  if (list) list.style.display = 'flex';
-  if (btn) { btn.classList.remove('btn-primary'); btn.classList.add('btn-outline'); }
-}
+// NOTE: the recordings panel is deliberately NOT auto-closed on list refreshes
+// or page (re)navigation. It stays open until the user explicitly presses the
+// Recordings button again (lrecToggle) — so a background/list refresh can never
+// dismiss it. The panel overlays the class list; the list is simply hidden while
+// it is open and restored by lrecToggle on close.

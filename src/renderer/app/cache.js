@@ -263,6 +263,28 @@ function _ckCachePreFetchAll() {
       }
     }).catch(function() {});
 
+  // Pre-fetch the live-class list (host + enrolled) so it's fresh right after
+  // login — one of the three freshness triggers (login / page-open / manual
+  // refresh); there is no polling. If the user is already on the Live page,
+  // re-render it from the fresh cache (no manual refresh needed). 503 = feature
+  // off, handled by the page itself.
+  fetch(BASE_URL + '/api/live/classes/hosting', { headers: { Authorization: 'Bearer ' + token } })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data && data.success) {
+        ckCacheSet('/api/live/classes/hosting', data);
+        _ckRefreshPageIfActive('live');
+      }
+    }).catch(function() {});
+  fetch(BASE_URL + '/api/live/classes/enrolled', { headers: { Authorization: 'Bearer ' + token } })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data && data.success) {
+        ckCacheSet('/api/live/classes/enrolled', data);
+        _ckRefreshPageIfActive('live');
+      }
+    }).catch(function() {});
+
   // Pre-fetch app ratings
   fetch(BASE_URL + '/api/feedback/lesson?lessonId=app_rating')
     .then(function(r) { return r.json(); })
@@ -303,6 +325,7 @@ function _ckRefreshPageIfActive(page) {
         if (d && d.success && typeof _applyDashboardData === 'function') _applyDashboardData(d, false);
       },
       'courses': function () { if (typeof loadCourses === 'function') loadCourses(); },
+      'live': function () { if (typeof renderLiveClasses === 'function') renderLiveClasses(); },
       'coding': function () { if (typeof codingPgInit === 'function') codingPgInit(); },
       'orders': function () { if (typeof loadOrdersPage === 'function') loadOrdersPage(); },
       'mall': function () { if (typeof loadMallPage === 'function') loadMallPage(); },
@@ -360,6 +383,7 @@ function refreshAllData() {
   if (pageId === 'rate-us') { loadRateUsPage(); }
   if (pageId === 'student-progress') { loadStudentProgress(); }
   if (pageId === 'parent-report') { loadParentReport(); }
+  if (pageId === 'live') { if (typeof renderLiveClasses === 'function') renderLiveClasses(); }
 
   // Stop spin after 2 seconds
   setTimeout(function() {

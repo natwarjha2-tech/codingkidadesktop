@@ -56,62 +56,18 @@ function _liveToken() {
 }
 
 // Lazy entry — called by navigation.js when the Live page opens.
+//
+// Freshness model (event-driven, matching the rest of the app — courses, quiz,
+// exercise, video): the live list is fetched ONLY on the three real triggers —
+//   1) login/signup (background prefetch in cache.js),
+//   2) opening the Live page (here),
+//   3) the manual Refresh button (cache.js refreshAllData).
+// There is deliberately NO background polling/interval and NO focus/visibility
+// auto-refresh, so there are zero wasteful requests. renderLiveClasses() is
+// cache-backed + stale-while-revalidate, so each trigger paints instantly then
+// updates silently.
 function initLivePage() {
   renderLiveClasses();
-  _liveStartPolling(); // P12: keep the list fresh automatically (no manual refresh)
-}
-
-// ── P12: automatic live-list freshness (no manual refresh, ever) ─────────────
-//
-// True server push (WebSocket/SSE) isn't available for the class LIST, so we
-// keep it fresh with smart, lightweight polling that FEELS instant:
-//   • while the Live page is on screen, silently refresh every 15s,
-//   • refresh immediately when the window regains focus / becomes visible
-//     (so returning to the app shows new classes at once).
-// Refreshes reuse renderLiveClasses(), which is cache-backed + stale-while-
-// revalidate, so a poll never flickers or shows a spinner — it just swaps in
-// fresh data when it arrives. The poll self-stops the moment the user leaves
-// the Live page (checked each tick), so it never runs in the background and
-// adds no load elsewhere.
-var _livePollTimer = null;        // interval handle
-var _LIVE_POLL_MS = 15000;        // 15s — instant-feel without hammering the API
-var _liveFocusWired = false;      // focus/visibility listeners wired once?
-
-// Is the Live page currently the active page? (poll only then.)
-function _livePageActive() {
-  var pg = document.getElementById('page-live');
-  return !!(pg && pg.classList.contains('active'));
-}
-
-function _liveStartPolling() {
-  // Wire focus/visibility immediate-refresh exactly once (app-lifetime).
-  if (!_liveFocusWired) {
-    _liveFocusWired = true;
-    var onWake = function () {
-      if (_livePageActive() && typeof renderLiveClasses === 'function') {
-        try { renderLiveClasses(); } catch (e) {}
-      }
-    };
-    try {
-      window.addEventListener('focus', onWake);
-      document.addEventListener('visibilitychange', function () {
-        if (!document.hidden) onWake();
-      });
-    } catch (e) {}
-  }
-
-  if (_livePollTimer) return; // already polling
-  _livePollTimer = setInterval(function () {
-    // Self-stop once the user navigates away from the Live page.
-    if (!_livePageActive()) { _liveStopPolling(); return; }
-    if (typeof renderLiveClasses === 'function') {
-      try { renderLiveClasses(); } catch (e) {}
-    }
-  }, _LIVE_POLL_MS);
-}
-
-function _liveStopPolling() {
-  if (_livePollTimer) { clearInterval(_livePollTimer); _livePollTimer = null; }
 }
 
 // Fetch + render both the teacher's hosted classes AND the student's joinable
@@ -124,9 +80,11 @@ async function renderLiveClasses() {
   var loading = document.getElementById('live-loading');
   if (!list) return;
 
-  // P11: landing on / refreshing the Live page always shows the class list, not
-  // a stale-open recordings panel. No-op if the recordings module isn't loaded.
-  if (typeof lrecEnsureClosed === 'function') { try { lrecEnsureClosed(); } catch (e) {} }
+  // NOTE: the recordings panel is intentionally NOT closed here. It stays open
+  // until the user explicitly closes it with its own close button — a list
+  // (re)render / background refresh must never dismiss it. While it is open the
+  // class list stays hidden (the panel overlays it); this function only rebuilds
+  // the hidden list's contents, so an open panel is unaffected.
 
   var token = _liveToken();
   if (!token) {
