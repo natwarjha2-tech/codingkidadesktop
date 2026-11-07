@@ -483,20 +483,42 @@ ipcMain.handle('quit-and-install-update', () => {
 });
 
 // ── CloudFront HLS cookie injection ──────────────────────────────────────────
-// Electron's renderer cannot set the Cookie header on XHR directly (CORS blocks
-// it). Instead, the renderer calls this IPC handler with the three signed
-// CloudFront cookies; we plant them into the session cookie jar so Chromium
-// sends them automatically on every request to the CloudFront domain.
-// hls.js then just uses `withCredentials:true` and gets the cookies for free.
+// Approach: use session.webRequest.onBeforeSendHeaders to intercept every
+// request to the CloudFront domain and inject the Cookie header at the network
+// layer (main process). This bypasses the renderer CORS restriction that blocks
+// setting Cookie on cross-origin XHR — Electron's network stack doesn't have
+// that restriction. hls.js makes plain XHR without withCredentials and the
+// cookies are injected transparently.
+let _cfCookieHeader = '';   // the combined Cookie header string
+let _cfDomain = '';         // e.g. d17ni0motewviz.cloudfront.net
+
 ipcMain.handle('set-cf-cookies', async (event, { cookies, domain }) => {
   try {
+    // Build a single Cookie header string from the three CF cookies.
+    _cfCookieHeader = Object.entries(cookies)
+      .map(([name, value]) => `${name}=${String(value)}`)
+      .join('; ');
+    _cfDomain = domain.replace(/^https?:\/\//, '');
+
+    // Register the webRequest interceptor (or update it if already registered).
+    // Intercepts every outgoing request whose URL contains the CF domain and
+    // injects the signed Cookie header before it leaves the main process.
     const ses = mainWindow && mainWindow.webContents
       ? mainWindow.webContents.session
       : session.defaultSession;
-    const url = 'https://' + domain;
-    await Promise.all(Object.entries(cookies).map(([name, value]) =>
-      ses.cookies.set({ url, name, value: String(value), secure: true, httpOnly: false })
-    ));
+
+    // Remove any prior listener first (prevents stacking on repeated calls).
+    try { ses.webRequest.onBeforeSendHeaders(null); } catch {}
+
+    ses.webRequest.onBeforeSendHeaders(
+      { urls: [`https://${_cfDomain}/*`] },
+      (details, callback) => {
+        const headers = { ...details.requestHeaders, Cookie: _cfCookieHeader };
+        callback({ requestHeaders: headers });
+      }
+    );
+
+    console.log(`[set-cf-cookies] Interceptor registered for https://${_cfDomain}/*`);
     return { ok: true };
   } catch (err) {
     console.error('[set-cf-cookies] failed:', err);

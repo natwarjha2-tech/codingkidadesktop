@@ -477,9 +477,9 @@ async function loadVideo(url, hlsMasterUrl, hlsQualities) {
             await window.electron.setCfCookies(_hlsAuthRes.cookies, _cfDomain);
           }
 
-          // Start hls.js in Auto mode (adaptive) — cookies are now in the jar.
+          // Start hls.js — cookies are injected at the network layer by the
+          // main process (webRequest interceptor), so hls.js makes plain XHR.
           _hlsInstance = new Hls({
-            xhrSetup: function(xhr) { xhr.withCredentials = true; },
             startLevel: -1,    // -1 = Auto (hls.js picks the best rendition)
             debug: false,
           });
