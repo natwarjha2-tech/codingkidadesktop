@@ -232,6 +232,54 @@ function _vpLeaveProgress() { var tt=document.getElementById('vp-hover-time');if
 
 function _vpToggleQualityMenu(e) { if(e)e.stopPropagation(); var m=document.getElementById('vp-quality-menu');if(!m)return; _vpQualityMenuOpen=!_vpQualityMenuOpen; m.style.display=_vpQualityMenuOpen?'block':'none'; }
 
+// ─── Playback Speed ──────────────────────────────────────────────────────────
+var _vpSpeedMenuOpen = false;
+var _vpCurrentSpeed = 1;
+var VP_SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
+
+function _vpToggleSpeedMenu(e) {
+  if (e) e.stopPropagation();
+  var m = document.getElementById('vp-speed-menu'); if (!m) return;
+  _vpSpeedMenuOpen = !_vpSpeedMenuOpen;
+  if (_vpSpeedMenuOpen) { _vpBuildSpeedMenu(); m.style.display = 'block'; }
+  else m.style.display = 'none';
+}
+
+function _vpBuildSpeedMenu() {
+  var menu = document.getElementById('vp-speed-menu'); if (!menu) return;
+  menu.innerHTML = '<div style="font-size:0.65rem;color:rgba(255,255,255,0.4);padding:3px 12px 6px;font-weight:700;text-transform:uppercase;">Speed</div>';
+  VP_SPEEDS.forEach(function(s) {
+    var isA = s === _vpCurrentSpeed;
+    var item = document.createElement('div');
+    item.style.cssText = 'padding:8px 14px;font-size:0.82rem;cursor:pointer;color:'+(isA?'#4ade80':'#fff')+';font-weight:'+(isA?'700':'400')+';display:flex;align-items:center;justify-content:space-between;';
+    item.innerHTML = (s === 1 ? '1x (Normal)' : s + 'x') + (isA ? ' <i class="fas fa-check" style="color:#4ade80;font-size:0.7rem;"></i>' : '');
+    item.onmouseover = function(){ item.style.background='rgba(255,255,255,0.08)'; };
+    item.onmouseout  = function(){ item.style.background='none'; };
+    item.onclick = function(ev){ ev.stopPropagation(); _vpSetSpeed(s); };
+    menu.appendChild(item);
+  });
+}
+
+function _vpSetSpeed(s) {
+  var v = _vpGetEl(); if (!v) return;
+  _vpCurrentSpeed = s;
+  v.playbackRate = s;
+  var lbl = document.getElementById('vp-speed-label');
+  if (lbl) lbl.textContent = s === 1 ? '1x' : s + 'x';
+  var menu = document.getElementById('vp-speed-menu');
+  if (menu) menu.style.display = 'none';
+  _vpSpeedMenuOpen = false;
+}
+
+// Close speed menu when clicking outside
+document.addEventListener('click', function(e) {
+  if (_vpSpeedMenuOpen && !e.target.closest('#vp-speed-wrap')) {
+    var m = document.getElementById('vp-speed-menu');
+    if (m) m.style.display = 'none';
+    _vpSpeedMenuOpen = false;
+  }
+});
+
 function _vpSetQuality(label, url) {
   var v = _vpGetEl(); if (!v) return;
   var t = v.currentTime, p = !v.paused;
@@ -244,23 +292,22 @@ function _vpSetQuality(label, url) {
   if (_hlsInstance) {
     // HLS mode — lock to a specific rendition level, or -1 for Auto (adaptive).
     if (label === 'Auto') {
-      _hlsInstance.currentLevel = -1;     // adaptive — ExoPlayer picks rendition
+      _hlsInstance.currentLevel = -1;
       _hlsInstance.nextLevel = -1;
     } else {
-      // Match the quality name to a hls.js level by height.
-      var targetHeight = parseInt(label);  // e.g. "720p" → 720
-      var levels = _hlsInstance.levels || [];
-      var idx = levels.findIndex(function(l) { return l.height === targetHeight; });
+      // Level index = position in _vpHlsQualities array (server-defined order:
+      // 720p=0, 480p=1, 360p=2 — matches the ffmpeg variant output order).
+      var idx = _vpHlsQualities ? _vpHlsQualities.indexOf(label) : -1;
       if (idx === -1) {
-        // Fallback: pick by index order (720p=0, 480p=1, 360p=2)
-        var order = ['720p','480p','360p'];
-        idx = order.indexOf(label);
-        if (idx >= levels.length) idx = 0;
+        // Fallback: try matching by height in hls.levels
+        var targetHeight = parseInt(label);
+        var levels = _hlsInstance.levels || [];
+        idx = levels.findIndex(function(l) { return l.height === targetHeight; });
       }
+      if (idx === -1) idx = 0; // last resort: first level
       _hlsInstance.currentLevel = idx;
       _hlsInstance.nextLevel = idx;
     }
-    // HLS — no src change, seeking keeps position.
     _vpShowLoading(false);
   } else {
     // MP4 fallback mode — swap src as before.
@@ -276,27 +323,18 @@ function _vpBuildQualityMenu() {
   menu.innerHTML = '<div style="font-size:0.65rem;color:rgba(255,255,255,0.4);padding:3px 12px 6px;font-weight:700;text-transform:uppercase;">Quality</div>';
   var entries = [];
 
-  if (_hlsInstance && _hlsInstance.levels && _hlsInstance.levels.length > 0) {
-    // HLS mode: Auto + each rendition level (720p, 480p, 360p)
-    entries.push({ label: 'Auto', url: '' });
-    var order = ['720p','480p','360p'];
-    var levels = _hlsInstance.levels;
-    // Map levels to quality labels — sort by height desc (highest first)
-    var sorted = levels.slice().sort(function(a,b){ return b.height - a.height; });
-    sorted.forEach(function(l) {
-      var name = l.height + 'p';
-      if (!entries.find(function(e){ return e.label === name; }))
-        entries.push({ label: name, url: '' });
-    });
-    // Also include any hlsQualities names that didn't map (fallback)
-    if (_vpHlsQualities && _vpHlsQualities.length) {
-      _vpHlsQualities.forEach(function(q) {
-        if (!entries.find(function(e){ return e.label === q; }))
-          entries.push({ label: q, url: '' });
-      });
-    }
+  if (_hlsInstance) {
+    // HLS mode: Auto + each quality name from the server ladder.
+    // We use _vpHlsQualities (set from the /play response, e.g. ['720p','480p','360p'])
+    // rather than hls.levels[i].height because fMP4 variant heights may be 0
+    // until the variant playlists are fetched — _vpHlsQualities is always correct.
+    entries.push({ label: 'Auto' });
+    var qNames = _vpHlsQualities && _vpHlsQualities.length
+      ? _vpHlsQualities
+      : ['720p', '480p', '360p']; // safe fallback if server didn't send names
+    qNames.forEach(function(q) { entries.push({ label: q }); });
   } else {
-    // MP4 fallback mode — same as before
+    // MP4 fallback mode — same as original
     var qKeys = Object.keys(_vpQualityUrls || {});
     if (qKeys.length) {
       var mpOrder = ['720p','480p','360p'];
@@ -316,7 +354,7 @@ function _vpBuildQualityMenu() {
     item.innerHTML = '<div>' + displayLabel + subText + '</div>' + (isA ? '<i class="fas fa-check" style="color:#4ade80;font-size:0.7rem;"></i>' : '');
     item.onmouseover = function(){ item.style.background='rgba(255,255,255,0.08)'; };
     item.onmouseout  = function(){ item.style.background='none'; };
-    item.onclick = function(e){ e.stopPropagation(); _vpSetQuality(en.label, en.url); };
+    item.onclick = function(e){ e.stopPropagation(); _vpSetQuality(en.label, en.url || ''); };
     menu.appendChild(item);
   });
 }
@@ -377,7 +415,7 @@ async function loadVideo(url, hlsMasterUrl, hlsQualities) {
   _destroyHls(); // clean up any prior hls.js instance
   // Clear any stale MP4 src so hls.js starts clean (prevents old source
   // from playing briefly while hls.js loads the new manifest).
-  videoEl.src = ''; videoEl.load();
+  videoEl.src = ''; videoEl.load(); videoEl.playbackRate = 1;
 
   if (!url && !hlsMasterUrl) {
     iframe.src = ''; iframe.style.display = 'block';
@@ -412,6 +450,9 @@ async function loadVideo(url, hlsMasterUrl, hlsQualities) {
   var bb = document.getElementById('vp-buf-bar'); if(bb) bb.style.width = '0%';
   var tm = document.getElementById('vp-time'); if(tm) tm.textContent = '0:00 / 0:00';
   var vr = document.getElementById('vp-vol-range'); if(vr) vr.value = 1;
+  // Reset speed to 1x for every new video (don't carry speed between lessons)
+  _vpCurrentSpeed = 1;
+  var sl = document.getElementById('vp-speed-label'); if(sl) sl.textContent = '1x';
 
   // ── HLS path (CloudFront signed cookies + hls.js) ───────────────────────
   // When the /play response includes a CloudFront HLS master URL, fetch signed
