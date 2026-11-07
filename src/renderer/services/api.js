@@ -90,6 +90,10 @@ const CoursesAPI = {
   // when the user opens that lesson, instead of signing every lesson upfront).
   getLessonPlay: (lessonId) => apiRequest('/api/lessons/' + lessonId + '/play'),
 
+  // HLS auth — returns CloudFront signed cookies scoped to hls/<mediaId>/*
+  // plus the stable master playlist URL. Mirrors the mobile getLessonHlsAuth.
+  getLessonHlsAuth: (lessonId) => apiRequest('/api/lessons/' + lessonId + '/hls-auth'),
+
   enroll: (courseId) => apiRequest('/api/courses/' + courseId + '/enroll', {
     method: 'POST',
     body: JSON.stringify({}),

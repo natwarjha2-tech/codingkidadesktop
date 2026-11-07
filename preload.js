@@ -61,4 +61,7 @@ contextBridge.exposeInMainWorld('electron', {
   onLivePipAnswer: (cb) => ipcRenderer.on('live-pip:webrtc-answer', (e, data) => cb(data)),
   onLivePipIce: (cb) => ipcRenderer.on('live-pip:webrtc-ice', (e, data) => cb(data)),
   removeLivePipListeners: (channel) => ipcRenderer.removeAllListeners(channel),
+  // CloudFront HLS: plant signed cookies into the session jar so Chromium sends
+  // them automatically on every *.cloudfront.net XHR (hls.js segment requests).
+  setCfCookies: (cookies, domain) => ipcRenderer.invoke('set-cf-cookies', { cookies, domain }),
 });

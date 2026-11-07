@@ -482,6 +482,28 @@ ipcMain.handle('quit-and-install-update', () => {
   if (autoUpdater) autoUpdater.quitAndInstall();
 });
 
+// ── CloudFront HLS cookie injection ──────────────────────────────────────────
+// Electron's renderer cannot set the Cookie header on XHR directly (CORS blocks
+// it). Instead, the renderer calls this IPC handler with the three signed
+// CloudFront cookies; we plant them into the session cookie jar so Chromium
+// sends them automatically on every request to the CloudFront domain.
+// hls.js then just uses `withCredentials:true` and gets the cookies for free.
+ipcMain.handle('set-cf-cookies', async (event, { cookies, domain }) => {
+  try {
+    const ses = mainWindow && mainWindow.webContents
+      ? mainWindow.webContents.session
+      : session.defaultSession;
+    const url = 'https://' + domain;
+    await Promise.all(Object.entries(cookies).map(([name, value]) =>
+      ses.cookies.set({ url, name, value: String(value), secure: true, httpOnly: false })
+    ));
+    return { ok: true };
+  } catch (err) {
+    console.error('[set-cf-cookies] failed:', err);
+    return { ok: false };
+  }
+});
+
 // Handle login from renderer
 ipcMain.handle('login', async (event, { email, password, remember }) => {
   try {

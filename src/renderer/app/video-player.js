@@ -178,7 +178,10 @@ async function _lazyLoadExercise(lessonId, token) {
 }
 
 function _destroyHls() {
-  // No-op — we don't use hls.js anymore
+  if (_hlsInstance) {
+    try { _hlsInstance.destroy(); } catch {}
+    _hlsInstance = null;
+  }
 }
 
 function _setHlsStatus(msg) {
@@ -194,6 +197,7 @@ var _vpCurrentQuality = 'Original';
 var _vpQualityUrls = {};
 var _vpQualityMenuOpen = false;
 var _vpIdleTimer = null;
+var _vpHlsQualities = []; // HLS variant names (e.g. ['720p','480p','360p'])
 
 function _vpGetEl() { return document.getElementById('video-player'); }
 function _vpFmt(s) { if(!s||isNaN(s))return'0:00'; var m=Math.floor(s/60),ss=Math.floor(s%60); return m+':'+(ss<10?'0':'')+ss; }
@@ -227,34 +231,92 @@ function _vpHoverProgress(e) {
 function _vpLeaveProgress() { var tt=document.getElementById('vp-hover-time');if(tt)tt.style.display='none'; }
 
 function _vpToggleQualityMenu(e) { if(e)e.stopPropagation(); var m=document.getElementById('vp-quality-menu');if(!m)return; _vpQualityMenuOpen=!_vpQualityMenuOpen; m.style.display=_vpQualityMenuOpen?'block':'none'; }
-function _vpSetQuality(label,url) {
-  var v=_vpGetEl();if(!v)return; var t=v.currentTime,p=!v.paused;
-  _vpShowLoading(true); // switching source re-buffers — show spinner
-  _vpCurrentQuality=label; _vpCurrentUrl=url; v.src=url; v.currentTime=t; if(p)v.play().catch(function(){});
-  document.getElementById('vp-quality-label').textContent=label;
-  document.getElementById('vp-quality-menu').style.display='none'; _vpQualityMenuOpen=false; _vpBuildQualityMenu();
-}
-function _vpBuildQualityMenu() {
-  var menu=document.getElementById('vp-quality-menu');if(!menu)return;
-  menu.innerHTML='<div style="font-size:0.65rem;color:rgba(255,255,255,0.4);padding:3px 12px 6px;font-weight:700;text-transform:uppercase;">Quality</div>';
-  var entries=[];
-  var qKeys=Object.keys(_vpQualityUrls||{});
-  if(qKeys.length){
-    // Processed qualities exist → list only these (no Original), highest first.
-    var order=['720p','480p','360p'];
-    order.forEach(function(q){if(_vpQualityUrls[q])entries.push({label:q,url:_vpQualityUrls[q]});});
-    qKeys.forEach(function(q){if(order.indexOf(q)===-1)entries.push({label:q,url:_vpQualityUrls[q]});});
+
+function _vpSetQuality(label, url) {
+  var v = _vpGetEl(); if (!v) return;
+  var t = v.currentTime, p = !v.paused;
+  _vpShowLoading(true);
+  _vpCurrentQuality = label;
+  document.getElementById('vp-quality-label').textContent = label === 'Auto' ? '⚡ Auto' : label;
+  document.getElementById('vp-quality-menu').style.display = 'none';
+  _vpQualityMenuOpen = false;
+
+  if (_hlsInstance) {
+    // HLS mode — lock to a specific rendition level, or -1 for Auto (adaptive).
+    if (label === 'Auto') {
+      _hlsInstance.currentLevel = -1;     // adaptive — ExoPlayer picks rendition
+      _hlsInstance.nextLevel = -1;
+    } else {
+      // Match the quality name to a hls.js level by height.
+      var targetHeight = parseInt(label);  // e.g. "720p" → 720
+      var levels = _hlsInstance.levels || [];
+      var idx = levels.findIndex(function(l) { return l.height === targetHeight; });
+      if (idx === -1) {
+        // Fallback: pick by index order (720p=0, 480p=1, 360p=2)
+        var order = ['720p','480p','360p'];
+        idx = order.indexOf(label);
+        if (idx >= levels.length) idx = 0;
+      }
+      _hlsInstance.currentLevel = idx;
+      _hlsInstance.nextLevel = idx;
+    }
+    // HLS — no src change, seeking keeps position.
+    _vpShowLoading(false);
   } else {
-    // No processed qualities → only Original is available.
-    entries.push({label:'Original',url:window._vpOriginalUrl||_vpCurrentUrl});
+    // MP4 fallback mode — swap src as before.
+    _vpCurrentUrl = url;
+    v.src = url; v.currentTime = t;
+    if (p) v.play().catch(function(){});
   }
-  entries.forEach(function(en){
-    var isA=en.label===_vpCurrentQuality,item=document.createElement('div');
-    item.style.cssText='padding:8px 14px;font-size:0.82rem;cursor:pointer;color:'+(isA?'#4ade80':'#fff')+';font-weight:'+(isA?'700':'400')+';display:flex;align-items:center;justify-content:space-between;';
-    item.innerHTML=en.label+(isA?' <i class="fas fa-check" style="color:#4ade80;font-size:0.7rem;"></i>':'');
-    item.onmouseover=function(){item.style.background='rgba(255,255,255,0.08)';};
-    item.onmouseout=function(){item.style.background='none';};
-    item.onclick=function(e){e.stopPropagation();_vpSetQuality(en.label,en.url);};
+  _vpBuildQualityMenu();
+}
+
+function _vpBuildQualityMenu() {
+  var menu = document.getElementById('vp-quality-menu'); if (!menu) return;
+  menu.innerHTML = '<div style="font-size:0.65rem;color:rgba(255,255,255,0.4);padding:3px 12px 6px;font-weight:700;text-transform:uppercase;">Quality</div>';
+  var entries = [];
+
+  if (_hlsInstance && _hlsInstance.levels && _hlsInstance.levels.length > 0) {
+    // HLS mode: Auto + each rendition level (720p, 480p, 360p)
+    entries.push({ label: 'Auto', url: '' });
+    var order = ['720p','480p','360p'];
+    var levels = _hlsInstance.levels;
+    // Map levels to quality labels — sort by height desc (highest first)
+    var sorted = levels.slice().sort(function(a,b){ return b.height - a.height; });
+    sorted.forEach(function(l) {
+      var name = l.height + 'p';
+      if (!entries.find(function(e){ return e.label === name; }))
+        entries.push({ label: name, url: '' });
+    });
+    // Also include any hlsQualities names that didn't map (fallback)
+    if (_vpHlsQualities && _vpHlsQualities.length) {
+      _vpHlsQualities.forEach(function(q) {
+        if (!entries.find(function(e){ return e.label === q; }))
+          entries.push({ label: q, url: '' });
+      });
+    }
+  } else {
+    // MP4 fallback mode — same as before
+    var qKeys = Object.keys(_vpQualityUrls || {});
+    if (qKeys.length) {
+      var mpOrder = ['720p','480p','360p'];
+      mpOrder.forEach(function(q){ if(_vpQualityUrls[q]) entries.push({label:q, url:_vpQualityUrls[q]}); });
+      qKeys.forEach(function(q){ if(mpOrder.indexOf(q)===-1) entries.push({label:q, url:_vpQualityUrls[q]}); });
+    } else {
+      entries.push({ label:'Original', url:window._vpOriginalUrl||_vpCurrentUrl });
+    }
+  }
+
+  entries.forEach(function(en) {
+    var isA = en.label === _vpCurrentQuality;
+    var displayLabel = en.label === 'Auto' ? '⚡ Auto' : en.label;
+    var subText = en.label === 'Auto' ? '<div style="font-size:0.7rem;color:rgba(255,255,255,0.35);margin-top:1px;">Adjusts to your network</div>' : '';
+    var item = document.createElement('div');
+    item.style.cssText = 'padding:8px 14px;font-size:0.82rem;cursor:pointer;color:'+(isA?'#4ade80':'#fff')+';font-weight:'+(isA?'700':'400')+';display:flex;align-items:center;justify-content:space-between;';
+    item.innerHTML = '<div>' + displayLabel + subText + '</div>' + (isA ? '<i class="fas fa-check" style="color:#4ade80;font-size:0.7rem;"></i>' : '');
+    item.onmouseover = function(){ item.style.background='rgba(255,255,255,0.08)'; };
+    item.onmouseout  = function(){ item.style.background='none'; };
+    item.onclick = function(e){ e.stopPropagation(); _vpSetQuality(en.label, en.url); };
     menu.appendChild(item);
   });
 }
@@ -312,15 +374,19 @@ async function loadVideo(url, hlsMasterUrl, hlsQualities) {
   if (!iframe || !videoEl || !customPlayer) return;
 
   _setHlsStatus(null);
+  _destroyHls(); // clean up any prior hls.js instance
+  // Clear any stale MP4 src so hls.js starts clean (prevents old source
+  // from playing briefly while hls.js loads the new manifest).
+  videoEl.src = ''; videoEl.load();
 
-  if (!url) {
+  if (!url && !hlsMasterUrl) {
     iframe.src = ''; iframe.style.display = 'block';
     customPlayer.style.display = 'none';
     return;
   }
 
   // YouTube — iframe only
-  if (url.includes('youtube') || url.includes('youtu.be')) {
+  if (url && (url.includes('youtube') || url.includes('youtu.be'))) {
     iframe.src = url.includes('?') ? url + '&rel=0' : url + '?rel=0';
     iframe.style.display = 'block';
     customPlayer.style.display = 'none';
@@ -332,29 +398,10 @@ async function loadVideo(url, hlsMasterUrl, hlsQualities) {
   iframe.src = '';
   customPlayer.style.display = 'block';
 
-  // Store URLs
-  _vpCurrentUrl = url;
   _vpQualityUrls = (_currentVideoData && _currentVideoData.qualityUrls) ? _currentVideoData.qualityUrls : {};
-  var _hasQualities = _vpQualityUrls && Object.keys(_vpQualityUrls).length > 0;
-  var _defQ = (_currentVideoData && _currentVideoData.defaultQuality) ? _currentVideoData.defaultQuality : null;
-  // When qualities exist we play a quality (no Original). Otherwise Original.
-  if (_hasQualities) {
-    window._vpOriginalUrl = null; // no separate original when qualities are used
-    _vpCurrentQuality = _defQ || Object.keys(_vpQualityUrls)[0];
-  } else {
-    window._vpOriginalUrl = url;
-    _vpCurrentQuality = 'Original';
-  }
+  _vpHlsQualities = hlsQualities || [];
   _lessonMarkedComplete = false;
-
-  // Show the loading spinner while the video fetches + buffers (hidden once it
-  // can play, or on error). Gives immediate feedback like YouTube.
   _vpShowLoading(true);
-
-  // Set source — let native engine handle buffering
-  videoEl.src = url;
-  videoEl.volume = 1;
-  videoEl.muted = false;
 
   // Init custom player events (once)
   _vpInitPlayer(videoEl);
@@ -366,30 +413,110 @@ async function loadVideo(url, hlsMasterUrl, hlsQualities) {
   var tm = document.getElementById('vp-time'); if(tm) tm.textContent = '0:00 / 0:00';
   var vr = document.getElementById('vp-vol-range'); if(vr) vr.value = 1;
 
-  // Build quality menu + label reflects the actual current source.
-  _vpBuildQualityMenu();
-  var ql = document.getElementById('vp-quality-label');
-  if (ql) ql.textContent = _vpCurrentQuality;
+  // ── HLS path (CloudFront signed cookies + hls.js) ───────────────────────
+  // When the /play response includes a CloudFront HLS master URL, fetch signed
+  // cookies from /hls-auth, inject them into the Electron session cookie jar
+  // (via main process IPC), then use hls.js to play the adaptive stream.
+  // This matches the mobile flow exactly — same backend endpoint, same cookies.
+  var _hlsReady = false;
+  if (hlsMasterUrl && typeof Hls !== 'undefined' && Hls.isSupported()) {
+    try {
+      var _lessonId = _currentVideoData && _currentVideoData.lessonId;
+      if (_lessonId) {
+        var _hlsAuthRes = await CoursesAPI.getLessonHlsAuth(_lessonId);
+        if (_hlsAuthRes && _hlsAuthRes.success && _hlsAuthRes.hlsReady && _hlsAuthRes.masterUrl && _hlsAuthRes.cookies) {
+          // Extract the CloudFront domain from the master URL
+          // e.g. "https://d17ni0motewviz.cloudfront.net/hls/..." → "d17ni0motewviz.cloudfront.net"
+          var _cfDomain = '';
+          try { _cfDomain = new URL(_hlsAuthRes.masterUrl).hostname; } catch {}
 
-  // Autoplay as soon as the source can play — mirrors the mobile app (which
-  // starts automatically). The user no longer has to click Play after the video
-  // loads. If the browser/Electron autoplay policy blocks it, we fall back to
-  // starting MUTED (always allowed) so playback still begins; the user can
-  // unmute. If even that is blocked, the existing click-to-play still works.
+          // Inject cookies into the Electron session via IPC so Chromium sends
+          // them automatically on every XHR to *.cloudfront.net (no CORS trick).
+          if (_cfDomain && window.electron && window.electron.setCfCookies) {
+            await window.electron.setCfCookies(_hlsAuthRes.cookies, _cfDomain);
+          }
+
+          // Start hls.js in Auto mode (adaptive) — cookies are now in the jar.
+          _hlsInstance = new Hls({
+            xhrSetup: function(xhr) { xhr.withCredentials = true; },
+            startLevel: -1,    // -1 = Auto (hls.js picks the best rendition)
+            debug: false,
+          });
+
+          _hlsInstance.loadSource(_hlsAuthRes.masterUrl);
+          _hlsInstance.attachMedia(videoEl);
+
+          _vpCurrentQuality = 'Auto';
+          _vpCurrentUrl = _hlsAuthRes.masterUrl;
+          window._vpOriginalUrl = null;
+
+          // Once the manifest is parsed, rebuild the quality menu with real
+          // level data (heights from the m3u8 BANDWIDTH tags).
+          _hlsInstance.on(Hls.Events.MANIFEST_PARSED, function() {
+            _vpBuildQualityMenu();
+            var ql = document.getElementById('vp-quality-label');
+            if (ql) ql.textContent = '⚡ Auto';
+            _vpShowLoading(false);
+          });
+
+          _hlsInstance.on(Hls.Events.ERROR, function(event, data) {
+            if (data.fatal) {
+              console.error('[HLS] fatal error', data.type, data.details);
+              // Fall back to native MP4 on fatal HLS error
+              _destroyHls();
+              _loadMp4Fallback(url, videoEl);
+            }
+          });
+
+          _hlsReady = true;
+        }
+      }
+    } catch (hlsErr) {
+      console.warn('[HLS] auth/setup failed, falling back to MP4:', hlsErr);
+      _destroyHls();
+    }
+  }
+
+  // ── MP4 fallback (or when HLS not available) ─────────────────────────────
+  if (!_hlsReady) {
+    _loadMp4Fallback(url, videoEl);
+  }
+
+  // Build quality menu (shows MP4 qualities in fallback mode, or will be
+  // rebuilt by MANIFEST_PARSED in HLS mode above).
+  if (!_hlsReady) {
+    var _hasQualities = _vpQualityUrls && Object.keys(_vpQualityUrls).length > 0;
+    var _defQ = (_currentVideoData && _currentVideoData.defaultQuality) ? _currentVideoData.defaultQuality : null;
+    if (_hasQualities) {
+      window._vpOriginalUrl = null;
+      _vpCurrentQuality = _defQ || Object.keys(_vpQualityUrls)[0];
+    } else {
+      window._vpOriginalUrl = url;
+      _vpCurrentQuality = 'Original';
+    }
+    _vpBuildQualityMenu();
+    var ql2 = document.getElementById('vp-quality-label');
+    if (ql2) ql2.textContent = _vpCurrentQuality;
+  }
+}
+
+// ── MP4 source + autoplay (shared by fallback and direct MP4 path) ─────────
+function _loadMp4Fallback(url, videoEl) {
+  _vpCurrentUrl = url;
+  videoEl.src = url;
+  videoEl.volume = 1;
+  videoEl.muted = false;
+  _vpShowLoading(true);
+
   var _autoplayDone = false;
   var _tryAutoplay = function () {
     if (_autoplayDone) return;
-    // Only autoplay THIS video (guard against a stale listener firing for a
-    // source that was since replaced).
-    if (videoEl.src !== url && videoEl.currentSrc !== url) { /* still try — src may be normalized */ }
     var p = videoEl.play();
     if (p && typeof p.then === 'function') {
       p.then(function () {
         _autoplayDone = true;
-        // Reflect playing state in the UI (flip play → pause icon).
         var pi = document.getElementById('vp-play-icon'); if (pi) pi.className = 'fas fa-pause';
       }).catch(function () {
-        // Autoplay-with-sound blocked → retry MUTED (always allowed).
         try {
           videoEl.muted = true;
           if (typeof _vpUpdVolIcon === 'function') _vpUpdVolIcon();
@@ -398,19 +525,15 @@ async function loadVideo(url, hlsMasterUrl, hlsQualities) {
             p2.then(function () {
               _autoplayDone = true;
               var pi2 = document.getElementById('vp-play-icon'); if (pi2) pi2.className = 'fas fa-pause';
-            }).catch(function () { /* give up — click-to-play remains */ });
+            }).catch(function () {});
           }
         } catch (e) {}
       });
     }
   };
-  // Try on multiple readiness events — in Electron, 'canplay' can be flaky, so
-  // 'loadeddata' + 'canplaythrough' give more chances to start reliably.
   videoEl.addEventListener('loadeddata', _tryAutoplay, { once: true });
   videoEl.addEventListener('canplay', _tryAutoplay, { once: true });
   videoEl.addEventListener('canplaythrough', _tryAutoplay, { once: true });
-  // Safety: also try shortly after, in case the event already fired before the
-  // listener attached (source set synchronously above).
   setTimeout(_tryAutoplay, 250);
   setTimeout(_tryAutoplay, 800);
 }
