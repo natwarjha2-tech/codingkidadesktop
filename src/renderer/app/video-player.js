@@ -491,13 +491,24 @@ async function loadVideo(url, hlsMasterUrl, hlsQualities) {
           _vpCurrentUrl = _hlsAuthRes.masterUrl;
           window._vpOriginalUrl = null;
 
-          // Once the manifest is parsed, rebuild the quality menu with real
-          // level data (heights from the m3u8 BANDWIDTH tags).
+          // Once the manifest is parsed, rebuild the quality menu and autoplay.
           _hlsInstance.on(Hls.Events.MANIFEST_PARSED, function() {
             _vpBuildQualityMenu();
             var ql = document.getElementById('vp-quality-label');
             if (ql) ql.textContent = '⚡ Auto';
             _vpShowLoading(false);
+            // Autoplay — same pattern as _loadMp4Fallback: try with sound,
+            // fall back to muted (always allowed by Electron autoplay policy).
+            var p = videoEl.play();
+            if (p && typeof p.then === 'function') {
+              p.catch(function() {
+                try {
+                  videoEl.muted = true;
+                  if (typeof _vpUpdVolIcon === 'function') _vpUpdVolIcon();
+                  videoEl.play().catch(function(){});
+                } catch(e) {}
+              });
+            }
           });
 
           _hlsInstance.on(Hls.Events.ERROR, function(event, data) {
