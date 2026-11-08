@@ -712,19 +712,106 @@ function _lrToggleAudioNote() {
   note.style.display = count === 0 ? '' : 'none';
 }
 
-// Host leave-vs-end prompt (H3). Returns 'leave' | 'end' | 'cancel'.
-// Two sequential confirms keep it dependency-free + reliable in Electron:
-//   1) "End the class for everyone?"  OK → end,  Cancel → step 2
-//   2) "Leave but keep it running?"   OK → leave, Cancel → cancel
-function _lrHostLeaveChoice() {
-  var end = confirm(
-    'You are the host.\n\n' +
-    'OK = END the class for everyone.\n' +
-    'Cancel = just leave (the class keeps running for students).'
-  );
-  if (end) return 'end';
-  var leave = confirm('Leave the class but keep it running for students?\n\nOK = Leave    Cancel = Stay');
-  return leave ? 'leave' : 'cancel';
+// ── In-app confirm modal (replaces native confirm() inside the live room) ────
+//
+// WHY: a native confirm()/alert() leaves Chromium's renderer focus/caret
+// desynced on Windows (the chat input stops accepting typing until the window
+// is reactivated — the "open DevTools fixes it" bug). The window-focus restore
+// in init.js can't catch confirm() because confirm() never changes OS-level
+// window focus, so no 'focus' event fires. An in-app modal keeps focus WITHIN
+// the renderer the whole time, so the desync never happens (how Zoom/Meet do
+// it). Promise-based so callers read like the old confirm() flow.
+//
+// `buttons` = [{ label, value, kind }]; resolves with the chosen value, or the
+// `escapeValue` if dismissed via Esc / backdrop click. ONE shared modal element
+// is reused (built once) — no per-call DOM, no duplication.
+var _lrModalKeyHandler = null;
+
+function _lrModalConfirm(opts) {
+  return new Promise(function (resolve) {
+    var overlay = document.getElementById('lr-modal');
+    // Build the modal shell once; reused for every confirm after that.
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'lr-modal';
+      overlay.className = 'lr-modal';
+      overlay.innerHTML =
+        '<div class="lr-modal-box" role="dialog" aria-modal="true">' +
+          '<div class="lr-modal-title" id="lr-modal-title"></div>' +
+          '<div class="lr-modal-msg" id="lr-modal-msg"></div>' +
+          '<div class="lr-modal-actions" id="lr-modal-actions"></div>' +
+        '</div>';
+      document.body.appendChild(overlay);
+    }
+
+    var titleEl = overlay.querySelector('#lr-modal-title');
+    var msgEl = overlay.querySelector('#lr-modal-msg');
+    var actionsEl = overlay.querySelector('#lr-modal-actions');
+
+    var title = opts && opts.title ? String(opts.title) : '';
+    titleEl.textContent = title;
+    titleEl.style.display = title ? '' : 'none';
+    msgEl.textContent = (opts && opts.message) ? String(opts.message) : '';
+
+    var escapeValue = (opts && 'escapeValue' in opts) ? opts.escapeValue : null;
+
+    function close(value) {
+      overlay.style.display = 'none';
+      actionsEl.innerHTML = '';
+      if (_lrModalKeyHandler) {
+        document.removeEventListener('keydown', _lrModalKeyHandler, true);
+        _lrModalKeyHandler = null;
+      }
+      overlay.onclick = null;
+      // Restore focus into the room (chat input if present) so typing continues.
+      try {
+        var chatInput = document.getElementById('lr-chat-text');
+        if (chatInput && chatInput.offsetParent !== null) chatInput.focus();
+      } catch (e) {}
+      resolve(value);
+    }
+
+    actionsEl.innerHTML = '';
+    var buttons = (opts && Array.isArray(opts.buttons) && opts.buttons.length)
+      ? opts.buttons
+      : [{ label: 'OK', value: true, kind: 'primary' }];
+    buttons.forEach(function (b) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'lr-modal-btn' + (b.kind ? ' ' + b.kind : '');
+      btn.textContent = b.label;
+      btn.onclick = function () { close(b.value); };
+      actionsEl.appendChild(btn);
+    });
+
+    // Esc = escapeValue; backdrop click = escapeValue (never a destructive action).
+    _lrModalKeyHandler = function (e) {
+      if (e.key === 'Escape') { e.preventDefault(); close(escapeValue); }
+    };
+    document.addEventListener('keydown', _lrModalKeyHandler, true);
+    overlay.onclick = function (e) { if (e.target === overlay) close(escapeValue); };
+
+    overlay.style.display = 'flex';
+    // Focus the last (safe/cancel) button by default so keyboard users don't
+    // accidentally trigger a destructive action on Enter.
+    var btns = actionsEl.querySelectorAll('.lr-modal-btn');
+    if (btns.length) { try { btns[btns.length - 1].focus(); } catch (e) {} }
+  });
+}
+
+// Host leave choice via the in-app modal (no native confirm → no focus desync).
+// Returns 'end' | 'leave' | 'cancel' — same contract the caller already handles.
+async function _lrHostLeaveChoice() {
+  return _lrModalConfirm({
+    title: 'You are the host',
+    message: 'End the class for everyone, or just leave and keep it running for students?',
+    escapeValue: 'cancel',
+    buttons: [
+      { label: 'End for everyone', value: 'end', kind: 'danger' },
+      { label: 'Just leave', value: 'leave', kind: 'primary' },
+      { label: 'Stay', value: 'cancel', kind: 'ghost' },
+    ],
+  });
 }
 
 // ── Media error classification (shared by mic/cam permission + device errors) ─
@@ -1569,8 +1656,18 @@ async function toggleScreenShare() {
   try {
     if (_lrSharing) {
       // Confirm before stopping so a mis-click doesn't abruptly end the share
-      // mid-presentation. Only stop when the host explicitly agrees.
-      if (!confirm('Are you sure you want to stop sharing your screen?')) return;
+      // mid-presentation. In-app modal (not native confirm) so the renderer
+      // keeps focus and the chat input never freezes afterwards.
+      var stop = await _lrModalConfirm({
+        title: 'Stop sharing?',
+        message: 'Stop sharing your screen with the class?',
+        escapeValue: false,
+        buttons: [
+          { label: 'Stop sharing', value: true, kind: 'danger' },
+          { label: 'Cancel', value: false, kind: 'ghost' },
+        ],
+      });
+      if (!stop) return;
       await _lrStopShare();
     } else {
       await _lrOpenPicker();
@@ -1940,7 +2037,7 @@ async function leaveLiveRoom() {
   // Only prompt the host, only while the class is actually live (not when an
   // overlay/terminal state already drove us here, and not for students).
   if (_lrIsHost && _lrConnected && _lrConnState !== 'ended') {
-    var choice = _lrHostLeaveChoice();
+    var choice = await _lrHostLeaveChoice();
     if (choice === 'cancel') return;
     if (choice === 'end') {
       var endId = _lrClassId;

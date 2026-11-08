@@ -3459,3 +3459,22 @@ body {
 .lrec-player-close { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--border); background: rgba(255,255,255,0.05); color: var(--muted); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; transition: all 0.15s ease; }
 .lrec-player-close:hover { background: rgba(255,255,255,0.12); color: #fff; }
 .lrec-player-video { width: 100%; max-height: 72vh; background: #000; display: block; }
+
+/* ═══ In-app confirm modal (live room) — replaces native confirm() ═══════════
+   Keeps focus inside the renderer so the chat input never freezes after a
+   host action (Electron/Windows caret-desync fix). Sits above every other
+   live-room layer (fullscreen = 3000). */
+.lr-modal { position: fixed; inset: 0; z-index: 3500; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); }
+.lr-modal-box { width: min(440px, 92%); background: #0f0f1a; border: 1px solid var(--border); border-radius: 14px; padding: 24px; box-shadow: 0 24px 80px rgba(0,0,0,0.6); text-align: center; }
+.lr-modal-title { font-size: 1.1rem; font-weight: 800; color: #fff; margin-bottom: 8px; }
+.lr-modal-msg { font-size: 0.88rem; color: var(--muted); line-height: 1.5; margin-bottom: 20px; }
+.lr-modal-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+.lr-modal-btn { padding: 10px 18px; border-radius: 10px; font-size: 0.85rem; font-weight: 600; cursor: pointer; border: 1px solid var(--border); background: rgba(255,255,255,0.06); color: #fff; transition: all 0.15s ease; }
+.lr-modal-btn:hover { background: rgba(255,255,255,0.12); }
+.lr-modal-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.lr-modal-btn.primary { background: var(--primary); border-color: var(--primary); }
+.lr-modal-btn.primary:hover { background: var(--primary-dark); }
+.lr-modal-btn.danger { background: rgba(240,49,110,0.9); border-color: rgba(240,49,110,0.9); color: #fff; }
+.lr-modal-btn.danger:hover { background: rgba(220,38,90,1); }
+.lr-modal-btn.ghost { background: transparent; color: var(--muted); }
+.lr-modal-btn.ghost:hover { background: rgba(255,255,255,0.08); color: #fff; }
