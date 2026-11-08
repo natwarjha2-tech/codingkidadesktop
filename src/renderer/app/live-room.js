@@ -2046,7 +2046,9 @@ async function leaveLiveRoom() {
       // the local session first so media stops immediately.
       _lrLeaving = true;
       await _lrTeardown();
-      if (endId && typeof endLiveClass === 'function') { try { await endLiveClass(endId, null); } catch (e) {} }
+      // skipConfirm=true: the host already confirmed "End for everyone" in the
+      // in-app modal above — no second native confirm (avoids the focus-freeze).
+      if (endId && typeof endLiveClass === 'function') { try { await endLiveClass(endId, null, true); } catch (e) {} }
       _lrLeaving = false;
       if (typeof navigate === 'function') navigate('live');
       if (typeof renderLiveClasses === 'function') renderLiveClasses();

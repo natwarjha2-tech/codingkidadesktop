@@ -134,10 +134,19 @@ function createWindow() {
     _pipBlurTimer = setTimeout(() => {
       _pipBlurTimer = null;
       if (!livePipArmed) return;
+      // A real minimize is either the triggering event OR the window's actual
+      // state when the debounced callback runs. Windows fires BOTH 'blur' and
+      // 'minimize' on a direct minimize, and they share this one debounce timer;
+      // if the 'blur' (fromMinimize=false) call is the one that survives, we'd
+      // wrongly treat a genuine minimize as a plain blur. So also check
+      // isMinimized() here — this makes "direct minimize from the live-room
+      // page" reliably open the PiP (the suppress guard was meant only for
+      // in-page dialogs/pickers, which never actually minimize the window).
+      const isMinimizeNow = fromMinimize || mainWindow.isMinimized();
       // P3: on the live-room page itself, a function's dialog/picker blurs the
       // window — do NOT auto-open the PiP there (the room is already on screen).
       // EXCEPTION (P8): a real minimize always pops the PiP, even on that page.
-      if (livePipSuppressed && !fromMinimize) return;
+      if (livePipSuppressed && !isMinimizeNow) return;
       if (livePipWindow && !livePipWindow.isDestroyed()) return; // already open
       // Only pop out if the main window is genuinely not focused/visible.
       if (mainWindow.isFocused()) return;

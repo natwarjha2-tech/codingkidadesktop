@@ -386,9 +386,15 @@ async function startLiveClass(classId, btnEl) {
 
 // Teacher: end a class (stops the Chime meeting, marks it ended, closes out
 // attendance). Confirms first since this ends it for everyone.
-async function endLiveClass(classId, btnEl) {
+//
+// `skipConfirm` (optional): skip the native confirm() — used by the in-room
+// leave flow, where the host has ALREADY chosen "End for everyone" in the
+// in-app modal, so a second native pop-up is both redundant AND reintroduces
+// the Electron focus-freeze bug. The Live-LIST "End" button still passes no
+// skipConfirm, so it keeps its own confirmation (nothing else precedes it).
+async function endLiveClass(classId, btnEl, skipConfirm) {
   if (!classId) return;
-  if (!confirm('End this live class for everyone?')) return;
+  if (!skipConfirm && !confirm('End this live class for everyone?')) return;
 
   var original = btnEl ? btnEl.innerHTML : '';
   if (btnEl) { btnEl.disabled = true; btnEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Ending...'; }
