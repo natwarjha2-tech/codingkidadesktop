@@ -29,8 +29,11 @@ var _lrcMyId = null;                 // current user id (sender identity)
 var _lrcReactions = {};
 
 // Live-class reaction set (Phase 3): tuned for a classroom — thumbs up/down,
-// raise hand, clap, celebrate. Shown in the bottom-center reaction dock.
-var LRC_REACTIONS = ['👍', '👎', '✋', '👏', '🎉'];
+// raise hand, clap, celebrate, love. SINGLE source of truth: both the top-bar
+// reaction bar (_lrcRenderReactionBar) and the per-message mini-picker
+// (_lrcEnsureMsgReactPicker) render from this array, so adding one emoji here
+// updates BOTH places with no duplication.
+var LRC_REACTIONS = ['👍', '👎', '✋', '👏', '🎉', '❤️'];
 
 // Called by live-room.js once the Chime session is live. Subscribes to data
 // messages, loads history, and wires the input + reaction bar.
