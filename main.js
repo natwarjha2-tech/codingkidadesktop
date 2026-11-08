@@ -834,39 +834,50 @@ ipcMain.handle('download-hls', async (event, { masterUrl, cookies, lessonId, tit
     const masterBuf = await fetchHls(masterUrl);
     const masterText = masterBuf.toString('utf8');
 
-    // 2. Parse variant playlist URLs from master
-    // Lines after #EXT-X-STREAM-INF are the variant playlist relative URLs
+    // 2. Parse variant playlist URLs from master — extract both URL and bandwidth
+    // so we can pick by resolution name rather than a fragile index.
     const masterLines = masterText.split('\n').map(l => l.trim()).filter(Boolean);
-    const variantUrls = [];
+    const variantUrls = [];   // [{ url, bandwidth, resolution }]
     for (let i = 0; i < masterLines.length; i++) {
       if (masterLines[i].startsWith('#EXT-X-STREAM-INF')) {
+        const inf = masterLines[i];
         const nextLine = masterLines[i + 1];
-        if (nextLine && !nextLine.startsWith('#')) variantUrls.push(nextLine);
+        if (nextLine && !nextLine.startsWith('#')) {
+          const bwMatch = inf.match(/BANDWIDTH=(\d+)/);
+          const resMatch = inf.match(/RESOLUTION=(\d+x\d+)/);
+          variantUrls.push({
+            url: nextLine,
+            bandwidth: bwMatch ? parseInt(bwMatch[1]) : 0,
+            resolution: resMatch ? resMatch[1] : '',
+          });
+        }
       }
     }
     if (variantUrls.length === 0) throw new Error('No variants found in master.m3u8');
 
-    // 3. Pick quality: qualityIndex controls which variant (0=highest, last=lowest).
-    // Default: last variant = lowest bitrate = smallest download.
-    const qi = (typeof qualityIndex === 'number' && qualityIndex < variantUrls.length)
+    // 3. Pick variant by matching the requested quality name to resolution height.
+    // qualityIndex: numeric index passed from renderer, OR use quality name directly.
+    // Sort by bandwidth DESC so index 0=720p, 1=480p, 2=360p regardless of
+    // the order variants appear in master.m3u8.
+    const sortedVariants = variantUrls.slice().sort((a, b) => b.bandwidth - a.bandwidth);
+    const qi = (typeof qualityIndex === 'number' && qualityIndex >= 0 && qualityIndex < sortedVariants.length)
       ? qualityIndex
-      : variantUrls.length - 1;  // default = smallest (360p)
+      : sortedVariants.length - 1;  // default = last after sort = lowest = 360p
 
-    // Resolve the variant URL relative to the master
-    const baseUrl = masterUrl.substring(0, masterUrl.lastIndexOf('/') + 1);
-    function resolveUrl(rel) {
-      if (rel.startsWith('http')) return rel;
-      return baseUrl + rel;
-    }
-
-    const variantRelUrl = variantUrls[qi];
-    const variantAbsUrl = resolveUrl(variantRelUrl);
+    const chosenVariant = sortedVariants[qi];
+    const variantAbsUrl = chosenVariant.url.startsWith('http')
+      ? chosenVariant.url
+      : masterUrl.substring(0, masterUrl.lastIndexOf('/') + 1) + chosenVariant.url;
 
     // 4. Fetch variant playlist
+    const variantBase = variantAbsUrl.substring(0, variantAbsUrl.lastIndexOf('/') + 1);
+    function resolveUrl(rel) {
+      if (!rel || rel.startsWith('http')) return rel;
+      return variantBase + rel;
+    }
     const variantBuf = await fetchHls(variantAbsUrl);
     const variantText = variantBuf.toString('utf8');
     const variantLines = variantText.split('\n').map(l => l.trim());
-    const variantBase = variantAbsUrl.substring(0, variantAbsUrl.lastIndexOf('/') + 1);
 
     // 5. Find all segment files: EXT-X-MAP (init) + .m4s/.ts segments
     const filesToDownload = []; // { remoteUrl, localName }

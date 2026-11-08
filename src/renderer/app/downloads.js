@@ -428,11 +428,21 @@ async function downloadOffline() {
       ? _vpHlsQualities : ['720p','480p','360p'];
     var qNameIdx = qNames.indexOf(currentQ); // position in server order (0=720p)
     var totalVariants = qNames.length;
-    // Convert server order index to hls.js level index (reversed)
-    var qualityIndex = (qNameIdx >= 0)
-      ? (totalVariants - 1 - qNameIdx)  // 720p→last level, 360p→first level
-      : (totalVariants - 1);            // Auto or unknown → fallback to 360p (smallest)
-    var dlQualityLabel = (qNameIdx >= 0 && currentQ !== 'Auto') ? currentQ : '360p';
+    // master.m3u8 lists variants DESCENDING by bandwidth (same as server order):
+    //   variantUrls[0] = v0.m3u8 = 720p (highest)
+    //   variantUrls[1] = v1.m3u8 = 480p
+    //   variantUrls[2] = v2.m3u8 = 360p (lowest)
+    // _vpHlsQualities = ['720p','480p','360p'] — same order, direct match.
+    // So qualityIndex = indexOf(currentQuality) in _vpHlsQualities — no reversal.
+    var qualityIndex, dlQualityLabel;
+    if (qNameIdx >= 0 && currentQ !== 'Auto') {
+      qualityIndex = qNameIdx;   // 720p→0, 480p→1, 360p→2
+      dlQualityLabel = currentQ;
+    } else {
+      // Auto → download smallest (360p = last index) to save space
+      qualityIndex = totalVariants - 1;
+      dlQualityLabel = qNames[totalVariants - 1] || '360p';
+    }
 
     const result = await window.electron.downloadHls({
       masterUrl, cookies: cookieHeader,
