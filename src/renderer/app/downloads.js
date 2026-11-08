@@ -589,7 +589,7 @@ async function renderOfflineDownloads() {
 
     Object.keys(grouped[course]).forEach(function(module) {
       var moduleItems = grouped[course][module];
-      var videoItems = moduleItems.filter(function(d) { return d.type === 'video'; });
+      var videoItems = moduleItems.filter(function(d) { return d.type === 'video' || d.type === 'hls'; });
       var pdfItems = moduleItems.filter(function(d) { return d.type === 'pdf'; });
 
       html += '<div class="dl-module' + (Object.keys(grouped[course]).indexOf(module) === 0 ? ' dl-mod-open' : '') + '">';
@@ -601,7 +601,7 @@ async function renderOfflineDownloads() {
         html += '<div onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display===\'none\'?\'block\':\'none\';this.querySelector(\'i\').classList.toggle(\'fa-chevron-down\');this.querySelector(\'i\').classList.toggle(\'fa-chevron-right\')" style="display:flex;align-items:center;gap:6px;padding:6px 12px;cursor:pointer;"><i class="fas fa-chevron-down" style="font-size:0.55rem;color:var(--muted);transition:transform 0.2s;width:10px;"></i><i class="fas fa-play-circle" style="color:#a78bfa;font-size:0.7rem;"></i><span style="font-size:0.72rem;font-weight:700;color:#a78bfa;text-transform:uppercase;letter-spacing:0.4px;">Lesson Videos</span><span style="font-size:0.62rem;color:var(--muted);margin-left:auto;">' + videoItems.length + '</span></div>';
         html += '<div>';
         videoItems.forEach(function(d) {
-          html += '<div class="dl-lesson"><div class="dl-lesson-body"><div class="dl-lesson-icon" style="color:#22c55e;border-color:#22c55e30;"><i class="fas fa-play-circle"></i></div><div class="dl-lesson-content"><span class="dl-lesson-title">' + sanitize(d.title) + '</span><span class="dl-lesson-meta"><span class="dl-type-badge">Video</span>';
+          html += '<div class="dl-lesson"><div class="dl-lesson-body"><div class="dl-lesson-icon" style="color:#22c55e;border-color:#22c55e30;"><i class="fas fa-play-circle"></i></div><div class="dl-lesson-content"><span class="dl-lesson-title">' + sanitize(d.title) + '</span><span class="dl-lesson-meta"><span class="dl-type-badge">' + (d.type === 'hls' ? 'HLS Video' : 'Video') + '</span>';
           if(_formatBytes(d.fileSize)) html += '<span class="dl-size">' + _formatBytes(d.fileSize) + '</span>';
           if(d.daysLeft !== undefined) html += '<span class="dl-expiry">' + d.daysLeft + ' day' + (d.daysLeft !== 1 ? 's' : '') + ' left</span>';
           html += '</span></div></div><div class="dl-lesson-actions"><button class="dl-action-btn" onclick="playOfflineContent(\'' + d.lessonId + '\',\'' + d.type + '\')"><i class="fas fa-play"></i> Watch</button><button class="dl-remove-btn" onclick="deleteOfflineContent(\'' + d.lessonId + '\',\'' + d.type + '\')" title="Remove"><i class="fas fa-trash-alt"></i></button></div></div>';
