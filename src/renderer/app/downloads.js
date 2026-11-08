@@ -371,7 +371,7 @@ function removeDownload(index) {
 // ─── Offline Downloads ───────────────────────────────────────────────────────────────
 
 async function downloadOffline() {
-  if (!window.electron || !window.electron.downloadContent) {
+  if (!window.electron || !window.electron.downloadHls) {
     alert('Downloads only available in the desktop app.');
     return;
   }
@@ -384,42 +384,64 @@ async function downloadOffline() {
   if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Downloading...'; btn.style.background = 'rgba(255,255,255,0.1)'; }
 
   const { lessonId, title, courseTitle, moduleTitle } = _currentVideoData;
-  const token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
 
-  // Download the CURRENTLY SELECTED quality (e.g. 720p/480p/360p) instead of
-  // always the original. Falls back to the original if none selected.
-  var videoUrl = (typeof _vpCurrentUrl === 'string' && _vpCurrentUrl)
-    ? _vpCurrentUrl
-    : (window._vpOriginalUrl || _currentVideoData.videoUrl);
-  var selectedQuality = (typeof _vpCurrentQuality === 'string' && _vpCurrentQuality) ? _vpCurrentQuality : 'Original';
+  // HLS download: use the master URL from the current HLS session.
+  // _vpCurrentUrl holds the master.m3u8 CloudFront URL when in HLS mode.
+  // We also need the current signed cookies — fetch fresh from /hls-auth.
+  var masterUrl = (typeof _vpCurrentUrl === 'string' && _vpCurrentUrl.includes('master.m3u8'))
+    ? _vpCurrentUrl : null;
 
-  // Get signed URL immediately before passing to main process — minimises TTL gap
-  async function getSignedUrl(url) {
-    if (!url || (!url.includes('amazonaws.com') && !url.includes('cloudfront.net'))) return url;
-    try {
-      const res = await fetch(BASE_URL + '/api/media/signed-url', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
-        body: JSON.stringify({ url, forDownload: true }),
-      });
-      if (res.ok) { const d = await res.json(); if (d.signedUrl) return d.signedUrl; }
-    } catch {}
-    return url;
-  }
-
-  if (!videoUrl) {
+  if (!masterUrl) {
     if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-download"></i> Download Lesson'; btn.style.background = 'linear-gradient(135deg,#6c47ff,#ec4899)'; }
-    alert('No video available for this lesson.');
+    alert('HLS stream not available for this lesson. Please try again after the video loads.');
     return;
   }
 
   try {
-    const dlUrl = await getSignedUrl(videoUrl);
-    // Note the selected quality in the saved title so it's visible in Downloads.
-    var dlTitle = (selectedQuality && selectedQuality !== 'Original')
-      ? (title + ' (' + selectedQuality + ')')
-      : title;
-    const result = await window.electron.downloadContent({ url: dlUrl, lessonId, title: dlTitle, type: 'video', userId, courseTitle, moduleTitle });
+    // Get fresh signed cookies for the download (they must be valid for the
+    // duration of the download — /hls-auth returns a 4-hour cookie).
+    var cookieHeader = '';
+    try {
+      var token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+      var authRes = await fetch(BASE_URL + '/api/lessons/' + lessonId + '/hls-auth', {
+        headers: token ? { Authorization: 'Bearer ' + token } : {},
+      });
+      if (authRes.ok) {
+        var authData = await authRes.json();
+        if (authData.success && authData.cookies) {
+          var c = authData.cookies;
+          cookieHeader = [
+            'CloudFront-Policy=' + c['CloudFront-Policy'],
+            'CloudFront-Signature=' + c['CloudFront-Signature'],
+            'CloudFront-Key-Pair-Id=' + c['CloudFront-Key-Pair-Id'],
+          ].join('; ');
+        }
+      }
+    } catch {}
+
+    // qualityIndex: use the quality the student is currently watching.
+    // _vpHlsQualities = ['720p','480p','360p'] (server order, highest first)
+    // hls.js levels are bandwidth-ascending: level 0=360p, 1=480p, 2=720p
+    // So: qualityIndex = (total levels - 1) - indexOf(currentQuality)
+    var currentQ = (typeof _vpCurrentQuality === 'string') ? _vpCurrentQuality : 'Auto';
+    var qNames = (typeof _vpHlsQualities !== 'undefined' && _vpHlsQualities.length)
+      ? _vpHlsQualities : ['720p','480p','360p'];
+    var qNameIdx = qNames.indexOf(currentQ); // position in server order (0=720p)
+    var totalVariants = qNames.length;
+    // Convert server order index to hls.js level index (reversed)
+    var qualityIndex = (qNameIdx >= 0)
+      ? (totalVariants - 1 - qNameIdx)  // 720p→last level, 360p→first level
+      : (totalVariants - 1);            // Auto or unknown → fallback to 360p (smallest)
+    var dlQualityLabel = (qNameIdx >= 0 && currentQ !== 'Auto') ? currentQ : '360p';
+
+    const result = await window.electron.downloadHls({
+      masterUrl, cookies: cookieHeader,
+      lessonId,
+      title: title + ' (' + dlQualityLabel + ')',  // show quality in Downloads list
+      userId, courseTitle, moduleTitle,
+      qualityIndex,  // hls.js level index matching current watching quality
+    });
+
     if (btn) {
       btn.disabled = result.success;
       btn.innerHTML = result.success
@@ -648,14 +670,21 @@ async function playOfflineContent(lessonId, type) {
 
   if (type === 'pdf') {
     _openPdfInCanvas(result.serveUrl);
+  } else if (type === 'hls') {
+    // HLS offline: use hls.js with the local HTTP server URL
+    navigate('video');
+    _applyOfflinePlaybackUI(lessonId, userId);
+    if (typeof loadVideo === 'function') {
+      // Pass local master URL as hlsMasterUrl so hls.js handles it.
+      // No cookies needed — local HTTP server has no auth.
+      await loadVideo('', result.serveUrl, []);
+    }
   } else {
     const iframeEl = document.getElementById('video-iframe');
     const videoEl = document.getElementById('video-player');
     if (iframeEl) { iframeEl.style.display = 'none'; iframeEl.src = ''; }
     if (videoEl) { videoEl.style.display = 'block'; videoEl.src = result.serveUrl; }
     navigate('video');
-
-    // Offline playback: hide online-only tabs + right sidebar
     _applyOfflinePlaybackUI(lessonId, userId);
   }
 }

@@ -64,4 +64,6 @@ contextBridge.exposeInMainWorld('electron', {
   // CloudFront HLS: plant signed cookies into the session jar so Chromium sends
   // them automatically on every *.cloudfront.net XHR (hls.js segment requests).
   setCfCookies: (cookies, domain) => ipcRenderer.invoke('set-cf-cookies', { cookies, domain }),
+  // HLS offline download: downloads all segments for one quality locally.
+  downloadHls: (args) => ipcRenderer.invoke('download-hls', args),
 });

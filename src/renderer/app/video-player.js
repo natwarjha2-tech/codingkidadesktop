@@ -295,16 +295,22 @@ function _vpSetQuality(label, url) {
       _hlsInstance.currentLevel = -1;
       _hlsInstance.nextLevel = -1;
     } else {
-      // Level index = position in _vpHlsQualities array (server-defined order:
-      // 720p=0, 480p=1, 360p=2 — matches the ffmpeg variant output order).
-      var idx = _vpHlsQualities ? _vpHlsQualities.indexOf(label) : -1;
-      if (idx === -1) {
-        // Fallback: try matching by height in hls.levels
-        var targetHeight = parseInt(label);
-        var levels = _hlsInstance.levels || [];
-        idx = levels.findIndex(function(l) { return l.height === targetHeight; });
+      // hls.js sorts levels by bandwidth ASCENDING (lowest first):
+      //   level 0 = 360p (800k), level 1 = 480p (1400k), level 2 = 720p (2800k)
+      // _vpHlsQualities is server order DESCENDING: ['720p','480p','360p']
+      // So we reverse the index: 720p→last level, 360p→first level.
+      var levels = _hlsInstance.levels || [];
+      var idx = -1;
+      if (levels.length > 0) {
+        // Sort levels by bandwidth desc to match our quality name order
+        var sorted = levels.slice().sort(function(a,b){ return b.bitrate - a.bitrate; });
+        var nameIdx = _vpHlsQualities ? _vpHlsQualities.indexOf(label) : -1;
+        if (nameIdx !== -1 && nameIdx < sorted.length) {
+          // Find this sorted level's real index in hls.levels
+          idx = levels.indexOf(sorted[nameIdx]);
+        }
       }
-      if (idx === -1) idx = 0; // last resort: first level
+      if (idx === -1) idx = levels.length - 1; // fallback: highest level
       _hlsInstance.currentLevel = idx;
       _hlsInstance.nextLevel = idx;
     }
@@ -455,73 +461,57 @@ async function loadVideo(url, hlsMasterUrl, hlsQualities) {
   var sl = document.getElementById('vp-speed-label'); if(sl) sl.textContent = '1x';
 
   // ── HLS path (CloudFront signed cookies + hls.js) ───────────────────────
-  // When the /play response includes a CloudFront HLS master URL, fetch signed
-  // cookies from /hls-auth, inject them into the Electron session cookie jar
-  // (via main process IPC), then use hls.js to play the adaptive stream.
-  // This matches the mobile flow exactly — same backend endpoint, same cookies.
   var _hlsReady = false;
   if (hlsMasterUrl && typeof Hls !== 'undefined' && Hls.isSupported()) {
+    // Detect offline playback: local HTTP server URL needs no cookie auth.
+    var _isOffline = hlsMasterUrl.startsWith('http://127.0.0.1');
     try {
       var _lessonId = _currentVideoData && _currentVideoData.lessonId;
-      if (_lessonId) {
+      var _canProceed = _isOffline; // offline: proceed immediately, no auth needed
+      var _masterToPlay = hlsMasterUrl;
+
+      if (!_isOffline && _lessonId) {
         var _hlsAuthRes = await CoursesAPI.getLessonHlsAuth(_lessonId);
         if (_hlsAuthRes && _hlsAuthRes.success && _hlsAuthRes.hlsReady && _hlsAuthRes.masterUrl && _hlsAuthRes.cookies) {
-          // Extract the CloudFront domain from the master URL
-          // e.g. "https://d17ni0motewviz.cloudfront.net/hls/..." → "d17ni0motewviz.cloudfront.net"
           var _cfDomain = '';
           try { _cfDomain = new URL(_hlsAuthRes.masterUrl).hostname; } catch {}
-
-          // Inject cookies into the Electron session via IPC so Chromium sends
-          // them automatically on every XHR to *.cloudfront.net (no CORS trick).
           if (_cfDomain && window.electron && window.electron.setCfCookies) {
             await window.electron.setCfCookies(_hlsAuthRes.cookies, _cfDomain);
           }
-
-          // Start hls.js — cookies are injected at the network layer by the
-          // main process (webRequest interceptor), so hls.js makes plain XHR.
-          _hlsInstance = new Hls({
-            startLevel: -1,    // -1 = Auto (hls.js picks the best rendition)
-            debug: false,
-          });
-
-          _hlsInstance.loadSource(_hlsAuthRes.masterUrl);
-          _hlsInstance.attachMedia(videoEl);
-
-          _vpCurrentQuality = 'Auto';
-          _vpCurrentUrl = _hlsAuthRes.masterUrl;
-          window._vpOriginalUrl = null;
-
-          // Once the manifest is parsed, rebuild the quality menu and autoplay.
-          _hlsInstance.on(Hls.Events.MANIFEST_PARSED, function() {
-            _vpBuildQualityMenu();
-            var ql = document.getElementById('vp-quality-label');
-            if (ql) ql.textContent = '⚡ Auto';
-            _vpShowLoading(false);
-            // Autoplay — same pattern as _loadMp4Fallback: try with sound,
-            // fall back to muted (always allowed by Electron autoplay policy).
-            var p = videoEl.play();
-            if (p && typeof p.then === 'function') {
-              p.catch(function() {
-                try {
-                  videoEl.muted = true;
-                  if (typeof _vpUpdVolIcon === 'function') _vpUpdVolIcon();
-                  videoEl.play().catch(function(){});
-                } catch(e) {}
-              });
-            }
-          });
-
-          _hlsInstance.on(Hls.Events.ERROR, function(event, data) {
-            if (data.fatal) {
-              console.error('[HLS] fatal error', data.type, data.details);
-              // Fall back to native MP4 on fatal HLS error
-              _destroyHls();
-              _loadMp4Fallback(url, videoEl);
-            }
-          });
-
-          _hlsReady = true;
+          _masterToPlay = _hlsAuthRes.masterUrl;
+          _canProceed = true;
         }
+      }
+
+      if (_canProceed) {
+        _hlsInstance = new Hls({ startLevel: -1, debug: false });
+        _hlsInstance.loadSource(_masterToPlay);
+        _hlsInstance.attachMedia(videoEl);
+        _vpCurrentQuality = 'Auto';
+        _vpCurrentUrl = _masterToPlay;
+        window._vpOriginalUrl = null;
+
+        _hlsInstance.on(Hls.Events.MANIFEST_PARSED, function() {
+          _vpBuildQualityMenu();
+          var ql = document.getElementById('vp-quality-label');
+          if (ql) ql.textContent = _isOffline ? '⚡ Offline' : '⚡ Auto';
+          _vpShowLoading(false);
+          var p = videoEl.play();
+          if (p && typeof p.then === 'function') {
+            p.catch(function() {
+              try { videoEl.muted = true; if (typeof _vpUpdVolIcon === 'function') _vpUpdVolIcon(); videoEl.play().catch(function(){}); } catch(e) {}
+            });
+          }
+        });
+
+        _hlsInstance.on(Hls.Events.ERROR, function(event, data) {
+          if (data.fatal) {
+            console.error('[HLS] fatal error', data.type, data.details);
+            _destroyHls();
+            _loadMp4Fallback(url, videoEl);
+          }
+        });
+        _hlsReady = true;
       }
     } catch (hlsErr) {
       console.warn('[HLS] auth/setup failed, falling back to MP4:', hlsErr);
@@ -817,7 +807,7 @@ async function openVideoFromBackend(courseId, moduleId, lessonId) {
         const userId = getCurrentUserId();
         window.electron.getDownloads({ userId }).then(result => {
           if (result.success) {
-            const alreadyDownloaded = result.downloads.find(d => d.lessonId === lesson.id && d.type === 'video');
+            const alreadyDownloaded = result.downloads.find(d => d.lessonId === lesson.id && (d.type === 'video' || d.type === 'hls'));
             if (alreadyDownloaded) {
               dlBtn.disabled = true;
               dlBtn.innerHTML = '<i class="fas fa-check"></i> Downloaded (' + alreadyDownloaded.daysLeft + 'd left)';

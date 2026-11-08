@@ -709,13 +709,50 @@ function fetchBuffer(url) {
 // Local HTTP server — serves decrypted content for playback (no data: URL needed)
 let contentServer = null;
 let contentServerPort = 0;
-let pendingServeBuffer = null;
+let pendingServeBuffer = null;   // single-file (PDF / legacy)
 let pendingServeMime = null;
+let pendingHlsDir = null;        // per-lesson HLS directory for path-based serving
 
 function startContentServer() {
   return new Promise((resolve) => {
     if (contentServer) { resolve(contentServerPort); return; }
     contentServer = http.createServer((req, res) => {
+      const url = require('url').parse(req.url);
+      const pathname = decodeURIComponent(url.pathname || '/');
+
+      // ── HLS offline path-based serving ──────────────────────────────────
+      // Requests come in as /hls/<filename> (e.g. /hls/master.m3u8,
+      // /hls/v0_seg0.m4s). Decrypt and serve the corresponding local file.
+      if (pathname.startsWith('/hls/') && pendingHlsDir) {
+        const filename = path.basename(pathname); // strip any sub-path traversal
+        const filePath = path.join(pendingHlsDir, filename);
+        if (!fs.existsSync(filePath)) {
+          res.writeHead(404); res.end('Not found: ' + filename); return;
+        }
+        try {
+          // Files are stored as raw (not encrypted) because HLS needs random
+          // access to segments; the directory itself is in the app userData
+          // folder which is user-private.
+          const buf = fs.readFileSync(filePath);
+          const ext = path.extname(filename).toLowerCase();
+          const mime = ext === '.m3u8' ? 'application/vnd.apple.mpegurl'
+            : (ext === '.m4s' || ext === '.mp4') ? 'video/mp4'
+            : 'application/octet-stream';
+          res.writeHead(200, {
+            'Content-Type': mime,
+            'Content-Length': buf.length,
+            'Cache-Control': 'no-store',
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Headers': '*',
+          });
+          res.end(buf);
+        } catch (e) {
+          res.writeHead(500); res.end('Read error: ' + e.message);
+        }
+        return;
+      }
+
+      // ── Legacy single-buffer path (PDF) ──────────────────────────────────
       if (!pendingServeBuffer || !pendingServeMime) {
         res.writeHead(404); res.end(); return;
       }
@@ -733,6 +770,190 @@ function startContentServer() {
     });
   });
 }
+
+// ── HLS offline download ──────────────────────────────────────────────────────
+// Downloads one quality of an HLS stream (360p by default — smallest) into a
+// per-lesson directory under DOWNLOADS_DIR, then writes a local master.m3u8 that
+// points to the local files so hls.js can play offline without any network calls.
+//
+// Storage layout:
+//   DOWNLOADS_DIR/{userId}_{lessonId}_hls/
+//     master.m3u8          ← local master (points to v0.m3u8)
+//     v0.m3u8              ← variant playlist (segments rewritten to local paths)
+//     init_0.mp4           ← fMP4 init segment
+//     v0_seg0.m4s …        ← all media segments
+//   DOWNLOADS_META: entry with type='hls', hlsDir=<absPath>
+//
+// Segments are stored RAW (no encryption) — the directory lives in Electron's
+// userData which is user-private (not web-accessible). This avoids the memory
+// cost of loading hundreds of segments for decryption at playback time.
+ipcMain.handle('download-hls', async (event, { masterUrl, cookies, lessonId, title, userId, courseTitle, moduleTitle, qualityIndex }) => {
+  const metaKey = userId + '_' + lessonId + '_hls';
+  try {
+    if (!fs.existsSync(DOWNLOADS_DIR)) fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });
+    const meta = readMeta();
+
+    // Already downloaded?
+    if (meta[metaKey]) {
+      const existing = path.join(DOWNLOADS_DIR, meta[metaKey].hlsDirName);
+      if (fs.existsSync(path.join(existing, 'master.m3u8'))) {
+        return { success: true, message: 'Already downloaded.' };
+      }
+      delete meta[metaKey]; // stale — re-download
+    }
+
+    const hlsDirName = userId + '_' + lessonId + '_hls';
+    const hlsDir = path.join(DOWNLOADS_DIR, hlsDirName);
+    if (fs.existsSync(hlsDir)) fs.rmSync(hlsDir, { recursive: true, force: true });
+    fs.mkdirSync(hlsDir, { recursive: true });
+
+    // Helper: fetch a CloudFront URL with the signed cookies injected.
+    const cookieHeader = cookies || '';
+    function fetchHls(url) {
+      return new Promise((resolve, reject) => {
+        const client = url.startsWith('https') ? followHttps : followHttp;
+        const reqOpts = { maxRedirects: 10, timeout: 30000,
+          headers: cookieHeader ? { Cookie: cookieHeader } : {} };
+        const req = client.get(url, reqOpts, (res) => {
+          if (res.statusCode < 200 || res.statusCode >= 300) {
+            res.resume();
+            reject(new Error('HTTP ' + res.statusCode + ' for ' + url));
+            return;
+          }
+          const chunks = [];
+          res.on('data', c => chunks.push(c));
+          res.on('end', () => resolve(Buffer.concat(chunks)));
+          res.on('error', reject);
+        });
+        req.on('error', reject);
+        req.setTimeout(30000, () => { req.destroy(); reject(new Error('Timeout: ' + url)); });
+      });
+    }
+
+    // 1. Fetch master.m3u8
+    const masterBuf = await fetchHls(masterUrl);
+    const masterText = masterBuf.toString('utf8');
+
+    // 2. Parse variant playlist URLs from master
+    // Lines after #EXT-X-STREAM-INF are the variant playlist relative URLs
+    const masterLines = masterText.split('\n').map(l => l.trim()).filter(Boolean);
+    const variantUrls = [];
+    for (let i = 0; i < masterLines.length; i++) {
+      if (masterLines[i].startsWith('#EXT-X-STREAM-INF')) {
+        const nextLine = masterLines[i + 1];
+        if (nextLine && !nextLine.startsWith('#')) variantUrls.push(nextLine);
+      }
+    }
+    if (variantUrls.length === 0) throw new Error('No variants found in master.m3u8');
+
+    // 3. Pick quality: qualityIndex controls which variant (0=highest, last=lowest).
+    // Default: last variant = lowest bitrate = smallest download.
+    const qi = (typeof qualityIndex === 'number' && qualityIndex < variantUrls.length)
+      ? qualityIndex
+      : variantUrls.length - 1;  // default = smallest (360p)
+
+    // Resolve the variant URL relative to the master
+    const baseUrl = masterUrl.substring(0, masterUrl.lastIndexOf('/') + 1);
+    function resolveUrl(rel) {
+      if (rel.startsWith('http')) return rel;
+      return baseUrl + rel;
+    }
+
+    const variantRelUrl = variantUrls[qi];
+    const variantAbsUrl = resolveUrl(variantRelUrl);
+
+    // 4. Fetch variant playlist
+    const variantBuf = await fetchHls(variantAbsUrl);
+    const variantText = variantBuf.toString('utf8');
+    const variantLines = variantText.split('\n').map(l => l.trim());
+    const variantBase = variantAbsUrl.substring(0, variantAbsUrl.lastIndexOf('/') + 1);
+
+    // 5. Find all segment files: EXT-X-MAP (init) + .m4s/.ts segments
+    const filesToDownload = []; // { remoteUrl, localName }
+    let initFilename = null;
+    for (const line of variantLines) {
+      if (line.startsWith('#EXT-X-MAP:URI="')) {
+        const uriMatch = line.match(/URI="([^"]+)"/);
+        if (uriMatch) {
+          const rel = uriMatch[1];
+          const localName = path.basename(rel);
+          filesToDownload.push({ remoteUrl: resolveUrl(rel), localName, isInit: true });
+          initFilename = localName;
+        }
+      } else if (line && !line.startsWith('#')) {
+        const localName = path.basename(line);
+        filesToDownload.push({ remoteUrl: resolveUrl(line), localName, isInit: false });
+      }
+    }
+    if (filesToDownload.length === 0) throw new Error('No segments found in variant playlist');
+
+    // 6. Download all segments
+    for (const f of filesToDownload) {
+      const buf = await fetchHls(f.remoteUrl);
+      fs.writeFileSync(path.join(hlsDir, f.localName), buf);
+    }
+
+    // 7. Write local variant playlist — replace remote segment references with
+    //    local filenames so hls.js fetches from the local HTTP server.
+    const localVariantLines = variantLines.map(line => {
+      if (!line || line.startsWith('#')) {
+        // Rewrite EXT-X-MAP URI to local filename
+        if (line.startsWith('#EXT-X-MAP:URI="')) {
+          const uriMatch = line.match(/URI="([^"]+)"/);
+          if (uriMatch) return line.replace(uriMatch[1], path.basename(uriMatch[1]));
+        }
+        return line;
+      }
+      return path.basename(line); // segment filename only
+    });
+    const localVariantName = 'v0.m3u8'; // always save as v0.m3u8
+    fs.writeFileSync(path.join(hlsDir, localVariantName), localVariantLines.join('\n'), 'utf8');
+
+    // 8. Write local master.m3u8 pointing to the local variant
+    // Keep the original STREAM-INF metadata (bandwidth/resolution) but point
+    // at the local v0.m3u8.
+    const localMasterLines = [];
+    let skipNext = false;
+    for (let i = 0; i < masterLines.length; i++) {
+      if (masterLines[i].startsWith('#EXT-X-STREAM-INF')) {
+        localMasterLines.push(masterLines[i]);
+        skipNext = true; // next non-comment line is the variant URL — replace it
+      } else if (skipNext && !masterLines[i].startsWith('#')) {
+        localMasterLines.push(localVariantName); // replace with local v0.m3u8
+        skipNext = false;
+      } else {
+        if (!masterLines[i].startsWith('#EXT-X-STREAM-INF')) {
+          // Only keep the first variant (the one we downloaded)
+          if (!localMasterLines.includes(localVariantName)) {
+            localMasterLines.push(masterLines[i]);
+          }
+        }
+      }
+    }
+    fs.writeFileSync(path.join(hlsDir, 'master.m3u8'), localMasterLines.join('\n'), 'utf8');
+
+    // 9. Save metadata
+    const totalSize = filesToDownload.reduce((sum, f) => {
+      try { return sum + fs.statSync(path.join(hlsDir, f.localName)).size; } catch { return sum; }
+    }, 0);
+    const expiresAt = Date.now() + EXPIRY_DAYS * 24 * 60 * 60 * 1000;
+    meta[metaKey] = {
+      lessonId, title, type: 'hls', userId, courseTitle, moduleTitle,
+      hlsDirName, expiresAt, downloadedAt: Date.now(),
+      fileSize: totalSize, segmentCount: filesToDownload.length,
+      mimeType: 'application/vnd.apple.mpegurl',
+    };
+    writeMeta(meta);
+    return { success: true, message: 'Downloaded successfully.' };
+  } catch (err) {
+    // Clean up partial download
+    try {
+      const hlsDir = path.join(DOWNLOADS_DIR, userId + '_' + lessonId + '_hls');
+      if (fs.existsSync(hlsDir)) fs.rmSync(hlsDir, { recursive: true, force: true });
+    } catch {}
+    return { success: false, message: err.message || 'HLS download failed.' };
+  }
+});
 
 // Download and encrypt a file
 ipcMain.handle('download-content', async (event, { url, lessonId, title, type, userId, courseTitle, moduleTitle }) => {
@@ -783,8 +1004,14 @@ ipcMain.handle('get-downloads', async (event, { userId }) => {
       const item = meta[key];
       if (item.userId !== userId) continue;
       if (now > item.expiresAt) {
-        const filePath = path.join(DOWNLOADS_DIR, item.fileName);
-        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+        // Clean up file or HLS directory
+        if (item.hlsDirName) {
+          const hlsDir = path.join(DOWNLOADS_DIR, item.hlsDirName);
+          if (fs.existsSync(hlsDir)) try { fs.rmSync(hlsDir, { recursive: true, force: true }); } catch {}
+        } else if (item.fileName) {
+          const filePath = path.join(DOWNLOADS_DIR, item.fileName);
+          if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+        }
         delete meta[key];
         changed = true;
         continue;
@@ -811,6 +1038,24 @@ ipcMain.handle('get-downloads', async (event, { userId }) => {
 ipcMain.handle('play-download', async (event, { lessonId, type, userId }) => {
   try {
     const meta = readMeta();
+
+    // ── HLS offline playback ─────────────────────────────────────────────
+    if (type === 'hls') {
+      const item = meta[userId + '_' + lessonId + '_hls'];
+      if (!item) return { success: false, message: 'Not found.' };
+      if (Date.now() > item.expiresAt) return { success: false, message: 'Expired. Please re-download.' };
+      const hlsDir = path.join(DOWNLOADS_DIR, item.hlsDirName);
+      if (!fs.existsSync(path.join(hlsDir, 'master.m3u8'))) {
+        return { success: false, message: 'Download incomplete. Please re-download.' };
+      }
+      pendingHlsDir = hlsDir;
+      const port = await startContentServer();
+      // Serve master.m3u8 via /hls/master.m3u8 — hls.js fetches segments
+      // from the same base path (/hls/<filename>) handled by the path-based server.
+      return { success: true, serveUrl: `http://127.0.0.1:${port}/hls/master.m3u8`, type: 'hls' };
+    }
+
+    // ── Legacy single-file (PDF / old MP4) ───────────────────────────────
     const item = meta[userId + '_' + lessonId + '_' + type];
     if (!item) return { success: false, message: 'Not found.' };
     if (Date.now() > item.expiresAt) return { success: false, message: 'Expired. Please re-download.' };
@@ -830,11 +1075,18 @@ ipcMain.handle('play-download', async (event, { lessonId, type, userId }) => {
 ipcMain.handle('delete-download', async (event, { lessonId, type, userId }) => {
   try {
     const meta = readMeta();
-    const key = userId + '_' + lessonId + '_' + type;
+    const key = userId + '_' + lessonId + '_' + (type || 'hls');
     const item = meta[key];
     if (!item) return { success: false };
-    const filePath = path.join(DOWNLOADS_DIR, item.fileName);
-    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    if (item.type === 'hls' || item.hlsDirName) {
+      // HLS: delete the whole directory
+      const hlsDir = path.join(DOWNLOADS_DIR, item.hlsDirName);
+      if (fs.existsSync(hlsDir)) fs.rmSync(hlsDir, { recursive: true, force: true });
+    } else {
+      // Legacy single file
+      const filePath = path.join(DOWNLOADS_DIR, item.fileName);
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    }
     delete meta[key];
     writeMeta(meta);
     return { success: true };
