@@ -65,18 +65,41 @@ var _vpQuizAttempted = false;
 
 // Prefetch a lesson's signed "play" data into the 45-min cache (warm-up only).
 // Skips the network call if a FRESH cached entry already exists. Never throws.
+// HLS auth (CloudFront signed cookies) cache. The server issues cookies valid
+// for 4h; reusing them for 3h is safe. Lets "Next lesson" skip the /hls-auth
+// round trip because it was fetched in the background while the current lesson
+// played. IMPORTANT: this only CACHES the cookies — it never calls
+// setCfCookies. The main process holds one cookie set at a time, so applying a
+// prefetched lesson's cookies would break the video currently playing.
+var _hlsAuthCache = {};
+var HLS_AUTH_TTL_MS = 3 * 60 * 60 * 1000;
+async function _getHlsAuth(lessonId) {
+  var k = (typeof getCurrentUserId === 'function' ? getCurrentUserId() : '') + ':' + lessonId;
+  var hit = _hlsAuthCache[k];
+  if (hit && Date.now() - hit.at < HLS_AUTH_TTL_MS) return hit.data;
+  var res = await CoursesAPI.getLessonHlsAuth(lessonId);
+  if (res && res.success && res.hlsReady && res.masterUrl && res.cookies) {
+    _hlsAuthCache[k] = { at: Date.now(), data: res };
+  }
+  return res;
+}
+
 async function _prefetchLessonPlay(lessonId) {
   if (!lessonId) return;
   var key = '/api/lessons/' + lessonId + '/play';
   try {
-    var cached = ckCacheGet(key);
-    if (cached && cached.success && cached._cachedAt && (Date.now() - cached._cachedAt < 45 * 60 * 1000)) {
-      return; // already warm
+    var res = ckCacheGet(key);
+    var fresh = res && res.success && res._cachedAt && (Date.now() - res._cachedAt < 45 * 60 * 1000);
+    if (!fresh) {
+      res = await CoursesAPI.getLessonPlay(lessonId);
+      if (res && res.success) {
+        res._cachedAt = Date.now();
+        ckCacheSet(key, res);
+      }
     }
-    var res = await CoursesAPI.getLessonPlay(lessonId);
-    if (res && res.success) {
-      res._cachedAt = Date.now();
-      ckCacheSet(key, res);
+    // HLS lesson → also warm its cookies so the click-to-play has no auth wait.
+    if (res && res.success && res.lesson && res.lesson.hlsMasterUrl) {
+      await _getHlsAuth(lessonId);
     }
   } catch { /* prefetch is best-effort — never surface errors */ }
 }
@@ -471,7 +494,7 @@ async function loadVideo(url, hlsMasterUrl, hlsQualities) {
       var _masterToPlay = hlsMasterUrl;
 
       if (!_isOffline && _lessonId) {
-        var _hlsAuthRes = await CoursesAPI.getLessonHlsAuth(_lessonId);
+        var _hlsAuthRes = await _getHlsAuth(_lessonId);
         if (_hlsAuthRes && _hlsAuthRes.success && _hlsAuthRes.hlsReady && _hlsAuthRes.masterUrl && _hlsAuthRes.cookies) {
           var _cfDomain = '';
           try { _cfDomain = new URL(_hlsAuthRes.masterUrl).hostname; } catch {}

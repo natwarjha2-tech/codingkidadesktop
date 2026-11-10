@@ -464,20 +464,29 @@ function _liveCountdownText(iso) {
 function _liveTickCountdowns() {
   var spans = document.querySelectorAll('.live-countdown[data-countdown]');
   if (!spans.length) { _liveStopCountdownTicker(); return; }
-  var anyStartingNow = false;
+  var needRefresh = false;
   spans.forEach(function (el) {
     var iso = el.getAttribute('data-countdown');
     var txt = _liveCountdownText(iso);
     el.textContent = txt;
-    if (txt.indexOf('Starting now') !== -1) anyStartingNow = true;
+    // Refresh ONCE per start time. Without this guard, a class whose time has
+    // passed but which the teacher hasn't started yet stays "scheduled", so
+    // every refresh re-rendered "Starting now" and triggered another refresh —
+    // an endless ~1.2s polling loop of /hosting + /enrolled.
+    if (txt.indexOf('Starting now') !== -1 && !_liveStartRefreshed[iso]) {
+      _liveStartRefreshed[iso] = true;
+      needRefresh = true;
+    }
   });
   // When a class reaches its start time, refresh the list once so its status
   // (and host "Start Now" / live state) can update from the server.
-  if (anyStartingNow && typeof renderLiveClasses === 'function') {
-    _liveStopCountdownTicker();
+  if (needRefresh && typeof renderLiveClasses === 'function') {
     setTimeout(function () { try { renderLiveClasses(); } catch (e) {} }, 1200);
   }
 }
+
+// Start times (ISO) that already triggered their one-time list refresh.
+var _liveStartRefreshed = {};
 
 // Start the shared 1s ticker (idempotent). Called after rendering the list.
 // NOTE: the interval HANDLE lives in _liveCountdownInterval (a separate var) —

@@ -139,10 +139,20 @@ function _lrecRenderTree(courses) {
         var dur = (typeof r.duration === 'number' && r.duration > 0) ? _lrecFmtDuration(r.duration) : '';
         // Stash the signed URL on a data-attr and play via a delegated click so
         // we never inject the (long, quoted) URL into an inline onclick.
+        // Playable = HLS stream ready, or a full-length MP4 exists. Otherwise
+        // it is still being prepared (stitched + converted on the server).
+        var playable = r.hlsStatus === 'ready' || !!r.url;
+        var preparing = !playable;
         html +=
-          '<button type="button" class="lrec-item" data-url="' + encodeURIComponent(r.url || '') + '" ' +
-            'data-title="' + encodeURIComponent((c.title || 'Live Class') + ' — ' + label) + '">' +
-            '<span class="lrec-item-left"><i class="fas fa-circle-play"></i> ' + label + '</span>' +
+          '<button type="button" class="lrec-item' + (preparing ? ' lrec-item-processing' : '') + '" ' +
+            'data-url="' + encodeURIComponent(r.url || '') + '" ' +
+            'data-rec-id="' + encodeURIComponent(r.id || '') + '" ' +
+            'data-class-id="' + encodeURIComponent(c.classId || r.liveClassId || '') + '" ' +
+            'data-hls="' + encodeURIComponent(r.hlsStatus || '') + '" ' +
+            'data-title="' + encodeURIComponent((c.title || 'Live Class') + ' — ' + label) + '"' +
+            (preparing ? ' title="This recording is being prepared. Please check back in a few minutes."' : '') + '>' +
+            '<span class="lrec-item-left"><i class="fas ' + (preparing ? 'fa-spinner fa-spin' : 'fa-circle-play') + '"></i> ' + label +
+              (preparing ? ' <span class="lrec-item-dur">· Processing…</span>' : '') + '</span>' +
             (dur ? '<span class="lrec-item-dur">' + dur + '</span>' : '') +
           '</button>';
       });
@@ -157,11 +167,45 @@ function _lrecRenderTree(courses) {
   // Delegate play clicks (single listener, no per-item closures/duplication).
   panel.querySelectorAll('.lrec-item').forEach(function (btn) {
     btn.onclick = function () {
-      var url = decodeURIComponent(btn.getAttribute('data-url') || '');
-      var title = decodeURIComponent(btn.getAttribute('data-title') || 'Recording');
-      if (url) _lrecPlay(url, title);
+      _lrecPlay({
+        url: decodeURIComponent(btn.getAttribute('data-url') || ''),
+        recId: decodeURIComponent(btn.getAttribute('data-rec-id') || ''),
+        classId: decodeURIComponent(btn.getAttribute('data-class-id') || ''),
+        hlsStatus: decodeURIComponent(btn.getAttribute('data-hls') || ''),
+        title: decodeURIComponent(btn.getAttribute('data-title') || 'Recording'),
+      });
     };
   });
+
+  // Anything still being prepared → refresh the list in a bit so it becomes
+  // playable by itself (no manual refresh needed).
+  _lrecScheduleProcessingRefresh(panel.querySelector('.lrec-item-processing') != null);
+}
+
+var _lrecRefreshTimer = null;
+function _lrecScheduleProcessingRefresh(hasProcessing) {
+  if (_lrecRefreshTimer) { clearTimeout(_lrecRefreshTimer); _lrecRefreshTimer = null; }
+  if (!hasProcessing) return;
+  _lrecRefreshTimer = setTimeout(function () {
+    _lrecRefreshTimer = null;
+    if (!_lrecOpen) return;
+    if (typeof ckCacheRemove === 'function') ckCacheRemove('/api/live/classes/recordings/mine');
+    _lrecRender();
+  }, 60 * 1000);
+}
+
+// Ask the server for HLS playback auth (CloudFront cookies), exactly like lessons.
+async function _lrecGetHlsAuth(classId, recId) {
+  try {
+    var res = await fetch(
+      BASE_URL + '/api/live/classes/' + encodeURIComponent(classId) +
+        '/recordings/' + encodeURIComponent(recId) + '/hls-auth',
+      { headers: { Authorization: 'Bearer ' + _lrecToken() } }
+    );
+    return await res.json().catch(function () { return {}; });
+  } catch (e) {
+    return {};
+  }
 }
 
 // Collapse/expand a course bucket.
@@ -176,8 +220,63 @@ function lrecToggleCourse(ci) {
 
 // ── Play-only overlay (self-contained; isolated from the course player) ───────
 
-// Open a full-screen overlay with a native video player for the signed URL.
-function _lrecPlay(url, title) {
+// The hls.js instance of the open recording player (destroyed on close).
+var _lrecHls = null;
+
+// Open a full-screen overlay and stream the recording. Same delivery as course
+// videos: HLS from CloudFront with signed cookies — hls.js loads the first
+// segment, playback starts, then it keeps fetching the next segments (adaptive
+// 720/480/360). Falls back to the full MP4 when only that exists.
+async function _lrecPlay(rec) {
+  var title = rec.title || 'Recording';
+  var url = rec.url || '';
+
+  // HLS first (or when the list still says processing — it may be ready now).
+  if (rec.recId && rec.classId && typeof Hls !== 'undefined' && Hls.isSupported()) {
+    var auth = await _lrecGetHlsAuth(rec.classId, rec.recId);
+    if (auth && auth.success && auth.hlsReady && auth.masterUrl && auth.cookies) {
+      var cfDomain = '';
+      try { cfDomain = new URL(auth.masterUrl).hostname; } catch (e) {}
+      if (cfDomain && window.electron && window.electron.setCfCookies) {
+        await window.electron.setCfCookies(auth.cookies, cfDomain);
+      }
+      _lrecOpenPlayer(title, function (video) {
+        _lrecHls = new Hls({ startLevel: -1, debug: false });
+        _lrecHls.loadSource(auth.masterUrl);
+        _lrecHls.attachMedia(video);
+        _lrecHls.on(Hls.Events.MANIFEST_PARSED, function () {
+          var p = video.play();
+          if (p && typeof p.catch === 'function') p.catch(function () {});
+        });
+        _lrecHls.on(Hls.Events.ERROR, function (_e, data) {
+          if (!data || !data.fatal) return;
+          console.error('[recordings] HLS fatal error', data.type, data.details);
+          if (data.type === Hls.ErrorTypes.NETWORK_ERROR) { try { _lrecHls.startLoad(); } catch (e2) {} }
+          else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) { try { _lrecHls.recoverMediaError(); } catch (e3) {} }
+          else if (url) { _lrecDestroyHls(); video.src = url; video.play().catch(function () {}); }
+        });
+      });
+      return;
+    }
+    if (!url) {
+      alert('⏳ This recording is still being prepared. Please check back in a few minutes.');
+      return;
+    }
+  }
+
+  if (url) {
+    _lrecOpenPlayer(title, function (video) { video.src = url; });
+  } else {
+    alert('⏳ This recording is still being prepared. Please check back in a few minutes.');
+  }
+}
+
+function _lrecDestroyHls() {
+  if (_lrecHls) { try { _lrecHls.destroy(); } catch (e) {} _lrecHls = null; }
+}
+
+// Build the overlay + <video>, then let `attach(video)` wire the source.
+function _lrecOpenPlayer(title, attach) {
   _lrecClosePlayer(); // never stack two players
 
   var overlay = document.createElement('div');
@@ -201,7 +300,6 @@ function _lrecPlay(url, title) {
 
   var video = document.createElement('video');
   video.className = 'lrec-player-video';
-  video.src = url;
   video.controls = true;
   video.autoplay = true;
   video.setAttribute('controlslist', 'nodownload'); // play-only (no download)
@@ -212,6 +310,9 @@ function _lrecPlay(url, title) {
   overlay.appendChild(box);
   document.body.appendChild(overlay);
 
+  // Wire the source (HLS via hls.js, or a plain MP4 URL) now the element is live.
+  try { attach(video); } catch (e) { console.error('[recordings] could not start playback', e); }
+
   // Esc closes the player.
   document.addEventListener('keydown', _lrecPlayerKeydown, true);
 }
@@ -221,6 +322,7 @@ function _lrecPlayerKeydown(e) {
 }
 
 function _lrecClosePlayer() {
+  _lrecDestroyHls();
   var overlay = document.getElementById('lrec-player-overlay');
   if (overlay) {
     var v = overlay.querySelector('video');
