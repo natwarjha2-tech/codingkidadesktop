@@ -240,7 +240,7 @@ async function _lrecPlay(rec) {
       if (cfDomain && window.electron && window.electron.setCfCookies) {
         await window.electron.setCfCookies(auth.cookies, cfDomain);
       }
-      _lrecOpenPlayer(title, function (video) {
+      _lrecOpenPlayer(title, rec, function (video) {
         _lrecHls = new Hls({ startLevel: -1, debug: false });
         _lrecHls.loadSource(auth.masterUrl);
         _lrecHls.attachMedia(video);
@@ -265,7 +265,7 @@ async function _lrecPlay(rec) {
   }
 
   if (url) {
-    _lrecOpenPlayer(title, function (video) { video.src = url; });
+    _lrecOpenPlayer(title, rec, function (video) { video.src = url; });
   } else {
     alert('⏳ This recording is still being prepared. Please check back in a few minutes.');
   }
@@ -275,8 +275,9 @@ function _lrecDestroyHls() {
   if (_lrecHls) { try { _lrecHls.destroy(); } catch (e) {} _lrecHls = null; }
 }
 
-// Build the overlay + <video>, then let `attach(video)` wire the source.
-function _lrecOpenPlayer(title, attach) {
+// Build the overlay: video (with floating reactions) + a "Class chat" panel that
+// replays the chat in sync with playback. Then `attach(video)` wires the source.
+function _lrecOpenPlayer(title, rec, attach) {
   _lrecClosePlayer(); // never stack two players
 
   var overlay = document.createElement('div');
@@ -291,12 +292,42 @@ function _lrecOpenPlayer(title, attach) {
   head.className = 'lrec-player-head';
   head.innerHTML = '<span class="lrec-player-title">' + sanitize(title) + '</span>';
 
+  var actions = document.createElement('div');
+  actions.className = 'lrec-player-actions';
+
+  var chatBtn = document.createElement('button');
+  chatBtn.type = 'button';
+  chatBtn.className = 'lrec-player-close';
+  chatBtn.title = 'Show / hide chat';
+  chatBtn.innerHTML = '<i class="fas fa-comments"></i>';
+
+  var fsBtn = document.createElement('button');
+  fsBtn.type = 'button';
+  fsBtn.className = 'lrec-player-close';
+  fsBtn.title = 'Full screen (video + chat)';
+  fsBtn.innerHTML = '<i class="fas fa-expand"></i>';
+  fsBtn.onclick = function () {
+    if (document.fullscreenElement) { document.exitFullscreen().catch(function () {}); }
+    else if (box.requestFullscreen) { box.requestFullscreen().catch(function () {}); }
+  };
+
   var closeBtn = document.createElement('button');
   closeBtn.type = 'button';
   closeBtn.className = 'lrec-player-close';
+  closeBtn.title = 'Close';
   closeBtn.innerHTML = '<i class="fas fa-times"></i>';
   closeBtn.onclick = _lrecClosePlayer;
-  head.appendChild(closeBtn);
+
+  actions.appendChild(chatBtn);
+  actions.appendChild(fsBtn);
+  actions.appendChild(closeBtn);
+  head.appendChild(actions);
+
+  var body = document.createElement('div');
+  body.className = 'lrec-player-body';
+
+  var stage = document.createElement('div');
+  stage.className = 'lrec-player-stage';
 
   var video = document.createElement('video');
   video.className = 'lrec-player-video';
@@ -305,23 +336,139 @@ function _lrecOpenPlayer(title, attach) {
   video.setAttribute('controlslist', 'nodownload'); // play-only (no download)
   video.setAttribute('disablepictureinpicture', '');
 
+  var reactLayer = document.createElement('div');
+  reactLayer.className = 'lrec-react-layer';
+
+  stage.appendChild(video);
+  stage.appendChild(reactLayer);
+
+  var chat = document.createElement('div');
+  chat.className = 'lrec-chat';
+  chat.innerHTML =
+    '<div class="lrec-chat-head"><i class="fas fa-comments"></i> Class chat</div>' +
+    '<div class="lrec-chat-list"><div class="lrec-chat-empty">Loading chat…</div></div>';
+  chatBtn.onclick = function () { chat.classList.toggle('hidden'); };
+
+  body.appendChild(stage);
+  body.appendChild(chat);
   box.appendChild(head);
-  box.appendChild(video);
+  box.appendChild(body);
   overlay.appendChild(box);
   document.body.appendChild(overlay);
 
   // Wire the source (HLS via hls.js, or a plain MP4 URL) now the element is live.
   try { attach(video); } catch (e) { console.error('[recordings] could not start playback', e); }
 
-  // Esc closes the player.
+  // Chat + reactions replay (best-effort — playback never depends on it).
+  _lrecStartReplay(rec, video, chat.querySelector('.lrec-chat-list'), reactLayer);
+
+  // Esc closes the player (when not in full screen — there Esc just exits it).
   document.addEventListener('keydown', _lrecPlayerKeydown, true);
 }
 
 function _lrecPlayerKeydown(e) {
-  if (e.key === 'Escape') _lrecClosePlayer();
+  if (e.key === 'Escape' && !document.fullscreenElement) _lrecClosePlayer();
+}
+
+// ── Chat + reaction replay, synced to the video time ──────────────────────────
+var _lrecReplay = null; // { video, onTime, onSeek }
+
+async function _lrecStartReplay(rec, video, list, reactLayer) {
+  if (!rec || !rec.classId || !rec.recId || !list) return;
+  var data = null;
+  try {
+    var res = await fetch(
+      BASE_URL + '/api/live/classes/' + encodeURIComponent(rec.classId) +
+        '/recordings/' + encodeURIComponent(rec.recId) + '/replay',
+      { headers: { Authorization: 'Bearer ' + _lrecToken() } }
+    );
+    data = await res.json().catch(function () { return null; });
+  } catch (e) { data = null; }
+  if (!document.body.contains(list)) return; // player closed meanwhile
+
+  var chat = (data && data.success && Array.isArray(data.chat)) ? data.chat : [];
+  var reactions = (data && data.success && Array.isArray(data.reactions)) ? data.reactions : [];
+  if (!data || !data.success) {
+    list.innerHTML = '<div class="lrec-chat-empty">Chat is not available for this recording.</div>';
+  } else if (chat.length === 0) {
+    list.innerHTML = '<div class="lrec-chat-empty">No chat messages in this class.</div>';
+  } else {
+    list.innerHTML = '<div class="lrec-chat-empty">Messages appear here as the video plays.</div>';
+  }
+
+  var shown = 0;      // how many chat messages are currently rendered
+  var lastT = 0;      // last seen playback time (for reaction triggering)
+
+  function render(upto) {
+    // Show every message whose time has come (re-render from scratch on seek back).
+    var n = 0;
+    while (n < chat.length && chat[n].offsetSec <= upto) n++;
+    if (n === shown) return;
+    if (n < shown || shown === 0) {
+      list.innerHTML = '';
+      shown = 0;
+      if (n === 0) {
+        list.innerHTML = '<div class="lrec-chat-empty">Messages appear here as the video plays.</div>';
+        return;
+      }
+    }
+    for (var i = shown; i < n; i++) list.appendChild(_lrecChatRow(chat[i]));
+    shown = n;
+    list.scrollTop = list.scrollHeight;
+  }
+
+  function onTime() {
+    var t = video.currentTime || 0;
+    render(t);
+    // Float reactions crossed during NORMAL playback (not on big seeks).
+    if (t > lastT && t - lastT < 2) {
+      for (var i = 0; i < reactions.length; i++) {
+        var r = reactions[i];
+        if (r.offsetSec > lastT && r.offsetSec <= t) _lrecFloat(reactLayer, r.emoji);
+      }
+    }
+    lastT = t;
+  }
+  function onSeek() { lastT = video.currentTime || 0; render(lastT); }
+
+  video.addEventListener('timeupdate', onTime);
+  video.addEventListener('seeked', onSeek);
+  _lrecReplay = { video: video, onTime: onTime, onSeek: onSeek };
+  onSeek();
+}
+
+function _lrecChatRow(m) {
+  var row = document.createElement('div');
+  row.className = 'lrec-chat-msg';
+  var who = sanitize(m.senderName || 'User') + (m.senderRole === 'teacher' ? ' · Teacher' : '');
+  row.innerHTML =
+    '<div class="lrec-chat-who">' + who +
+      '<span class="lrec-chat-time">' + _lrecFmtDuration(m.offsetSec || 0) + '</span></div>' +
+    '<div class="lrec-chat-text">' + sanitize(m.message || '') + '</div>';
+  return row;
+}
+
+function _lrecFloat(layer, emoji) {
+  if (!layer || !emoji) return;
+  var el = document.createElement('div');
+  el.className = 'lrec-react-float';
+  el.textContent = emoji;
+  el.style.left = (40 + Math.floor(Math.random() * 30)) + '%';
+  layer.appendChild(el);
+  setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 2200);
+}
+
+function _lrecStopReplay() {
+  if (_lrecReplay && _lrecReplay.video) {
+    try { _lrecReplay.video.removeEventListener('timeupdate', _lrecReplay.onTime); } catch (e) {}
+    try { _lrecReplay.video.removeEventListener('seeked', _lrecReplay.onSeek); } catch (e) {}
+  }
+  _lrecReplay = null;
 }
 
 function _lrecClosePlayer() {
+  _lrecStopReplay();
+  if (document.fullscreenElement) { try { document.exitFullscreen().catch(function () {}); } catch (e) {} }
   _lrecDestroyHls();
   var overlay = document.getElementById('lrec-player-overlay');
   if (overlay) {

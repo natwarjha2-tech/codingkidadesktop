@@ -87,6 +87,10 @@ function createWindow() {
   try {
     mainWindow.webContents.session.setPermissionRequestHandler((wc, permission, callback) => {
       if (permission === 'media' || permission === 'display-capture') return callback(true);
+      // HTML full-screen (video players' ⛶ button, requestFullscreen) is ALSO
+      // routed through this handler in Electron — denying it made full screen
+      // silently do nothing (e.g. the class-recording player).
+      if (permission === 'fullscreen') return callback(true);
       return callback(false);
     });
   } catch {}

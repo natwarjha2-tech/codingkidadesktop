@@ -3458,7 +3458,31 @@ body {
 .lrec-player-title { font-size: 0.9rem; font-weight: 700; color: #fff; }
 .lrec-player-close { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--border); background: rgba(255,255,255,0.05); color: var(--muted); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; transition: all 0.15s ease; }
 .lrec-player-close:hover { background: rgba(255,255,255,0.12); color: #fff; }
-.lrec-player-video { width: 100%; max-height: 72vh; background: #000; display: block; }
+.lrec-player-video { width: 100%; max-height: 80vh; background: #000; display: block; }
+
+/* Recording player: wider box, video + synced chat side panel, real full screen. */
+.lrec-player-box { max-width: 1280px; display: flex; flex-direction: column; }
+.lrec-player-actions { display: flex; align-items: center; gap: 8px; }
+.lrec-player-body { display: flex; min-height: 0; flex: 1; }
+.lrec-player-stage { position: relative; flex: 1; min-width: 0; background: #000; display: flex; align-items: center; justify-content: center; }
+.lrec-player-stage .lrec-player-video { max-height: 80vh; }
+.lrec-react-layer { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.lrec-react-float { position: absolute; bottom: 70px; font-size: 2rem; animation: lrecFloatUp 2.2s ease-out forwards; }
+@keyframes lrecFloatUp { 0% { transform: translateY(0) scale(0.8); opacity: 0; } 15% { opacity: 1; } 100% { transform: translateY(-220px) scale(1.15); opacity: 0; } }
+.lrec-chat { width: 300px; flex-shrink: 0; display: flex; flex-direction: column; border-left: 1px solid var(--border); background: #0d0d1a; max-height: 80vh; }
+.lrec-chat.hidden { display: none; }
+.lrec-chat-head { padding: 10px 14px; font-size: 0.82rem; font-weight: 700; color: #fff; border-bottom: 1px solid var(--border); }
+.lrec-chat-list { flex: 1; overflow-y: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+.lrec-chat-empty { color: var(--muted); font-size: 0.78rem; text-align: center; padding: 20px 6px; }
+.lrec-chat-msg { background: rgba(255,255,255,0.04); border-radius: 10px; padding: 7px 10px; }
+.lrec-chat-who { display: flex; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 0.72rem; font-weight: 600; margin-bottom: 2px; }
+.lrec-chat-time { opacity: 0.7; font-weight: 500; }
+.lrec-chat-text { color: #e9e9f5; font-size: 0.84rem; word-break: break-word; white-space: pre-wrap; }
+/* Full screen = the whole player (video + chat) fills the screen. */
+.lrec-player-box:fullscreen { max-width: none; width: 100vw; height: 100vh; border-radius: 0; border: 0; }
+.lrec-player-box:fullscreen .lrec-player-body { height: calc(100vh - 56px); }
+.lrec-player-box:fullscreen .lrec-player-video,
+.lrec-player-box:fullscreen .lrec-chat { max-height: none; height: 100%; }
 
 /* ═══ In-app confirm modal (live room) — replaces native confirm() ═══════════
    Keeps focus inside the renderer so the chat input never freezes after a
