@@ -143,6 +143,7 @@ function _lrecRenderTree(courses) {
         // it is still being prepared (stitched + converted on the server).
         var playable = r.hlsStatus === 'ready' || !!r.url;
         var preparing = !playable;
+        html += '<div class="lrec-row">';
         html +=
           '<button type="button" class="lrec-item' + (preparing ? ' lrec-item-processing' : '') + '" ' +
             'data-url="' + encodeURIComponent(r.url || '') + '" ' +
@@ -155,6 +156,16 @@ function _lrecRenderTree(courses) {
               (preparing ? ' <span class="lrec-item-dur">· Processing…</span>' : '') + '</span>' +
             (dur ? '<span class="lrec-item-dur">' + dur + '</span>' : '') +
           '</button>';
+        // Host only: delete this recording.
+        if (c.canDelete && r.id) {
+          html +=
+            '<button type="button" class="lrec-del" title="Delete recording" ' +
+              'data-rec-id="' + encodeURIComponent(r.id) + '" ' +
+              'data-class-id="' + encodeURIComponent(c.classId || r.liveClassId || '') + '" ' +
+              'data-title="' + encodeURIComponent((c.title || 'Live Class') + ' — ' + label) + '">' +
+              '<i class="fas fa-trash"></i></button>';
+        }
+        html += '</div>';
       });
       html += '</div>';
     });
@@ -177,6 +188,19 @@ function _lrecRenderTree(courses) {
     };
   });
 
+  // Host-only delete buttons.
+  panel.querySelectorAll('.lrec-del').forEach(function (btn) {
+    btn.onclick = function (e) {
+      e.stopPropagation();
+      _lrecDelete(
+        btn,
+        decodeURIComponent(btn.getAttribute('data-class-id') || ''),
+        decodeURIComponent(btn.getAttribute('data-rec-id') || ''),
+        decodeURIComponent(btn.getAttribute('data-title') || 'this recording')
+      );
+    };
+  });
+
   // Anything still being prepared → refresh the list in a bit so it becomes
   // playable by itself (no manual refresh needed).
   _lrecScheduleProcessingRefresh(panel.querySelector('.lrec-item-processing') != null);
@@ -192,6 +216,33 @@ function _lrecScheduleProcessingRefresh(hasProcessing) {
     if (typeof ckCacheRemove === 'function') ckCacheRemove('/api/live/classes/recordings/mine');
     _lrecRender();
   }, 60 * 1000);
+}
+
+// Host: permanently delete a recording (confirm first), then refresh the list.
+async function _lrecDelete(btn, classId, recId, title) {
+  if (!classId || !recId) return;
+  if (!confirm('Delete "' + title + '"?\n\nThis permanently removes the recording for everyone. It cannot be undone.')) return;
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+  try {
+    var res = await fetch(
+      BASE_URL + '/api/live/classes/' + encodeURIComponent(classId) + '/recordings/' + encodeURIComponent(recId),
+      { method: 'DELETE', headers: { Authorization: 'Bearer ' + _lrecToken() } }
+    );
+    var data = await res.json().catch(function () { return {}; });
+    if (!data || !data.success) {
+      alert('⚠️ ' + ((data && data.message) || 'Could not delete the recording.'));
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-trash"></i>';
+      return;
+    }
+    if (typeof ckCacheRemove === 'function') ckCacheRemove('/api/live/classes/recordings/mine');
+    _lrecRender();
+  } catch (e) {
+    alert('⚠️ Could not delete the recording. Please try again.');
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-trash"></i>';
+  }
 }
 
 // Ask the server for HLS playback auth (CloudFront cookies), exactly like lessons.
