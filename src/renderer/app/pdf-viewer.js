@@ -12,6 +12,8 @@ let _pdfScale = 1.5;
 function closePdfViewer() {
   const viewer = document.getElementById('pdf-viewer-modal');
   if (viewer) viewer.style.display = 'none';
+  var _certActs = document.getElementById('ft-cert-actions'); // certificate buttons (final-test.js)
+  if (_certActs) _certActs.remove();
   _pdfDoc = null;
   _pdfCurrentPage = 1;
   const canvas = document.getElementById('pdf-canvas');
@@ -55,6 +57,8 @@ function pdfZoomOut() {
 function _openPdfInCanvas(url) {
   const viewer = document.getElementById('pdf-viewer-modal');
   if (!viewer) return;
+  const _titleEl = document.getElementById('pdf-viewer-title');
+  if (_titleEl) _titleEl.textContent = 'PDF Viewer'; // certificates set their own title
   viewer.style.display = 'flex';
   _pdfScale = 1.5;
   _pdfCurrentPage = 1;
@@ -97,6 +101,31 @@ function _openPdfInCanvas(url) {
     closePdfViewer();
   }
 }
+
+/**
+ * Open a PDF from raw bytes (e.g. a certificate fetched as base64) in the same
+ * canvas viewer — no URL, so nothing to download and no CSP issue.
+ */
+function _openPdfDataInCanvas(bytes, title) {
+  const viewer = document.getElementById('pdf-viewer-modal');
+  if (!viewer) return;
+  const titleEl = document.getElementById('pdf-viewer-title');
+  if (titleEl) titleEl.textContent = title || 'PDF Viewer';
+  viewer.style.display = 'flex';
+  _pdfScale = 1.2;
+  _pdfCurrentPage = 1;
+  document.getElementById('pdf-page-info').textContent = 'Loading...';
+  if (typeof pdfjsLib === 'undefined') { alert('PDF viewer not available.'); closePdfViewer(); return; }
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'lib/pdf.worker.min.js';
+  pdfjsLib.getDocument({ data: bytes }).promise.then(function(pdf) {
+    _pdfDoc = pdf;
+    _renderPdfPage(1);
+  }).catch(function() {
+    alert('Could not open the PDF.');
+    closePdfViewer();
+  });
+}
+window._openPdfDataInCanvas = _openPdfDataInCanvas;
 
 async function openPdfInApp(url) {
   if (!url) return;

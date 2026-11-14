@@ -346,6 +346,13 @@ function notifHandleClick(notifId) {
 
   notifMarkAsRead(notifId);
   _notifHidePanel();
+  // Course completed → open the certificate straight away (Download / Save / WhatsApp inside).
+  if (notif.type === 'certificate_earned' && notif.metadata && notif.metadata.certificateCode &&
+      typeof viewCertificate === 'function') {
+    viewCertificate(String(notif.metadata.certificateCode),
+      { courseTitle: notif.metadata.courseTitle, percent: notif.metadata.percent });
+    return;
+  }
   _notifShowDetailPopup(notif);
 }
 
@@ -561,6 +568,7 @@ function _notifGetIcon(type) {
     case 'payment_failed':     return { emoji: '❌', bg: 'rgba(239,68,68,0.15)' };
     case 'new_course':         return { emoji: '🚀', bg: 'rgba(168,85,247,0.15)' };
     case 'achievement':        return { emoji: '🏆', bg: 'rgba(251,191,36,0.15)' };
+    case 'certificate_earned': return { emoji: '🎓', bg: 'rgba(251,191,36,0.15)' };
     case 'weekly_streak':      return { emoji: '🔥', bg: 'rgba(251,146,60,0.15)' };
     case 'leaderboard_winner': return { emoji: '🥇', bg: 'rgba(251,191,36,0.15)' };
     case 'coins_earned':       return { emoji: '🪙', bg: 'rgba(251,191,36,0.15)' };

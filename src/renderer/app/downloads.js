@@ -517,6 +517,8 @@ async function downloadPdfOffline(notesUrl) {
 async function renderOfflineDownloads() {
   const container = document.getElementById('offline-downloads-list');
   if (!container) return;
+  // Downloaded certificates (Downloads → Certificates) — shown above the lessons.
+  try { if (typeof window.renderCertificateDownloads === 'function') window.renderCertificateDownloads(); } catch (e) {}
 
   if (!window.electron || !window.electron.getDownloads) {
     container.innerHTML = '<div class="dl-empty"><div class="dl-empty-icon"><i class="fas fa-desktop"></i></div><h3 class="dl-empty-title">Desktop App Required</h3><p class="dl-empty-desc">Downloads are only available in the CodingKida desktop app.</p></div>';

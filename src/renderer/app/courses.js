@@ -659,6 +659,10 @@ function renderCourseDetailFromBackend(course) {
     modulesContainer.appendChild(modDiv);
   });
 
+  // Final course test + certificate card — after the last module (enrolled only).
+  // Uses its own class (not .cd-module) so the module accordion ignores it.
+  if (typeof window.renderFinalTestCard === 'function') window.renderFinalTestCard(course, modulesContainer);
+
   // Trigger initial Course Info update for the remembered module
   if(window._updateCourseInfoForModule) window._updateCourseInfoForModule(lastOpenedMod);
 
