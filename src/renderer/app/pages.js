@@ -3060,8 +3060,67 @@ function showDayDetail(dateKey, mode) {
       }
     }
 
+    if (mode !== 'future') {
+      bodyHtml += '<div id="ck-day-activity" style="margin-top:14px;font-size:0.78rem;color:#94a3b8;">Loading what you did this day\u2026</div>';
+    }
     _showDayDetailModal(emoji, title, bodyHtml, accent);
+    if (mode !== 'future') _loadDayActivity(dateKey);
   } catch (e) { /* never break the report */ }
+}
+
+// Fetch what the student actually did on this day (same data the weekly parent report uses)
+// and fill it into the open day popup.
+function _loadDayActivity(dateKey) {
+  var token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token') || '';
+  fetch(BASE_URL + '/api/student/activity?from=' + encodeURIComponent(dateKey) + '&to=' + encodeURIComponent(dateKey), {
+    headers: { 'Authorization': 'Bearer ' + token }
+  }).then(function (r) { return r.json(); }).then(function (d) {
+    var box = document.getElementById('ck-day-activity');
+    if (!box) return;
+    var day = d && d.days && d.days[0];
+    if (!day) { box.textContent = ''; return; }
+    box.innerHTML = _renderDayActivity(day);
+  }).catch(function () {
+    var box = document.getElementById('ck-day-activity');
+    if (box) box.textContent = '';
+  });
+}
+
+function _renderDayActivity(day) {
+  function clock(iso) {
+    try { return new Date(iso).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' }); } catch (e) { return ''; }
+  }
+  function row(main, sub, right) {
+    return '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.06);">' +
+      '<div style="flex:1;min-width:0;"><div style="font-size:0.78rem;font-weight:700;color:#e2e8f0;">' + sanitize(main) + '</div>' +
+      (sub ? '<div style="font-size:0.68rem;color:#94a3b8;margin-top:2px;">' + sanitize(sub) + '</div>' : '') + '</div>' +
+      (right ? '<div style="font-size:0.74rem;font-weight:800;color:#c4b5fd;white-space:nowrap;">' + sanitize(right) + '</div>' : '') + '</div>';
+  }
+  function section(title, items, empty) {
+    return '<div style="margin-bottom:12px;"><div style="font-size:0.8rem;font-weight:800;color:#fff;margin-bottom:4px;">' + title +
+      (items.length ? ' (' + items.length + ')' : '') + '</div>' +
+      (items.length ? items.join('') : '<div style="font-size:0.72rem;color:#64748b;">' + empty + '</div>') + '</div>';
+  }
+  var lessons = (day.lessons || []).map(function (l) {
+    return row(l.title, [l.course, l.module].filter(Boolean).join(' \u00B7 '), clock(l.at));
+  });
+  var quizzes = (day.quizzes || []).map(function (q) {
+    var pct = q.total ? Math.round((q.correct / q.total) * 100) : 0;
+    return row(q.lesson, 'Score ' + q.correct + '/' + q.total + ' \u00B7 ' + clock(q.at), pct + '%');
+  });
+  var exercises = (day.exercises || []).map(function (e) {
+    var sub = [e.language, e.attempts + ' attempt' + (e.attempts === 1 ? '' : 's'), clock(e.at)].filter(Boolean).join(' \u00B7 ');
+    return row(e.title, sub, e.passed ? '\u2705 Passed' : '\u23F3 Not yet');
+  });
+  var rewards = (day.coins || []).map(function (c) {
+    return row(c.reason, clock(c.at), (c.type === 'EARNED' ? '+' : '-') + c.coins);
+  }).concat((day.badges || []).map(function (b) {
+    return row('\uD83C\uDFC5 ' + b.title, b.lesson + ' \u00B7 ' + clock(b.at), '');
+  }));
+  return section('\uD83D\uDCDA Lessons completed', lessons, 'No lessons completed') +
+    section('\uD83D\uDCDD Quizzes', quizzes, 'No quizzes taken') +
+    section('\uD83D\uDCBB Coding exercises', exercises, 'No exercises attempted') +
+    section('\uD83E\uDE99 Coins and badges', rewards, 'No coins or badges');
 }
 
 function _showDayDetailModal(emoji, title, bodyHtml, accent) {
@@ -3074,7 +3133,7 @@ function _showDayDetailModal(emoji, title, bodyHtml, accent) {
   overlay.onclick = function (e) { if (e.target === overlay) overlay.remove(); };
 
   var card = document.createElement('div');
-  card.style.cssText = 'width:100%;max-width:340px;background:linear-gradient(135deg,#1a1a2e,#141428);border:1px solid ' + accent + '44;border-radius:20px;padding:24px;box-shadow:0 24px 70px rgba(0,0,0,0.6),0 0 30px ' + accent + '22;animation:slideUp 0.25s ease;';
+  card.style.cssText = 'width:100%;max-width:440px;max-height:86vh;overflow-y:auto;background:linear-gradient(135deg,#1a1a2e,#141428);border:1px solid ' + accent + '44;border-radius:20px;padding:24px;box-shadow:0 24px 70px rgba(0,0,0,0.6),0 0 30px ' + accent + '22;animation:slideUp 0.25s ease;';
 
   card.innerHTML =
     '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">' +
