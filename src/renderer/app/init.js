@@ -110,6 +110,8 @@ document.addEventListener('keydown', (e) => {
     // Device limit: confirm this computer is still the student's computer
     // (non-blocking; signs out with a message if the account moved).
     if (typeof ckCheckDevice === 'function') ckCheckDevice();
+    // Parent verification: remind, or hold the app until done (non-blocking check).
+    if (typeof ckCheckConsent === 'function') ckCheckConsent();
   } else {
     navigate('login');
   }

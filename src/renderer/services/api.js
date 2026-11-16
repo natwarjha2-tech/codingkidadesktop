@@ -32,6 +32,9 @@ async function apiRequest(endpoint, options = {}) {
         // Device limit: this computer was signed out (account moved to another
         // computer, or an admin unlinked it).
         ckDeviceSignedOut(message);
+      } else if (res.status === 403 && data.code === 'PARENT_CONSENT_REQUIRED') {
+        // The parent must be verified first (deadline passed): open the verification screen.
+        if (typeof ckShowConsent === 'function') ckShowConsent(null, { blocking: true });
       } else if (res.status === 401) {
         // Only force logout on auth-specific endpoints
         if (endpoint.startsWith('/api/auth') || endpoint === '/api/student' || endpoint === '/api/student/profile') {
@@ -110,11 +113,21 @@ const AuthAPI = {
       body: JSON.stringify({ email, password, device: await ckGetDeviceInfo(), replaceDevice: replaceDevice === true }),
     }),
 
-  signup: async (name, email, password) =>
+  // `extra` = { dob, parentName, parentEmail, parentPhone } (date of birth is required by the app form)
+  signup: async (name, email, password, extra) =>
     apiRequest('/api/auth/signup', {
       method: 'POST',
-      body: JSON.stringify({ name, email, password, device: await ckGetDeviceInfo() }),
+      body: JSON.stringify(Object.assign({ name, email, password }, extra || {}, { device: await ckGetDeviceInfo() })),
     }),
+};
+
+// Parent verification (students under 18)
+const ConsentAPI = {
+  get: () => apiRequest('/api/student/consent'),
+  sendEmailCode: () => apiRequest('/api/student/consent/email/send', { method: 'POST', body: '{}' }),
+  confirmEmailCode: (code) => apiRequest('/api/student/consent/email/confirm', { method: 'POST', body: JSON.stringify({ code }) }),
+  sendPhoneCode: () => apiRequest('/api/student/parent-verify/send', { method: 'POST', body: '{}' }),
+  confirmPhoneCode: (code) => apiRequest('/api/student/parent-verify/confirm', { method: 'POST', body: JSON.stringify({ code }) }),
 };
 
 // Student API

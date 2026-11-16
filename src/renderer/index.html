@@ -73,6 +73,27 @@
       <div class="form-group">
         <label>Password</label>
         <input id="signup-password" type="password" placeholder="Min. 8 characters"/>
+        <div style="font-size:0.72rem;color:#94a3b8;margin-top:4px">At least 8 characters, with an uppercase letter, a lowercase letter and a number.</div>
+      </div>
+      <div class="form-group">
+        <label>Date of Birth</label>
+        <input id="signup-dob" type="date" oninput="ckSignupDobChanged()" onchange="ckSignupDobChanged()"/>
+      </div>
+      <div id="signup-parent-box" style="display:none;background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.25);border-radius:10px;padding:12px;margin-bottom:12px">
+        <div style="font-weight:700;color:#fff;font-size:0.9rem;margin-bottom:4px">Parent or guardian</div>
+        <div style="font-size:0.74rem;color:#94a3b8;margin-bottom:10px">You are under 18, so a parent or guardian must confirm. We will send them a code on the next screen.</div>
+        <div class="form-group">
+          <label>Parent name</label>
+          <input id="signup-parent-name" type="text" placeholder="Parent or guardian name"/>
+        </div>
+        <div class="form-group">
+          <label>Parent email</label>
+          <input id="signup-parent-email" type="email" placeholder="parent@example.com"/>
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <label>Parent phone (WhatsApp)</label>
+          <input id="signup-parent-phone" type="tel" placeholder="10-digit mobile number"/>
+        </div>
       </div>
       <button id="signup-btn" class="btn btn-primary btn-block" onclick="signup()">Create Free Account</button>
       <p class="auth-switch">Already have account? <a onclick="navigate('login')">Log in</a></p>
@@ -2380,6 +2401,7 @@
 <script src="app/pages.js"></script>
 <script src="app/coins.js"></script>
 <script src="app/xp.js"></script>
+<script src="app/consent.js"></script>
 <script src="app/init.js"></script>
 </body>
 </html>

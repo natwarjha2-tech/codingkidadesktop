@@ -33,6 +33,7 @@ async function login() {
     // Pre-fetch all endpoints for instant subsequent loads
     _ckCachePreFetchAll();
     navigate('dashboard');
+    if (typeof ckCheckConsent === 'function') ckCheckConsent();
   } catch (err) {
     showAuthError('login', err.message || 'Login failed. Try again.');
   } finally {
@@ -44,20 +45,29 @@ async function signup() {
   const name = document.getElementById('signup-name').value.trim();
   const email = document.getElementById('signup-email').value.trim();
   const password = document.getElementById('signup-password').value.trim();
+  const dob = document.getElementById('signup-dob').value.trim();
+  const parentName = document.getElementById('signup-parent-name').value.trim();
+  const parentEmail = document.getElementById('signup-parent-email').value.trim();
+  const parentPhone = document.getElementById('signup-parent-phone').value.trim();
   hideAuthError('signup');
 
-  if (!name || !email || !password) {
-    showAuthError('signup', 'All fields are required.');
+  if (!name || !email || !password || !dob) {
+    showAuthError('signup', 'Please fill in your name, email, date of birth and password.');
     return;
   }
-  if (password.length < 8) {
-    showAuthError('signup', 'Password must be at least 8 characters.');
-    return;
+  var problem = ckValidateName(name) || ckValidateEmail(email) || ckValidateDob(dob) || ckValidatePassword(password, email);
+  if (problem) { showAuthError('signup', problem); return; }
+  var minor = ckAgeFromDob(dob) < 18;
+  if (minor) {
+    if (ckValidateEmail(parentEmail)) { showAuthError('signup', "Enter your parent or guardian's email address."); return; }
+    if (parentEmail.toLowerCase() === email.toLowerCase()) { showAuthError('signup', 'The parent email must be different from your own email.'); return; }
+    if (parentPhone.replace(/\D/g, '').length < 10) { showAuthError('signup', "Enter your parent or guardian's 10-digit phone number."); return; }
   }
 
   setButtonLoading('signup-btn', true, 'Create Free Account');
   try {
-    const data = await AuthAPI.signup(name, email, password);
+    const data = await AuthAPI.signup(name, email, password, Object.assign({ dob: dob },
+      minor ? { parentName: parentName, parentEmail: parentEmail, parentPhone: parentPhone } : {}));
     localStorage.setItem('ck_token', data.token);
     localStorage.setItem('ck_user', JSON.stringify(data.user || {}));
     // Detect user change and handle cache
@@ -68,6 +78,10 @@ async function signup() {
     // Pre-fetch all endpoints for instant subsequent loads
     _ckCachePreFetchAll();
     navigate('dashboard');
+    // Under 18: the parent has to be verified straight away.
+    if (data.consent && data.consent.required && !data.consent.verified && typeof ckShowConsent === 'function') {
+      ckShowConsent(data.consent, { blocking: !!data.consent.blocked });
+    }
   } catch (err) {
     showAuthError('signup', err.message || 'Signup failed. Try again.');
   } finally {
