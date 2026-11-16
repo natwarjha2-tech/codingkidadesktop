@@ -490,6 +490,96 @@ ipcMain.handle('open-external', (event, url) => {
   shell.openExternal(url);
 });
 
+// ── In-app payment window ────────────────────────────────────────────────────
+// Opens the website's payment page (already signed in through a one-time link)
+// in a CodingKida window, so the student pays with Razorpay without leaving the
+// app. Locked down: sandboxed, no preload/Node, its own in-memory session (the
+// login there is gone when the app quits), no permissions, https only.
+// It may START only on our own site; bank / card-check pages opened by Razorpay
+// are allowed because they are https and needed to finish card/net-banking payments.
+let paymentWindow = null;
+const PAYMENT_DONE_TITLE = 'Payment successful'; // set by the website's payment page
+
+function isOwnSite(url) {
+  try {
+    const u = new URL(url);
+    const own = new URL(BASE_URL);
+    return u.protocol === 'https:' && (u.host === own.host || u.host === 'www.codingkida.com' || u.host === 'codingkida.com');
+  } catch { return false; }
+}
+const isHttps = (url) => { try { return new URL(url).protocol === 'https:'; } catch { return false; } };
+
+ipcMain.handle('open-payment-window', (event, url) => {
+  if (!isOwnSite(url)) return { success: false, message: 'Blocked: not a CodingKida page.' };
+  if (paymentWindow && !paymentWindow.isDestroyed()) {
+    paymentWindow.loadURL(url);
+    paymentWindow.focus();
+    return { success: true };
+  }
+
+  const securePrefs = {
+    nodeIntegration: false,
+    contextIsolation: true,
+    sandbox: true,
+    partition: 'ck-payment', // separate, not saved to disk
+  };
+  paymentWindow = new BrowserWindow({
+    width: 520,
+    height: 760,
+    minWidth: 420,
+    minHeight: 560,
+    parent: mainWindow || undefined,
+    modal: false,
+    title: 'CodingKida – Payment',
+    icon: path.join(__dirname, 'src/renderer/assets/logo.png'),
+    backgroundColor: '#0f0f1a',
+    autoHideMenuBar: true,
+    webPreferences: securePrefs,
+  });
+
+  const wc = paymentWindow.webContents;
+  try { wc.session.setPermissionRequestHandler((_wc, _perm, cb) => cb(false)); } catch {}
+
+  // Only https pages may load (no file:, custom schemes, http:). The same rules
+  // apply to pop-ups, which Razorpay uses for net-banking / card checks (it may
+  // open a blank pop-up first and then load the bank page into it).
+  const lockDown = (contents, owner) => {
+    contents.on('will-navigate', (e, target) => { if (!isHttps(target)) e.preventDefault(); });
+    contents.on('will-redirect', (e, target) => { if (!isHttps(target)) e.preventDefault(); });
+    contents.setWindowOpenHandler(({ url: target }) => {
+      if (!isHttps(target) && target !== 'about:blank') return { action: 'deny' };
+      return {
+        action: 'allow',
+        overrideBrowserWindowOptions: {
+          parent: owner, autoHideMenuBar: true, backgroundColor: '#ffffff',
+          webPreferences: securePrefs,
+        },
+      };
+    });
+    contents.on('did-create-window', (child) => lockDown(child.webContents, child));
+  };
+  lockDown(wc, paymentWindow);
+
+  let paid = false;
+  paymentWindow.on('page-title-updated', (e, title) => {
+    if (String(title || '').includes(PAYMENT_DONE_TITLE) && !paid) {
+      paid = true;
+      // Let the student see the success screen for a moment, then return to the app.
+      setTimeout(() => { if (paymentWindow && !paymentWindow.isDestroyed()) paymentWindow.close(); }, 2500);
+    }
+  });
+  paymentWindow.on('closed', () => {
+    paymentWindow = null;
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      try { mainWindow.focus(); } catch {}
+      mainWindow.webContents.send('payment-window-closed', { paid });
+    }
+  });
+
+  paymentWindow.loadURL(url);
+  return { success: true };
+});
+
 // Quit and install update (triggered from notification)
 ipcMain.handle('quit-and-install-update', () => {
   if (autoUpdater) autoUpdater.quitAndInstall();

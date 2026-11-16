@@ -110,21 +110,66 @@ function _ckToIso(s) {
   return m[3] + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[1]).slice(-2);
 }
 
-/** After sign-in / app start: remind, or hold the app until the parent is verified. */
+/** After sign-in / app start: show the status, or hold the app until the parent is verified. */
 async function ckCheckConsent() {
   try {
-    var token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token');
-    if (!token) return;
-    var d = await ConsentAPI.get();
-    var c = d && d.consent;
+    var c = await ckRefreshProfileStatus();
     if (!c || !c.enabled || !c.required || c.verified) return;
     if (document.getElementById('ck-consent-overlay')) return;
-    if (c.blocked) { ckShowConsent(c, { blocking: true }); return; }
-    if (_ckConsentReminded) return;
-    _ckConsentReminded = true;
-    _ckShowConsentBanner(c);
+    if (c.blocked) ckShowConsent(c, { blocking: true });
   } catch (e) { /* never block the app because this check failed */ }
 }
+
+/**
+ * Fill the dashboard bar (#ck-verify-banner, stays until verified) and the profile
+ * card (#ck-verify-card: Verified / Unverified + "Verify profile"). Returns the state.
+ */
+async function ckRefreshProfileStatus() {
+  var token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token');
+  if (!token) return null;
+  var c = null;
+  try { c = (await ConsentAPI.get()).consent; } catch (e) { return null; }
+  if (!c || !c.profile) return c;
+  var p = c.profile;
+  var missing = p.missing && p.missing.length ? 'Still needed: ' + p.missing.map(_ckEsc).join(', ') + '. ' : '';
+  var btn = '<button onclick="ckShowConsent(null, {})" style="background:#7c3aed;color:#fff;border:none;border-radius:9px;padding:8px 16px;font-weight:700;font-size:0.84rem;cursor:pointer;white-space:nowrap">Verify profile</button>';
+
+  var banner = document.getElementById('ck-verify-banner');
+  if (banner) {
+    if (p.verified) banner.innerHTML = '';
+    else {
+      var when = c.blocked ? 'Your learning is on hold until this is done.'
+        : (c.enabled && c.required && c.daysLeft != null ? (c.daysLeft <= 1 ? 'Today is the last day.' : c.daysLeft + ' days left.') : '');
+      var red = !!c.blocked;
+      banner.innerHTML = '<div style="display:flex;align-items:center;gap:14px;margin-bottom:18px;padding:12px 16px;border-radius:14px;' +
+        'border:1px solid ' + (red ? 'rgba(239,68,68,0.45)' : 'rgba(245,158,11,0.45)') + ';background:' + (red ? 'rgba(239,68,68,0.12)' : 'rgba(245,158,11,0.12)') + '">' +
+        '<div style="flex:1"><div style="color:#fff;font-weight:800;font-size:0.9rem">\u26A0\uFE0F Your profile is not verified</div>' +
+        '<div style="color:#cbd5e1;font-size:0.78rem;margin-top:2px">' + missing + _ckEsc(when) + '</div></div>' + btn + '</div>';
+    }
+  }
+
+  var card = document.getElementById('ck-verify-card');
+  if (card) {
+    card.innerHTML = '<div style="display:flex;align-items:center;gap:14px;margin-bottom:18px;padding:14px 18px;border-radius:16px;' +
+      'border:1px solid ' + (p.verified ? 'rgba(34,197,94,0.35)' : 'rgba(245,158,11,0.45)') + ';background:' + (p.verified ? 'rgba(34,197,94,0.10)' : 'rgba(245,158,11,0.10)') + '">' +
+      '<div style="flex:1"><div style="color:#94a3b8;font-size:0.74rem">Profile status</div>' +
+      '<div style="font-weight:800;font-size:1rem;color:' + (p.verified ? '#4ade80' : '#fbbf24') + '">' + (p.verified ? '\u2705 Verified' : '\u26A0\uFE0F Unverified') + '</div>' +
+      (p.verified ? '' : '<div style="color:#cbd5e1;font-size:0.78rem;margin-top:2px">' + missing + '</div>') + '</div>' +
+      (p.verified ? '' : btn) + '</div>';
+  }
+  return c;
+}
+
+// Refresh the bar / card whenever the dashboard or profile page is opened.
+(function () {
+  if (typeof window.navigate !== 'function') return;
+  var original = window.navigate;
+  window.navigate = function (page) {
+    var r = original.apply(this, arguments);
+    if (page === 'dashboard' || page === 'profile') { try { ckRefreshProfileStatus(); } catch (e) {} }
+    return r;
+  };
+})();
 
 function _ckShowConsentBanner(c) {
   var old = document.getElementById('ck-consent-banner');
@@ -151,15 +196,18 @@ async function ckShowConsent(c, opts) {
   if (!c) {
     try { c = (await ConsentAPI.get()).consent; } catch (e) { return; }
   }
-  if (!c || !c.required || c.verified) return;
-  var banner = document.getElementById('ck-consent-banner');
-  if (banner) banner.remove();
+  if (!c || _ckProfileDone(c)) return;
   _ckC = { c: c, blocking: !!(opts.blocking || c.blocked), busy: '', msg: null, emailSent: false, emailTo: '', phoneSent: false, devCode: null };
   _ckFillForm(c);
   _ckRenderConsent();
 }
 
+function _ckProfileDone(c) {
+  return c.profile ? !!c.profile.verified : (!c.required || !!c.verified);
+}
+
 function _ckFillForm(c) {
+  _ckC.fullName = c.studentName || '';
   _ckC.dob = _ckToIso(c.studentDob);
   _ckC.parentName = c.parentName || '';
   _ckC.parentEmail = c.parentEmail || '';
@@ -168,7 +216,8 @@ function _ckFillForm(c) {
 
 function _ckConsentDirty() {
   var c = _ckC.c;
-  return _ckC.dob !== _ckToIso(c.studentDob) || _ckC.parentName.trim() !== (c.parentName || '') ||
+  return _ckC.fullName.trim() !== (c.studentName || '') ||
+    _ckC.dob !== _ckToIso(c.studentDob) || _ckC.parentName.trim() !== (c.parentName || '') ||
     _ckC.parentEmail.trim() !== (c.parentEmail || '') || _ckC.parentPhone.trim() !== (c.parentContact || '');
 }
 
@@ -186,7 +235,7 @@ function _ckRenderConsent() {
   }
 
   var busy = _ckC.busy;
-  var done = !c.required || c.verified;
+  var done = _ckProfileDone(c);
   var inp = 'width:100%;box-sizing:border-box;padding:9px 11px;border-radius:9px;border:1px solid rgba(255,255,255,0.14);background:rgba(255,255,255,0.05);color:#fff;font-size:0.88rem;';
   var lbl = 'display:block;font-size:0.78rem;font-weight:600;color:#e2e8f0;margin:10px 0 5px;';
   var card = 'background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.09);border-radius:14px;padding:14px;margin-bottom:12px;';
@@ -201,10 +250,10 @@ function _ckRenderConsent() {
   if (done) {
     body = '<div style="text-align:center;padding:10px 0">' +
       '<div style="font-size:2.6rem">\u2705</div>' +
-      '<div style="font-size:1.2rem;font-weight:800;color:#fff;margin:6px 0">' + (c.required ? 'Parent verified' : 'All set') + '</div>' +
-      '<div style="font-size:0.85rem;color:#94a3b8;margin-bottom:14px">' + (c.required
-        ? 'Thank you. Your parent or guardian is verified. You can use CodingKida without any limit.'
-        : 'No parent verification is needed for your age.') + '</div>' +
+      '<div style="font-size:1.2rem;font-weight:800;color:#fff;margin:6px 0">Profile verified</div>' +
+      '<div style="font-size:0.85rem;color:#94a3b8;margin-bottom:14px">' + (ckAgeFromDob(c.studentDob) >= 18
+        ? 'Your details are complete.'
+        : 'Thank you. Your parent or guardian is verified. You can use CodingKida without any limit.') + '</div>' +
       '<button data-act="close" style="' + btn + '">Continue</button></div>';
   } else {
     var banner = c.blocked
@@ -244,10 +293,15 @@ function _ckRenderConsent() {
     }
 
     body =
-      '<div style="font-size:1.25rem;font-weight:800;color:#fff;margin-bottom:4px">Parent verification</div>' +
+      '<div style="font-size:1.25rem;font-weight:800;color:#fff;margin-bottom:4px">Verify your profile</div>' +
       '<div style="font-size:0.84rem;color:#94a3b8;margin-bottom:14px">CodingKida is made for students, and anyone under 18 needs a parent or guardian to confirm. It takes about two minutes.</div>' +
       banner + msg +
+      (c.profile && c.profile.missing && c.profile.missing.length
+        ? '<div style="' + card + 'font-size:0.82rem;color:#cbd5e1"><div style="font-weight:800;color:#fff;margin-bottom:4px">Still needed</div>' +
+          c.profile.missing.map(function (m) { return '\u2022 ' + _ckEsc(m); }).join('<br>') + '</div>'
+        : '') +
       '<div style="' + card + '"><div style="font-weight:800;color:#fff;margin-bottom:2px">1. Your details</div>' +
+      '<label style="' + lbl + '">Your full name</label><input id="ck-c-name" type="text" value="' + _ckEsc(_ckC.fullName) + '" placeholder="Your full name" style="' + inp + '"/>' +
       '<label style="' + lbl + '">Your date of birth</label><input id="ck-c-dob" type="date" value="' + _ckEsc(_ckC.dob) + '" style="' + inp + '"/>' +
       '<label style="' + lbl + '">Parent or guardian name</label><input id="ck-c-pname" type="text" value="' + _ckEsc(_ckC.parentName) + '" placeholder="Full name" style="' + inp + '"/>' +
       '<label style="' + lbl + '">Parent email</label><input id="ck-c-pemail" type="email" value="' + _ckEsc(_ckC.parentEmail) + '" placeholder="parent@example.com" style="' + inp + '"/>' +
@@ -269,7 +323,8 @@ function _ckRenderConsent() {
 function _ckConsentInput(e) {
   if (!_ckC) return;
   var id = e.target && e.target.id;
-  if (id === 'ck-c-dob') _ckC.dob = e.target.value;
+  if (id === 'ck-c-name') _ckC.fullName = e.target.value;
+  else if (id === 'ck-c-dob') _ckC.dob = e.target.value;
   else if (id === 'ck-c-pname') _ckC.parentName = e.target.value;
   else if (id === 'ck-c-pemail') _ckC.parentEmail = e.target.value;
   else if (id === 'ck-c-pphone') _ckC.parentPhone = e.target.value;
@@ -288,6 +343,11 @@ async function _ckReloadConsent(refill) {
 }
 
 async function _ckSaveDetails() {
+  var nameChanged = _ckC.fullName.trim() !== (_ckC.c.studentName || '');
+  if (nameChanged) {
+    var nameProblem = ckValidateName(_ckC.fullName);
+    if (nameProblem) { _ckSetMsg(nameProblem); return false; }
+  }
   var problem = ckValidateDob(_ckC.dob);
   if (problem) { _ckSetMsg(problem); return false; }
   var adult = ckAgeFromDob(_ckC.dob) >= 18;
@@ -296,6 +356,7 @@ async function _ckSaveDetails() {
     if (_ckC.parentPhone.replace(/\D/g, '').length < 10) { _ckSetMsg("Enter your parent or guardian's 10-digit phone number."); return false; }
   }
   var payload = { studentDob: _ckC.dob.trim() };
+  if (nameChanged) payload.name = _ckC.fullName.replace(/\s+/g, ' ').trim();
   if (!adult) {
     payload.parentName = _ckC.parentName.trim();
     payload.parentEmail = _ckC.parentEmail.trim();
@@ -320,7 +381,7 @@ async function _ckConsentClick(e) {
   if (!t || !_ckC || _ckC.busy) return;
   var act = t.getAttribute('data-act');
   try {
-    if (act === 'close') { document.getElementById('ck-consent-overlay').remove(); _ckC = null; return; }
+    if (act === 'close') { document.getElementById('ck-consent-overlay').remove(); _ckC = null; ckRefreshProfileStatus(); return; }
     if (act === 'logout') { document.getElementById('ck-consent-overlay').remove(); _ckC = null; if (typeof logout === 'function') logout(); return; }
 
     if (act === 'save') { await _ckSaveDetails(); _ckRenderConsent(); return; }
@@ -354,6 +415,7 @@ async function _ckConsentClick(e) {
         else { await ConsentAPI.confirmPhoneCode(code); _ckC.phoneSent = false; _ckC.devCode = null; }
         await _ckReloadConsent(false);
         _ckSetMsg('');
+        ckRefreshProfileStatus();
       } catch (err) { _ckSetMsg(err.message || 'Code not accepted. Please try again.'); }
       _ckC.busy = ''; _ckRenderConsent();
       return;

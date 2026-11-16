@@ -376,7 +376,11 @@ function renderCourseDetailFromBackend(course) {
     priceBtn.className = 'cd-cta-btn cd-cta-enrolled';
     priceBtn.onclick = null;
   } else {
-    priceBtn.textContent = 'Unlock Course';
+    var _p = course.purchase;
+    var _verb = course.accessExpired ? 'Renew' : 'Unlock';
+    priceBtn.textContent = _p
+      ? _verb + (_p.plan === 'zenalpha' ? ' with ZenAlpha' : '') + ' – ₹' + _p.price + ' · 3 months'
+      : _verb + ' Course';
     priceBtn.className = 'cd-cta-btn cd-cta-unlock';
     priceBtn.onclick = function(){ openPaymentPage(course.id); };
   }
@@ -789,13 +793,48 @@ function goToNextLesson() {
   }
 }
 
-function openPaymentPage(courseId) {
-  const url = 'https://www.codingkida.com/payment' + (courseId ? '?courseId=' + courseId : '');
+async function openPaymentPage(courseId) {
+  // Open the payment page already signed in (one-time link), so the student
+  // does not log in again in the browser. Falls back to the plain page.
+  const next = '/payment?' + (courseId ? 'courseId=' + encodeURIComponent(courseId) + '&' : '') + 'from=app';
+  let url = 'https://www.codingkida.com' + next;
+  try {
+    const r = await apiRequest('/api/auth/web-handoff', { method: 'POST', body: JSON.stringify({ next: next }) });
+    if (r && r.url) url = r.url;
+  } catch (e) { /* plain page asks to sign in */ }
+  // After paying, the webhook unlocks the course within a few seconds: reload it (skip the cache).
+  var _refreshAfterPayment = function () {
+    try {
+      if (courseId) {
+        ckCacheRemove('/api/courses/' + courseId);
+        if (currentCourseId === courseId) openCourseDetail(courseId);
+      }
+      StudentAPI.getDashboard().then(function (d) { _applyDashboardData(d, false); }).catch(function () {});
+    } catch (e) {}
+  };
+
+  // Pay inside the app (a CodingKida payment window) when available.
+  if (window.electron && window.electron.openPaymentWindow) {
+    window.electron.onPaymentWindowClosed(function (info) {
+      _refreshAfterPayment();
+      // The webhook can take a few seconds; check once more.
+      if (info && info.paid) setTimeout(_refreshAfterPayment, 4000);
+    });
+    const r = await window.electron.openPaymentWindow(url).catch(function () { return null; });
+    if (r && r.success) return;
+  }
+
+  // Fallback: the system browser.
   if (window.electron && window.electron.ipcRenderer) {
     window.electron.ipcRenderer.invoke('open-external', url);
   } else {
     window.open(url, '_blank');
   }
+  var _refresh = function () {
+    _refreshAfterPayment();
+    window.removeEventListener('focus', _refresh);
+  };
+  window.addEventListener('focus', _refresh);
 }
 
 async function enrollCourse(courseId) {

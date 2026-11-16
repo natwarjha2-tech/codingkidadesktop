@@ -18,6 +18,13 @@ contextBridge.exposeInMainWorld('electron', {
   getDeviceInfo: () => ipcRenderer.invoke('get-device-info'),
   getPendingEnroll: () => ipcRenderer.invoke('get-pending-enroll'),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
+  // In-app payment window (Razorpay inside the app). `onPaymentWindowClosed`
+  // fires when it closes: { paid: true } if the success screen was reached.
+  openPaymentWindow: (url) => ipcRenderer.invoke('open-payment-window', url),
+  onPaymentWindowClosed: (cb) => {
+    ipcRenderer.removeAllListeners('payment-window-closed');
+    ipcRenderer.on('payment-window-closed', (e, data) => cb(data || {}));
+  },
   quitAndInstallUpdate: () => ipcRenderer.invoke('quit-and-install-update'),
   downloadContent: (args) => ipcRenderer.invoke('download-content', args),
   getDownloads: (args) => ipcRenderer.invoke('get-downloads', args),
