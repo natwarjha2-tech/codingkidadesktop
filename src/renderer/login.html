@@ -581,6 +581,22 @@
       }
     }
 
+    // ── Device limit helpers (1 phone + 1 computer per student) ──
+    var _ckDevice = null;
+    async function ckGetDevice() {
+      if (_ckDevice) return _ckDevice;
+      try {
+        if (window.electron && window.electron.getDeviceInfo) _ckDevice = await window.electron.getDeviceInfo();
+      } catch (e) {}
+      return _ckDevice;
+    }
+    function ckConfirmReplace(res) {
+      var left = typeof res.switchesLeft === 'number'
+        ? '\n\nYou can change your device ' + res.switchesLeft + ' more time' + (res.switchesLeft === 1 ? '' : 's') + ' this month.'
+        : '';
+      return window.confirm((res.message || 'This account is already used on another device. Use this computer instead?') + left);
+    }
+
     // Handle Google Login — replaced with OTP login
     var _otpStep = 'email'; // 'email' or 'verify'
     var _otpEmail = '';
@@ -639,11 +655,18 @@
         msg.style.display = 'none';
         try {
           var BASE = (window.__APP_CONFIG__ && window.__APP_CONFIG__.API_BASE_URL) || 'https://www.codingkida.com';
-          var res = await fetch(BASE + '/api/auth/verify-otp', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email: _otpEmail, otp: otp }),
-          });
-          var data = await res.json();
+          var device = await ckGetDevice();
+          var verify = function (replace) {
+            return fetch(BASE + '/api/auth/verify-otp', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ email: _otpEmail, otp: otp, device: device, replaceDevice: replace }),
+            }).then(function (r) { return r.json(); });
+          };
+          var data = await verify(false);
+          // Device limit: the code is still valid, so ask and retry with the same code.
+          if (!data.success && data.code === 'DEVICE_LIMIT' && ckConfirmReplace(data)) {
+            data = await verify(true);
+          }
           if (data.success && data.token) {
             // Login success — store token directly and load main app
             btn.innerHTML = '<span>✓</span> Success!';
@@ -704,11 +727,17 @@
       try {
         // Call Electron IPC if available
         if (window.electron && window.electron.ipcRenderer) {
-          const response = await window.electron.ipcRenderer.invoke('login', {
+          let response = await window.electron.ipcRenderer.invoke('login', {
             email,
             password,
             remember
           });
+          // Device limit: this account already has a computer. Ask to move it here.
+          if (!response.success && response.code === 'DEVICE_LIMIT' && ckConfirmReplace(response)) {
+            response = await window.electron.ipcRenderer.invoke('login', {
+              email, password, remember, replaceDevice: true
+            });
+          }
 
           if (response.success) {
             // Remember-me: on success, save (or clear) the credentials locally

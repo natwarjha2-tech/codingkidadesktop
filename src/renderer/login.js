@@ -65,7 +65,14 @@ window.login = async function () {
     spinTween = gsap.to(btnIcon, { rotation: 360, duration: 0.6, repeat: -1, ease: 'none' });
   }
   try {
-    const data = await AuthAPI.login(email, password);
+    let data;
+    try {
+      data = await AuthAPI.login(email, password);
+    } catch (e) {
+      // Device limit: this account already has a computer. Ask to move it here.
+      if (e && e.code === 'DEVICE_LIMIT' && ckConfirmReplaceDevice(e)) data = await AuthAPI.login(email, password, true);
+      else throw e;
+    }
     if (spinTween) spinTween.kill();
     const remember = document.getElementById('lp-remember')?.checked;
     const storage = remember ? localStorage : sessionStorage;

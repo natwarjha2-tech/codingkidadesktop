@@ -151,7 +151,7 @@
     api('GET', '/api/final-test?courseId=' + encodeURIComponent(courseId)).then(function (s) {
       var cooling = s.nextAttemptAt && !s.inProgress;
       var btn = !s.unlocked
-        ? '<div class="ft-lock">🔒 Complete all lessons to unlock (' + s.completedLessons + '/' + s.totalLessons + ' done).</div>'
+        ? '<div class="ft-lock">🔒 Enroll in this course to unlock the final test.</div>'
         : cooling ? '<div class="ft-lock">⏳ You can retake the test after ' + esc(fmtDate(s.nextAttemptAt)) + '.</div>'
         : '<button class="ft-btn" id="ft-start" style="padding:13px 30px;font-size:1rem">' + (s.inProgress ? '▶ Resume Test' : s.passed ? '🔁 Practice Again' : '▶ Start Final Test') + '</button>';
       var attemptsHtml = '';

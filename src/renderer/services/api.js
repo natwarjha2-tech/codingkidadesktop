@@ -28,7 +28,11 @@ async function apiRequest(endpoint, options = {}) {
 
     if (!res.ok) {
       const message = data.message || data.error || `Request failed (${res.status})`;
-      if (res.status === 401) {
+      if (res.status === 401 && (data.code === 'DEVICE_REVOKED' || data.code === 'APP_UPDATE_REQUIRED' || data.code === 'ACCOUNT_DELETED')) {
+        // Device limit: this computer was signed out (account moved to another
+        // computer, or an admin unlinked it).
+        ckDeviceSignedOut(message);
+      } else if (res.status === 401) {
         // Only force logout on auth-specific endpoints
         if (endpoint.startsWith('/api/auth') || endpoint === '/api/student' || endpoint === '/api/student/profile') {
           localStorage.removeItem('ck_token');
@@ -36,7 +40,11 @@ async function apiRequest(endpoint, options = {}) {
           navigate('login');
         }
       }
-      throw new Error(message);
+      const err = new Error(message);
+      err.status = res.status;
+      err.code = data.code;
+      err.data = data;
+      throw err;
     }
 
     return data;
@@ -47,18 +55,65 @@ async function apiRequest(endpoint, options = {}) {
   }
 }
 
+// ── Device limit (1 phone + 1 computer per student) ──
+var _ckDeviceInfo = null;
+async function ckGetDeviceInfo() {
+  if (_ckDeviceInfo) return _ckDeviceInfo;
+  try {
+    if (window.electron && window.electron.getDeviceInfo) _ckDeviceInfo = await window.electron.getDeviceInfo();
+  } catch (e) {}
+  return _ckDeviceInfo;
+}
+
+/** Ask "use this computer instead?" for a DEVICE_LIMIT error. */
+function ckConfirmReplaceDevice(err) {
+  var left = err && err.data && typeof err.data.switchesLeft === 'number'
+    ? '\n\nYou can change your device ' + err.data.switchesLeft + ' more time' + (err.data.switchesLeft === 1 ? '' : 's') + ' this month.'
+    : '';
+  return window.confirm(((err && err.message) || 'This account is already used on another device. Use this computer instead?') + left);
+}
+
+var _ckSignedOutShown = false;
+/** The server signed this computer out: clear the sign-in and go to the login page. */
+function ckDeviceSignedOut(message) {
+  if (_ckSignedOutShown) return;
+  _ckSignedOutShown = true;
+  try { if (typeof _attendanceRecordLogout === 'function') _attendanceRecordLogout(); } catch (e) {}
+  localStorage.removeItem('ck_token'); localStorage.removeItem('ck_user');
+  sessionStorage.removeItem('ck_token'); sessionStorage.removeItem('ck_user');
+  try { window.alert(message || 'You were signed out because this account is now used on another computer.'); } catch (e) {}
+  window.location.href = 'login.html';
+}
+
+/**
+ * App start with a saved sign-in: confirms this computer is still the student's
+ * computer. Older sign-ins get tied to this computer (a new token comes back).
+ */
+async function ckCheckDevice() {
+  try {
+    var token = localStorage.getItem('ck_token') || sessionStorage.getItem('ck_token');
+    var device = await ckGetDeviceInfo();
+    if (!token || !device) return;
+    var data = await apiRequest('/api/auth/device', { method: 'POST', body: JSON.stringify({ device: device }) });
+    if (data && data.token) {
+      if (localStorage.getItem('ck_token')) localStorage.setItem('ck_token', data.token);
+      else sessionStorage.setItem('ck_token', data.token);
+    }
+  } catch (e) { /* signed-out case is handled inside apiRequest */ }
+}
+
 // Auth APIs
 const AuthAPI = {
-  login: (email, password) =>
+  login: async (email, password, replaceDevice) =>
     apiRequest('/api/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password, device: await ckGetDeviceInfo(), replaceDevice: replaceDevice === true }),
     }),
 
-  signup: (name, email, password) =>
+  signup: async (name, email, password) =>
     apiRequest('/api/auth/signup', {
       method: 'POST',
-      body: JSON.stringify({ name, email, password }),
+      body: JSON.stringify({ name, email, password, device: await ckGetDeviceInfo() }),
     }),
 };
 

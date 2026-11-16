@@ -539,19 +539,49 @@ ipcMain.handle('set-cf-cookies', async (event, { cookies, domain }) => {
   }
 });
 
+// ── Device limit: this computer's identity (1 phone + 1 computer per student) ──
+// A random id is created once and kept in the app's user-data folder, so it
+// survives app updates (and reinstalls, which keep that folder by default).
+let _deviceInfo = null;
+function getDeviceInfo() {
+  if (_deviceInfo) return _deviceInfo;
+  const os = require('os');
+  const crypto = require('crypto');
+  const fs = require('fs');
+  const file = path.join(app.getPath('userData'), 'device-id.json');
+  let id = '';
+  try { id = JSON.parse(fs.readFileSync(file, 'utf8')).id || ''; } catch {}
+  if (!/^[A-Za-z0-9._:-]{8,100}$/.test(id)) {
+    id = 'd-' + crypto.randomUUID();
+    try { fs.writeFileSync(file, JSON.stringify({ id })); } catch {}
+  }
+  const platform = process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'mac' : 'linux';
+  const osLabel = platform === 'windows' ? 'Windows' : platform === 'mac' ? 'macOS' : 'Linux';
+  _deviceInfo = {
+    id,
+    kind: 'desktop',
+    name: `${os.hostname() || 'Computer'} (${osLabel})`.slice(0, 80),
+    platform,
+    appVersion: app.getVersion(),
+  };
+  return _deviceInfo;
+}
+ipcMain.handle('get-device-info', () => getDeviceInfo());
+
 // Handle login from renderer
-ipcMain.handle('login', async (event, { email, password, remember }) => {
+ipcMain.handle('login', async (event, { email, password, remember, replaceDevice }) => {
   try {
     const response = await fetch(`${BASE_URL}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password })
+      body: JSON.stringify({ email, password, device: getDeviceInfo(), replaceDevice: replaceDevice === true })
     });
 
     const data = await response.json();
 
     if (!response.ok) {
-      return { success: false, message: data.message || 'Login failed' };
+      // `code` lets the login page ask "use this computer instead?" (device limit).
+      return { success: false, message: data.message || 'Login failed', code: data.code, switchesLeft: data.switchesLeft };
     }
 
     pendingAuth = { token: data.token, user: JSON.stringify(data.user || {}), remember };

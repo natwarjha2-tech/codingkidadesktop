@@ -107,6 +107,9 @@ document.addEventListener('keydown', (e) => {
     }
     navigate('dashboard');
     _attendanceRecordLogin();
+    // Device limit: confirm this computer is still the student's computer
+    // (non-blocking; signs out with a message if the account moved).
+    if (typeof ckCheckDevice === 'function') ckCheckDevice();
   } else {
     navigate('login');
   }

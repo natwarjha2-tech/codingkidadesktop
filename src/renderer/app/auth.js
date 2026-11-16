@@ -15,7 +15,14 @@ async function login() {
 
   setButtonLoading('login-btn', true, 'Log In');
   try {
-    const data = await AuthAPI.login(email, password);
+    let data;
+    try {
+      data = await AuthAPI.login(email, password);
+    } catch (e) {
+      // Device limit: this account already has a computer. Ask to move it here.
+      if (e && e.code === 'DEVICE_LIMIT' && ckConfirmReplaceDevice(e)) data = await AuthAPI.login(email, password, true);
+      else throw e;
+    }
     localStorage.setItem('ck_token', data.token);
     localStorage.setItem('ck_user', JSON.stringify(data.user || {}));
     // Detect user change and handle cache

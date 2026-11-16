@@ -509,6 +509,9 @@ async function loadParentReport() {
   // local-only data (current ~30 days). Also push today's local total to the
   // server so an abruptly-closed previous session still gets recorded.
   try {
+    // Send this session's minutes first, so the server (the only source of
+    // learning time) is up to date before we read it.
+    if (typeof _attendanceFlush === 'function') await _attendanceFlush(false);
     if (typeof _attendanceFetchServerHistory === 'function') {
       _prServerHistory = await _attendanceFetchServerHistory();
     }
@@ -3090,10 +3093,11 @@ function _renderDayActivity(day) {
   function clock(iso) {
     try { return new Date(iso).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' }); } catch (e) { return ''; }
   }
-  function row(main, sub, right) {
+  function row(main, sub, right, extra) {
     return '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.06);">' +
       '<div style="flex:1;min-width:0;"><div style="font-size:0.78rem;font-weight:700;color:#e2e8f0;">' + sanitize(main) + '</div>' +
-      (sub ? '<div style="font-size:0.68rem;color:#94a3b8;margin-top:2px;">' + sanitize(sub) + '</div>' : '') + '</div>' +
+      (sub ? '<div style="font-size:0.68rem;color:#94a3b8;margin-top:2px;">' + sanitize(sub) + '</div>' : '') +
+      (extra ? '<div style="font-size:0.68rem;color:#94a3b8;margin-top:2px;">' + sanitize(extra) + '</div>' : '') + '</div>' +
       (right ? '<div style="font-size:0.74rem;font-weight:800;color:#c4b5fd;white-space:nowrap;">' + sanitize(right) + '</div>' : '') + '</div>';
   }
   function section(title, items, empty) {
@@ -3106,16 +3110,19 @@ function _renderDayActivity(day) {
   });
   var quizzes = (day.quizzes || []).map(function (q) {
     var pct = q.total ? Math.round((q.correct / q.total) * 100) : 0;
-    return row(q.lesson, 'Score ' + q.correct + '/' + q.total + ' \u00B7 ' + clock(q.at), pct + '%');
+    return row(q.lesson, [q.course, q.module].filter(Boolean).join(' \u00B7 '), pct + '%',
+      'Score ' + q.correct + '/' + q.total + ' \u00B7 ' + clock(q.at));
   });
   var exercises = (day.exercises || []).map(function (e) {
-    var sub = [e.language, e.attempts + ' attempt' + (e.attempts === 1 ? '' : 's'), clock(e.at)].filter(Boolean).join(' \u00B7 ');
-    return row(e.title, sub, e.passed ? '\u2705 Passed' : '\u23F3 Not yet');
+    var extra = [e.lesson, e.language, e.attempts + ' attempt' + (e.attempts === 1 ? '' : 's'), clock(e.at)].filter(Boolean).join(' \u00B7 ');
+    return row(e.title, [e.course, e.module].filter(Boolean).join(' \u00B7 '), e.passed ? '\u2705 Passed' : '\u23F3 Not yet', extra);
   });
   var rewards = (day.coins || []).map(function (c) {
-    return row(c.reason, clock(c.at), (c.type === 'EARNED' ? '+' : '-') + c.coins);
+    return row(c.reason, [c.course, c.module].filter(Boolean).join(' \u00B7 '), (c.type === 'EARNED' ? '+' : '-') + c.coins,
+      [c.lesson, clock(c.at)].filter(Boolean).join(' \u00B7 '));
   }).concat((day.badges || []).map(function (b) {
-    return row('\uD83C\uDFC5 ' + b.title, b.lesson + ' \u00B7 ' + clock(b.at), '');
+    return row('\uD83C\uDFC5 ' + b.title, [b.course, b.module].filter(Boolean).join(' \u00B7 '), '',
+      b.lesson + ' \u00B7 ' + clock(b.at));
   }));
   return section('\uD83D\uDCDA Lessons completed', lessons, 'No lessons completed') +
     section('\uD83D\uDCDD Quizzes', quizzes, 'No quizzes taken') +

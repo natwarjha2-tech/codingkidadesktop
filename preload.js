@@ -14,6 +14,8 @@ contextBridge.exposeInMainWorld('electron', {
     removeAllListeners: (channel) => ipcRenderer.removeAllListeners(channel),
   },
   getPendingAuth: () => ipcRenderer.invoke('get-pending-auth'),
+  // Device limit: this computer's id/name for sign-in.
+  getDeviceInfo: () => ipcRenderer.invoke('get-device-info'),
   getPendingEnroll: () => ipcRenderer.invoke('get-pending-enroll'),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
   quitAndInstallUpdate: () => ipcRenderer.invoke('quit-and-install-update'),
